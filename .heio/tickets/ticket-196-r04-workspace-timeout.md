@@ -2,12 +2,12 @@
 id: "ticket-196-r04-workspace-timeout"
 title: "R04 workspace tests did not finish (O3 workspace-timeout)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T16:28:23Z"
-updated_at: "2026-09-05T16:28:23Z"
+updated_at: "2026-09-05T20:10:00Z"
 caused-by: s-r04
 failed: true
 intent: fix

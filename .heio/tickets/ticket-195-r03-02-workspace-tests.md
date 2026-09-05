@@ -2,12 +2,12 @@
 id: "ticket-195-r03-02-workspace-tests"
 title: "R03.02 workspace tests did not pass (O2)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T15:55:50Z"
-updated_at: "2026-09-05T15:55:50Z"
+updated_at: "2026-09-05T20:10:00Z"
 caused-by: s-r03-02
 failed: true
 intent: fix

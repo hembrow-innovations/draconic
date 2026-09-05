@@ -2,12 +2,12 @@
 id: "ticket-201-r03-workspace-timeout"
 title: "R03 workspace tests did not finish (O2 workspace-timeout)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T18:34:42Z"
-updated_at: "2026-09-05T18:34:42Z"
+updated_at: "2026-09-05T20:10:00Z"
 caused-by: s-r03
 failed: true
 intent: fix

@@ -2,12 +2,12 @@
 id: "ticket-200-l10-workspace-timeout"
 title: "L10 workspace tests did not finish (O3 workspace-timeout)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T18:21:49Z"
-updated_at: "2026-09-05T18:21:49Z"
+updated_at: "2026-09-05T20:10:00Z"
 caused-by: s-l10
 failed: true
 intent: fix
