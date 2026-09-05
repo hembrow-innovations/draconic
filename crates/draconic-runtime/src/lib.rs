@@ -716,25 +716,88 @@ pub fn build_runtime_static_lib(out_dir: &Path) -> Result<PathBuf, String> {
     build_runtime_static_lib_with_lto(out_dir, false)
 }
 
+/// Prefer a tree file; if the compile-time `CARGO_MANIFEST_DIR` path is gone
+/// (deleted pi-worktree), write `embedded` into `out_dir` so clang can still run.
+fn resolve_runtime_c_file(
+    disk: PathBuf,
+    embedded: &str,
+    out_dir: &Path,
+    name: &str,
+) -> Result<PathBuf, String> {
+    if disk.is_file() {
+        return Ok(disk);
+    }
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("create out_dir failed: {e}"))?;
+    let dest = out_dir.join(name);
+    std::fs::write(&dest, embedded).map_err(|e| format!("write embedded {name} failed: {e}"))?;
+    Ok(dest)
+}
+
+fn embedded_c_source_for_name(name: &str) -> Option<&'static str> {
+    match name {
+        "draconic_rt.c" => Some(c_runtime_source()),
+        "draconic_rt_host.c" => Some(c_host_runtime_source()),
+        _ => None,
+    }
+}
+
+fn resolve_runtime_header_dir(disk_header: PathBuf, out_dir: &Path) -> Result<PathBuf, String> {
+    if disk_header.is_file() {
+        return Ok(disk_header
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf());
+    }
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("create out_dir failed: {e}"))?;
+    std::fs::write(out_dir.join("draconic_rt.h"), c_runtime_header_source())
+        .map_err(|e| format!("write embedded draconic_rt.h failed: {e}"))?;
+    std::fs::write(
+        out_dir.join("draconic_rt_host.h"),
+        c_host_runtime_header_source(),
+    )
+    .map_err(|e| format!("write embedded draconic_rt_host.h failed: {e}"))?;
+    Ok(out_dir.to_path_buf())
+}
+
 /// D05.02: same as [`build_runtime_static_lib`], compiling with `-flto -Os` when `lto`.
 pub fn build_runtime_static_lib_with_lto(out_dir: &Path, lto: bool) -> Result<PathBuf, String> {
+    build_runtime_static_lib_with_inputs(
+        out_dir,
+        lto,
+        &c_runtime_source_paths(),
+        c_runtime_header_path(),
+    )
+}
+
+fn build_runtime_static_lib_with_inputs(
+    out_dir: &Path,
+    lto: bool,
+    disk_sources: &[PathBuf],
+    disk_header: PathBuf,
+) -> Result<PathBuf, String> {
     let clang = find_clang()
         .ok_or_else(|| "clang not found (set CLANG or install a C toolchain)".to_string())?;
     let ar = find_ar().ok_or_else(|| "ar not found (set AR or install binutils)".to_string())?;
 
-    let sources = c_runtime_source_paths();
-    for src in &sources {
-        if !src.is_file() {
-            return Err(format!("runtime C source missing: {}", src.display()));
-        }
-    }
-
     std::fs::create_dir_all(out_dir).map_err(|e| format!("create out_dir failed: {e}"))?;
 
-    let header_dir = c_runtime_header_path()
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .to_path_buf();
+    let mut sources: Vec<PathBuf> = Vec::with_capacity(disk_sources.len());
+    for disk in disk_sources {
+        let name = disk
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| format!("runtime C source name missing: {}", disk.display()))?;
+        let embedded = embedded_c_source_for_name(name)
+            .ok_or_else(|| format!("runtime C source missing: {}", disk.display()))?;
+        sources.push(resolve_runtime_c_file(
+            disk.clone(),
+            embedded,
+            out_dir,
+            name,
+        )?);
+    }
+
+    let header_dir = resolve_runtime_header_dir(disk_header, out_dir)?;
     let archive = out_dir.join("libdraconic_rt.a");
     let mut objs: Vec<PathBuf> = Vec::with_capacity(sources.len());
 
@@ -987,6 +1050,53 @@ mod tests {
         );
         let meta = std::fs::metadata(&archive).expect("stat archive");
         assert!(meta.len() > 0, "archive must be non-empty");
+    }
+
+    #[test]
+    fn resolve_runtime_c_file_writes_embedded_when_disk_missing() {
+        let dir = tempfile_dir();
+        let missing = dir.join("gone").join("draconic_rt.c");
+        assert!(!missing.is_file());
+        let got = resolve_runtime_c_file(missing, "/* embedded rt */\n", &dir, "draconic_rt.c")
+            .expect("materialize");
+        assert_eq!(got, dir.join("draconic_rt.c"));
+        assert_eq!(
+            std::fs::read_to_string(&got).unwrap(),
+            "/* embedded rt */\n"
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_c_file_keeps_disk_path_when_present() {
+        let dir = tempfile_dir();
+        let disk = dir.join("tree").join("draconic_rt.c");
+        std::fs::create_dir_all(disk.parent().unwrap()).unwrap();
+        std::fs::write(&disk, "/* disk rt */\n").unwrap();
+        let got =
+            resolve_runtime_c_file(disk.clone(), "/* embedded rt */\n", &dir, "draconic_rt.c")
+                .expect("disk path");
+        assert_eq!(got, disk);
+        assert_eq!(std::fs::read_to_string(&got).unwrap(), "/* disk rt */\n");
+    }
+
+    #[test]
+    fn build_runtime_static_lib_from_missing_tree_paths() {
+        let dir = tempfile_dir();
+        let archive = build_runtime_static_lib_with_inputs(
+            &dir,
+            false,
+            &[
+                PathBuf::from("/nonexistent-draconic-tree/draconic_rt.c"),
+                PathBuf::from("/nonexistent-draconic-tree/draconic_rt_host.c"),
+            ],
+            PathBuf::from("/nonexistent-draconic-tree/draconic_rt.h"),
+        )
+        .expect("build from embedded when CARGO_MANIFEST_DIR is gone");
+        assert!(
+            archive.is_file(),
+            "expected archive at {}",
+            archive.display()
+        );
     }
 
     #[test]
