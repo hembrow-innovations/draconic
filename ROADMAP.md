@@ -1052,7 +1052,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | R01.02 | done | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
 | R01.03 | done | native | Time budget: interrupt/fail long-running eval | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R02 | todo | both | Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics | `tests/conformance` fixtures `security/permissions` |
-| R02.01 | todo | both | Permission grants: fs read/write, net listen/connect (as designed) | `tests/conformance` fixtures `security/permissions` |
+| R02.01 | done | both | Permission grants: fs read/write, net listen/connect (as designed) | `tests/conformance` fixtures `security/permissions` |
 | R02.02 | todo | both | Deny path: clear diagnostic when host op lacks grant | `tests/conformance` fixtures `security/permissions` |
 | R02.03 | todo | both | CLI/runtime flags to grant subset (opt-in permissions) | `crates/draconic-cli`, `tests/conformance` fixtures `security/permissions` |
 | R02.04 | done | both | Default policy documented (permissive vs locked-down as designed) | `tests/conformance` fixtures `security/permissions` |

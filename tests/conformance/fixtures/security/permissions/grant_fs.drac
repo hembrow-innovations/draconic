@@ -1,0 +1,3 @@
+// R02.01: explicit fs-read + fs-write grants — write/read succeed.
+writeFileText("/tmp/draconic_r0201_grant_fs.txt", "r0201-fs");
+let t = readFileText("/tmp/draconic_r0201_grant_fs.txt");

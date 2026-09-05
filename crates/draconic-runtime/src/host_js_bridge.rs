@@ -286,6 +286,21 @@ pub fn tcp_js_polyfill() -> &'static str {
     e.code = code;
     throw e;
   }
+  function permissionsAllows(need) {
+    var raw;
+    try {
+      if (typeof process === "undefined" || !process.env) return true;
+      raw = process.env.DRACONIC_PERMISSIONS;
+    } catch (e) {
+      return true;
+    }
+    if (raw == null || raw === "") return true;
+    var parts = String(raw).split(",");
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].trim() === need) return true;
+    }
+    return false;
+  }
   var HEADER = 24;
   var PAYLOAD = 65536 + 2048;
   var sab = null;
@@ -560,6 +575,7 @@ pub fn tcp_js_polyfill() -> &'static str {
     return { result: result, bytes: outBytes };
   }
   function tcpListen(port, backlog) {
+    if (!permissionsAllows("net-listen")) hostErr("EPERM", "permission denied (net-listen)");
     var r = rpc(CMD.LISTEN, port | 0, backlog == null ? 0 : (backlog | 0), null);
     return r.result;
   }
@@ -570,6 +586,7 @@ pub fn tcp_js_polyfill() -> &'static str {
     return rpc(CMD.ACCEPT, h | 0, 0, null).result;
   }
   function tcpConnect(host, port) {
+    if (!permissionsAllows("net-connect")) hostErr("EPERM", "permission denied (net-connect)");
     return rpc(CMD.CONNECT, port | 0, 0, host == null ? "" : String(host)).result;
   }
   function tcpPeerAddress(h) {

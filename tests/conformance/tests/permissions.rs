@@ -1,5 +1,6 @@
 //! ROADMAP R02.04: default permission policy (permissive).
 //! A Program with no explicit grant subset may use host fs and TCP.
+//! ROADMAP R02.01: explicit grants for fs read/write and net listen/connect succeed.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -84,4 +85,52 @@ fn default_net_no_explicit_grant_subset() {
 #[test]
 fn default_net_runs_both_targets() {
     assert_fixture_runs_both("security/permissions/default_net");
+}
+
+fn assert_explicit_grant_subset(id: &str, tokens: &[&str]) {
+    let fixture = load_named(id);
+    assert!(
+        !fixture.grants.is_empty(),
+        "{id} must declare an explicit grant subset"
+    );
+    for token in tokens {
+        assert!(
+            fixture.grants.iter().any(|g| g == token),
+            "{id} must grant {token}, got {:?}",
+            fixture.grants
+        );
+    }
+}
+
+#[test]
+fn grant_fs_fixture_present() {
+    assert_fixture_present("security/permissions/grant_fs");
+}
+
+#[test]
+fn grant_fs_explicit_grant_subset() {
+    assert_explicit_grant_subset("security/permissions/grant_fs", &["fs-read", "fs-write"]);
+}
+
+#[test]
+fn grant_fs_runs_both_targets() {
+    assert_fixture_runs_both("security/permissions/grant_fs");
+}
+
+#[test]
+fn grant_net_fixture_present() {
+    assert_fixture_present("security/permissions/grant_net");
+}
+
+#[test]
+fn grant_net_explicit_grant_subset() {
+    assert_explicit_grant_subset(
+        "security/permissions/grant_net",
+        &["net-listen", "net-connect"],
+    );
+}
+
+#[test]
+fn grant_net_runs_both_targets() {
+    assert_fixture_runs_both("security/permissions/grant_net");
 }

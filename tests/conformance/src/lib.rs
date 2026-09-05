@@ -80,6 +80,9 @@ pub struct Fixture {
     pub targets: Vec<Target>,
     pub expect_js: TargetExpect,
     pub expect_native: TargetExpect,
+    /// R02.01 explicit permission grant subset (`grants: fs-read,fs-write`).
+    /// Empty means no grant subset (R02.04 permissive default).
+    pub grants: Vec<String>,
 }
 
 /// Outcome of running one fixture on one target.
@@ -188,6 +191,7 @@ fn load_fixture(source_path: &Path) -> Result<Fixture, String> {
         targets,
         expect_js: meta.expect_js,
         expect_native: meta.expect_native,
+        grants: meta.grants,
     })
 }
 
@@ -205,6 +209,7 @@ struct Meta {
     targets: Vec<Target>,
     expect_js: TargetExpect,
     expect_native: TargetExpect,
+    grants: Vec<String>,
 }
 
 impl Meta {
@@ -303,6 +308,15 @@ fn parse_meta(text: &str) -> Result<Meta, String> {
                 meta.expect_js.stdin = Some(s.clone());
                 meta.expect_native.stdin = Some(s);
             }
+            // R02.01 explicit permission grant subset (both targets).
+            "grants" => {
+                meta.grants = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+            }
             "native.check" => {
                 return Err(format!(
                     "meta line {}: native.check is not supported",
@@ -322,6 +336,17 @@ fn parse_exit(value: &str, line: usize) -> Result<i32, String> {
     value
         .parse()
         .map_err(|_| format!("meta line {line}: invalid exit code `{value}`"))
+}
+
+/// R02.01: forward an explicit grant subset as `DRACONIC_PERMISSIONS`.
+/// Empty grants leave the process permissive (R02.04): unset the env so a
+/// parent lock-down cannot leak into default-policy fixtures.
+fn apply_permission_grants(cmd: &mut Command, grants: &[String]) {
+    if grants.is_empty() {
+        cmd.env_remove("DRACONIC_PERMISSIONS");
+    } else {
+        cmd.env("DRACONIC_PERMISSIONS", grants.join(","));
+    }
 }
 
 /// Whitespace-separated program args (`args: alpha beta`).
@@ -482,14 +507,11 @@ fn run_js(fixture: &Fixture, coverage: Option<&mut CoverageReport>) -> Result<()
         script
     };
 
-    let output = run_with_optional_stdin(
-        Command::new("node")
-            .arg("-e")
-            .arg(&script)
-            .args(&expect.args),
-        expect.stdin.as_deref(),
-    )
-    .map_err(|e| format!("spawn node: {e}"))?;
+    let mut node = Command::new("node");
+    node.arg("-e").arg(&script).args(&expect.args);
+    apply_permission_grants(&mut node, &fixture.grants);
+    let output = run_with_optional_stdin(&mut node, expect.stdin.as_deref())
+        .map_err(|e| format!("spawn node: {e}"))?;
 
     let code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -670,11 +692,11 @@ fn run_native(fixture: &Fixture) -> Result<(), String> {
         return Err("native.link and native.dylink together are not supported".to_string());
     }
 
-    let output = run_with_optional_stdin(
-        Command::new(&out).args(&expect.args),
-        expect.stdin.as_deref(),
-    )
-    .map_err(|e| format!("run native binary: {e}"))?;
+    let mut native_cmd = Command::new(&out);
+    native_cmd.args(&expect.args);
+    apply_permission_grants(&mut native_cmd, &fixture.grants);
+    let output = run_with_optional_stdin(&mut native_cmd, expect.stdin.as_deref())
+        .map_err(|e| format!("run native binary: {e}"))?;
 
     let _ = fs::remove_file(&out);
 
@@ -896,5 +918,23 @@ native.exit: 0
         )
         .unwrap();
         assert_eq!(meta.expect_native.dylink, vec![PathBuf::from("resolve.c")]);
+    }
+
+    #[test]
+    fn parse_meta_grants() {
+        let meta = parse_meta(
+            "\
+id: security/permissions/grant_fs
+targets: js,native
+grants: fs-read, fs-write
+js.exit: 0
+native.exit: 0
+",
+        )
+        .unwrap();
+        assert_eq!(
+            meta.grants,
+            vec!["fs-read".to_string(), "fs-write".to_string()]
+        );
     }
 }

@@ -3033,8 +3033,26 @@ function __draconic_host_fs_catch(p, err) {
   }
   __draconic_host_fs_err("EIO", p, err);
 }
+function __draconic_permissions_allows(need) {
+  var raw;
+  try {
+    if (typeof process === "undefined" || !process.env) return true;
+    raw = process.env.DRACONIC_PERMISSIONS;
+  } catch (e) {
+    return true;
+  }
+  if (raw == null || raw === "") return true;
+  var parts = String(raw).split(",");
+  for (var i = 0; i < parts.length; i++) {
+    if (parts[i].trim() === need) return true;
+  }
+  return false;
+}
 function readFileText(path) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-read")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-read)" });
+  }
   var fs = require("fs");
   try {
     return fs.readFileSync(p, "utf8");
@@ -3044,6 +3062,9 @@ function readFileText(path) {
 }
 function readFileBytes(path) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-read")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-read)" });
+  }
   var fs = require("fs");
   try {
     var buf = fs.readFileSync(p);
@@ -3054,6 +3075,9 @@ function readFileBytes(path) {
 }
 function writeFileText(path, text) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-write")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-write)" });
+  }
   var fs = require("fs");
   try {
     fs.writeFileSync(p, text == null ? "" : String(text), "utf8");
@@ -3063,6 +3087,9 @@ function writeFileText(path, text) {
 }
 function appendFileText(path, text) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-write")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-write)" });
+  }
   var fs = require("fs");
   try {
     fs.appendFileSync(p, text == null ? "" : String(text), "utf8");
@@ -3072,6 +3099,9 @@ function appendFileText(path, text) {
 }
 function writeFileBytes(path, data) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-write")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-write)" });
+  }
   var fs = require("fs");
   try {
     var buf = Buffer.from(data == null ? [] : data);
@@ -3082,6 +3112,9 @@ function writeFileBytes(path, data) {
 }
 function appendFileBytes(path, data) {
   var p = String(path);
+  if (!__draconic_permissions_allows("fs-write")) {
+    __draconic_host_fs_err("EPERM", p, { message: "permission denied (fs-write)" });
+  }
   var fs = require("fs");
   try {
     var buf = Buffer.from(data == null ? [] : data);

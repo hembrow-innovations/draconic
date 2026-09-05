@@ -1,0 +1,8 @@
+// R02.01: explicit net-listen + net-connect grants — TCP listen/connect succeed.
+let s = tcpListen(0);
+let p = tcpLocalPort(s);
+let c = tcpConnect("127.0.0.1", p);
+let t = typeof c;
+let ok = c > 0;
+closeTcp(c);
+closeTcp(s);

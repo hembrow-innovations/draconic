@@ -91,6 +91,60 @@ static DraconicHostError host_handle_alloc(
     return DRACONIC_HOST_E_NOMEM;
 }
 
+/* R02.01: opt-in grant subset via DRACONIC_PERMISSIONS (comma tokens).
+   Unset/empty = permissive default (R02.04). */
+static int host_perm_token_eq(const char *start, const char *end, const char *tok) {
+    size_t n;
+    size_t m;
+    if (!start || !end || !tok || end < start) {
+        return 0;
+    }
+    n = (size_t)(end - start);
+    m = strlen(tok);
+    if (n != m) {
+        return 0;
+    }
+    return memcmp(start, tok, n) == 0;
+}
+
+static int host_permissions_allows(const char *need) {
+    const char *raw;
+    const char *p;
+    const char *start;
+    const char *end;
+    if (!need || need[0] == '\0') {
+        return 1;
+    }
+    raw = getenv("DRACONIC_PERMISSIONS");
+    if (!raw || raw[0] == '\0') {
+        return 1;
+    }
+    p = raw;
+    while (*p) {
+        while (*p == ' ' || *p == ',') {
+            p++;
+        }
+        if (*p == '\0') {
+            break;
+        }
+        start = p;
+        while (*p && *p != ',') {
+            p++;
+        }
+        end = p;
+        while (end > start && end[-1] == ' ') {
+            end--;
+        }
+        if (host_perm_token_eq(start, end, need)) {
+            return 1;
+        }
+        if (*p == ',') {
+            p++;
+        }
+    }
+    return 0;
+}
+
 int draconic_rt_host_handle_is_valid(DraconicHostHandle h) {
     if (h < 1 || h > (DraconicHostHandle)DRACONIC_HOST_HANDLE_SLOTS) {
         return 0;
@@ -2372,6 +2426,9 @@ DraconicHostError draconic_rt_host_fs_read_file(
     if (!path || path[0] == '\0' || !out_data || !out_len) {
         return DRACONIC_HOST_E_INVAL;
     }
+    if (!host_permissions_allows("fs-read")) {
+        return DRACONIC_HOST_E_PERM;
+    }
     *out_data = NULL;
     *out_len = 0;
 
@@ -2478,6 +2535,9 @@ static DraconicHostError host_fs_write_mode(
     }
     if (len > 0 && !data) {
         return DRACONIC_HOST_E_INVAL;
+    }
+    if (!host_permissions_allows("fs-write")) {
+        return DRACONIC_HOST_E_PERM;
     }
 
     f = fopen(path, mode);
@@ -3178,6 +3238,9 @@ DraconicHostError draconic_rt_host_tcp_listen(
     if (port < 0 || port > 65535) {
         return DRACONIC_HOST_E_INVAL;
     }
+    if (!host_permissions_allows("net-listen")) {
+        return DRACONIC_HOST_E_PERM;
+    }
     if (backlog <= 0) {
         backlog = 128;
     }
@@ -3341,6 +3404,9 @@ DraconicHostError draconic_rt_host_tcp_connect(
     *out_conn = DRACONIC_HOST_HANDLE_INVALID;
     if (!host || host[0] == '\0' || port < 1 || port > 65535) {
         return DRACONIC_HOST_E_INVAL;
+    }
+    if (!host_permissions_allows("net-connect")) {
+        return DRACONIC_HOST_E_PERM;
     }
 
     memset(&addr, 0, sizeof(addr));
