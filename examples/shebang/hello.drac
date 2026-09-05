@@ -1,0 +1,4 @@
+#!/usr/bin/env draconic
+// Documented shebang Program — chmod +x and execute when `draconic` is on PATH.
+let console = globalThis.console;
+console.log("hello-shebang");

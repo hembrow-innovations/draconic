@@ -9,3 +9,4 @@ Small Programs that build with the `draconic` CLI.
 | Todo | [`todo/`](./todo/) | JS (browser) + C static host | DOM / `localStorage` via `globalThis` |
 | pkg-lib | [`pkg-lib/`](./pkg-lib/) | package | Minimal exportable git module (`draconic.toml` + `index.drac`) |
 | pkg-consumer | [`pkg-consumer/`](./pkg-consumer/) | package | Depends on pkg-lib via module path; documented get/tidy + build |
+| Shebang | [`shebang/`](./shebang/) | JS (`draconic run`) | `#!/usr/bin/env draconic` — chmod +x and execute |

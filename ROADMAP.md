@@ -1085,7 +1085,7 @@ Native depth stays under **N**; host/net under **H**; packages under **K**.
 | P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
 | P03 | done | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `tests/integration/tests/website_pipeline.rs`, README |
 | P04 | todo | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
-| P05 | todo | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
+| P05 | done | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
 
 **P note:** no ordered bar beyond P04 after H17+K09; claim any todo.
 

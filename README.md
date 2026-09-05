@@ -91,6 +91,7 @@ while (true) {
 | [`examples/http-echo/`](./examples/http-echo/) | Native HTTP/1.1 listen and accept |
 | [`examples/todo/`](./examples/todo/) | Browser todo via `globalThis` (DOM, `localStorage`) |
 | [`examples/pkg-lib/`](./examples/pkg-lib/) · [`pkg-consumer/`](./examples/pkg-consumer/) | Git packages (`draconic.toml`, `get` / `mod tidy`) |
+| [`examples/shebang/`](./examples/shebang/) | `#!/usr/bin/env draconic` — chmod and execute |
 
 ## Documentation
 
@@ -116,7 +117,7 @@ draconic bindgen <header>             extern "C" from a C header
 draconic version | help
 ```
 
-Shebang: `#!/usr/bin/env draconic`
+Shebang: `#!/usr/bin/env draconic` (invokes `run` on the script path). Example: [`examples/shebang/hello.drac`](./examples/shebang/hello.drac).
 
 ## Build from source
 
