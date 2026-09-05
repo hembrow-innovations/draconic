@@ -7,8 +7,7 @@ fn named_export_import_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/modules/named_export_import"),
+        ids.iter().any(|id| *id == "es/modules/named_export_import"),
         "missing es/modules/named_export_import fixture, got {ids:?}"
     );
     // Dependency module must not be a separate fixture (no .meta).
@@ -51,7 +50,8 @@ fn default_export_import_fixtures_present() {
         );
     }
     assert!(
-        !ids.iter().any(|id| id.contains("default_lib") || id.contains("default_expr_lib")),
+        !ids.iter()
+            .any(|id| id.contains("default_lib") || id.contains("default_expr_lib")),
         "default lib modules should not be fixture entries, got {ids:?}"
     );
 }

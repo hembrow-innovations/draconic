@@ -82,9 +82,7 @@ fn wait_for_listen_banner(child: &mut Child, timeout: Duration) {
                     let _ = e.read_to_string(&mut s);
                     s
                 });
-                panic!(
-                    "http-echo exited before listen banner; stderr={err:?}"
-                );
+                panic!("http-echo exited before listen banner; stderr={err:?}");
             }
             Ok(_) => {
                 if line.contains(LISTEN_MSG) {

@@ -12,7 +12,8 @@ fn discovers_fixtures_under_fixtures_dir() {
     );
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| id.contains("empty") || *id == "smoke/empty"),
+        ids.iter()
+            .any(|id| id.contains("empty") || *id == "smoke/empty"),
         "missing smoke empty fixture, got {ids:?}"
     );
     assert!(
@@ -26,11 +27,7 @@ fn discovers_fixtures_under_fixtures_dir() {
 fn each_fixture_declares_js_and_or_native() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     for f in &fixtures {
-        assert!(
-            !f.targets.is_empty(),
-            "fixture {} has no targets",
-            f.id
-        );
+        assert!(!f.targets.is_empty(), "fixture {} has no targets", f.id);
         for t in &f.targets {
             assert!(matches!(t, Target::Js | Target::Native));
         }

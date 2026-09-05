@@ -166,9 +166,7 @@ fn collect_all_fns(
                 });
                 fn_binding.insert(*local, idx);
             }
-            Stmt::Declare { init: Some(e), .. } => {
-                collect_expr_fns(e, by_id, out, fn_binding)?
-            }
+            Stmt::Declare { init: Some(e), .. } => collect_expr_fns(e, by_id, out, fn_binding)?,
             Stmt::Expr { expr } => collect_expr_fns(expr, by_id, out, fn_binding)?,
             Stmt::Block { body } => collect_all_fns(body, by_id, out, fn_binding)?,
             Stmt::Return { value: Some(e) } => collect_expr_fns(e, by_id, out, fn_binding)?,
@@ -231,7 +229,9 @@ fn collect_expr_fns(
             }
             Some(())
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             collect_expr_fns(object, by_id, out, fn_binding)?;
             collect_expr_fns(property, by_id, out, fn_binding)
         }
@@ -377,12 +377,9 @@ fn member_assign_ok(
 ) -> bool {
     match expr {
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -468,11 +465,7 @@ fn object_expr_ok(
                 && object_expr_ok(object, by_id, functions, fn_binding)
                 && member_key_ok(property)
         }
-        Expr::New {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::New { callee, args, .. } => {
             let Expr::Local { id, .. } = callee.as_ref() else {
                 return false;
             };
@@ -561,12 +554,9 @@ fn ctor_or_method_expr_ok(
 ) -> bool {
     match expr {
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -623,12 +613,9 @@ fn number_expr_ok_in_method(
                     || matches!(object.as_ref(), Expr::This { .. }))
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -874,11 +861,7 @@ impl<'a> Emitter<'a> {
             self.emit_method_stmt(stmt)?;
         }
         if !saw_return {
-            writeln!(
-                self.body,
-                "  ret double 0.00000000000000000e+00"
-            )
-            .ok();
+            writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
         }
 
         self.out.push_str(&self.body);
@@ -900,11 +883,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Return { value: None } => {
-                writeln!(
-                    self.body,
-                    "  ret double 0.00000000000000000e+00"
-                )
-                .ok();
+                writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
                 Ok(())
             }
             Stmt::Block { body } => {
@@ -979,9 +958,7 @@ impl<'a> Emitter<'a> {
             Expr::Assign {
                 target:
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     },
                 op: AssignOp::Eq,
                 value,
@@ -993,7 +970,8 @@ impl<'a> Emitter<'a> {
                     let idx = find_fn_idx(params, body, &self.info.functions)
                         .ok_or_else(|| diag("es_objects: unknown method FunctionExpr"))?;
                     format!("@m_fn_{idx}")
-                } else if object_value_is_object(value) || matches!(value.as_ref(), Expr::New { .. })
+                } else if object_value_is_object(value)
+                    || matches!(value.as_ref(), Expr::New { .. })
                 {
                     self.emit_object_expr(value)?
                 } else {
@@ -1067,9 +1045,7 @@ impl<'a> Emitter<'a> {
             Expr::Assign {
                 target:
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     },
                 op: AssignOp::Eq,
                 value,
@@ -1279,9 +1255,8 @@ impl<'a> Emitter<'a> {
                             writeln!(
                                 self.body,
                                 "  {}",
-                                OBJECT_SET.call(&format!(
-                                    "ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"
-                                ))
+                                OBJECT_SET
+                                    .call(&format!("ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"))
                             )
                             .ok();
                         }

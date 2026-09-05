@@ -91,9 +91,7 @@ fn expr_has_nullish(expr: &Expr) -> bool {
             consequent,
             alternate,
             ..
-        } => {
-            expr_has_nullish(test) || expr_has_nullish(consequent) || expr_has_nullish(alternate)
-        }
+        } => expr_has_nullish(test) || expr_has_nullish(consequent) || expr_has_nullish(alternate),
         _ => false,
     }
 }
@@ -105,8 +103,10 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
         }
         Expr::Local { id, .. } => by_id.contains_key(id),
         Expr::Unary { op, arg, .. } => {
-            matches!(op, UnaryOp::Void | UnaryOp::Plus | UnaryOp::Minus | UnaryOp::Not)
-                && expr_ok(arg, by_id)
+            matches!(
+                op,
+                UnaryOp::Void | UnaryOp::Plus | UnaryOp::Minus | UnaryOp::Not
+            ) && expr_ok(arg, by_id)
         }
         Expr::Binary {
             left, op, right, ..
@@ -126,17 +126,11 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                 && expr_ok(right, by_id)
         }
         Expr::Assign {
-            target,
-            op,
-            value,
-            ..
+            target, op, value, ..
         } => {
             matches!(
                 op,
-                AssignOp::Eq
-                    | AssignOp::NullishEq
-                    | AssignOp::AndAndEq
-                    | AssignOp::OrOrEq
+                AssignOp::Eq | AssignOp::NullishEq | AssignOp::AndAndEq | AssignOp::OrOrEq
             ) && matches!(target, AssignTarget::Local(id) if by_id.contains_key(id))
                 && expr_ok(value, by_id)
         }
@@ -205,14 +199,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
             writeln!(self.body, "  store ptr null, ptr {str_p}").ok();
-            self.slots.insert(
-                *id,
-                SlotPtrs {
-                    tag,
-                    num,
-                    str_p,
-                },
-            );
+            self.slots.insert(*id, SlotPtrs { tag, num, str_p });
         }
 
         for stmt in &self.module.body {
@@ -294,11 +281,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {tag} = load i8, ptr {}", slot.tag).ok();
         writeln!(self.body, "  {num} = load double, ptr {}", slot.num).ok();
         writeln!(self.body, "  {str_p} = load ptr, ptr {}", slot.str_p).ok();
-        Ok(DynVal {
-            tag,
-            num,
-            str_p,
-        })
+        Ok(DynVal { tag, num, str_p })
     }
 
     fn store_slot(&mut self, id: LocalId, v: &DynVal) -> Result<(), Diagnostic> {
@@ -369,12 +352,7 @@ impl<'a> Emitter<'a> {
 
     fn is_nullish(&mut self, v: &DynVal) -> String {
         let t = self.fresh();
-        writeln!(
-            self.body,
-            "  {t} = icmp ule i8 {}, {TAG_NULL}",
-            v.tag
-        )
-        .ok();
+        writeln!(self.body, "  {t} = icmp ule i8 {}, {TAG_NULL}", v.tag).ok();
         // und=0, null=1 → ule 1
         t
     }
@@ -510,11 +488,7 @@ impl<'a> Emitter<'a> {
                     let _ = self.emit_dyn(left)?;
                     self.emit_dyn(right)
                 }
-                BinaryOp::Add
-                | BinaryOp::Sub
-                | BinaryOp::Mul
-                | BinaryOp::Div
-                | BinaryOp::Rem => {
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                     let l = self.emit_dyn(left)?;
                     let r = self.emit_dyn(right)?;
                     let inst = match op {
@@ -537,10 +511,7 @@ impl<'a> Emitter<'a> {
                 _ => Err(diag("internal: unsupported binary in es_nullish")),
             },
             Expr::Assign {
-                target,
-                op,
-                value,
-                ..
+                target, op, value, ..
             } => {
                 let AssignTarget::Local(id) = target else {
                     return Err(diag("internal: only local assign in es_nullish"));
@@ -628,7 +599,11 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "{c3}:").ok();
         let i_bool = self.fresh();
         writeln!(self.body, "  {i_bool} = icmp eq i8 {}, {TAG_BOOL}", v.tag).ok();
-        writeln!(self.body, "  br i1 {i_bool}, label %{l_bool}, label %{l_str}").ok();
+        writeln!(
+            self.body,
+            "  br i1 {i_bool}, label %{l_bool}, label %{l_str}"
+        )
+        .ok();
 
         writeln!(self.body, "{l_und}:").ok();
         writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {und_s}"))).ok();

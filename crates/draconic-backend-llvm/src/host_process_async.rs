@@ -17,8 +17,8 @@ use draconic_ir::{
     Arg, ArrayElement, AssignTarget, Expr, Local, LocalId, Module, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, HOST_PROCESS_ASYNC_DECLARES, HOST_PROCESS_CLOSE, HOST_PROCESS_SPAWN,
-    HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN, GC_INIT,
+    llvm_declares, GC_INIT, HOST_PROCESS_ASYNC_DECLARES, HOST_PROCESS_CLOSE, HOST_PROCESS_SPAWN,
+    HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
 
 pub(crate) fn is_host_process_async_module(module: &Module) -> bool {
@@ -106,7 +106,8 @@ fn kind_from_expr(expr: &Expr, slot_of: &HashMap<LocalId, SlotKind>) -> Option<S
             ..
         } => Some(SlotKind::String),
         Expr::Binary {
-            op: BinaryOp::Gt
+            op:
+                BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
@@ -120,7 +121,8 @@ fn kind_from_expr(expr: &Expr, slot_of: &HashMap<LocalId, SlotKind>) -> Option<S
             Some(SlotKind::Promise)
         }
         Expr::Call { callee, .. }
-            if is_named_callee(callee, "processSpawn") || is_named_callee(callee, "processClose") =>
+            if is_named_callee(callee, "processSpawn")
+                || is_named_callee(callee, "processClose") =>
         {
             Some(SlotKind::Number)
         }
@@ -355,8 +357,11 @@ impl<'a> Emitter<'a> {
         for (id, k) in &info.user_locals {
             slot_kind.insert(*id, *k);
         }
-        let local_names: HashMap<LocalId, String> =
-            module.locals.iter().map(|l| (l.id, l.name.clone())).collect();
+        let local_names: HashMap<LocalId, String> = module
+            .locals
+            .iter()
+            .map(|l| (l.id, l.name.clone()))
+            .collect();
         Self {
             module,
             info,
@@ -410,12 +415,7 @@ impl<'a> Emitter<'a> {
             match kind {
                 SlotKind::Number => {
                     let v = self.load_local(*id)?;
-                    writeln!(
-                        self.body,
-                        "  {}",
-                        PRINT_I64.call(&format!("i64 {v}"))
-                    )
-                    .ok();
+                    writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {v}"))).ok();
                 }
                 SlotKind::Bool => {
                     let v = self.load_local(*id)?;
@@ -429,7 +429,8 @@ impl<'a> Emitter<'a> {
             }
         }
 
-        self.out.push_str(&llvm_declares(HOST_PROCESS_ASYNC_DECLARES));
+        self.out
+            .push_str(&llvm_declares(HOST_PROCESS_ASYNC_DECLARES));
         writeln!(self.out).ok();
 
         for (s, gname) in &self.str_globals {
@@ -556,10 +557,7 @@ impl<'a> Emitter<'a> {
                     _ => None,
                 };
                 if let Some(name) = name {
-                    if matches!(
-                        name,
-                        "processWaitAsync" | "processSpawn" | "processClose"
-                    ) {
+                    if matches!(name, "processWaitAsync" | "processSpawn" | "processClose") {
                         let g = self.intern_str("function");
                         let t = self.fresh();
                         writeln!(
@@ -582,7 +580,9 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {t} = sub i64 0, {v}").ok();
                 Ok(t)
             }
-            Expr::Binary { op, left, right, .. } => {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
                 let l = self.emit_expr(left)?;
                 let r = self.emit_expr(right)?;
                 let t = self.fresh();
@@ -997,11 +997,7 @@ impl<'a> Emitter<'a> {
         };
 
         let mut helper = String::new();
-        writeln!(
-            helper,
-            "define ptr @{fn_name}(ptr %data, ptr %value) {{"
-        )
-        .ok();
+        writeln!(helper, "define ptr @{fn_name}(ptr %data, ptr %value) {{").ok();
         writeln!(helper, "entry:").ok();
         helper.push_str(&self.body);
         writeln!(helper, "  ret ptr {ret_ptr}").ok();

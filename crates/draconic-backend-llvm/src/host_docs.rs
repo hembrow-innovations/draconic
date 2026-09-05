@@ -110,7 +110,9 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_expr(arg_expr(&args[1])?, ctx)?;
             Some(())
         }
-        Expr::Assign { target, op, value, .. } => {
+        Expr::Assign {
+            target, op, value, ..
+        } => {
             if !matches!(op, AssignOp::Eq) {
                 return None;
             }
@@ -130,7 +132,9 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_test(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
-        Expr::Binary { left, op, right, .. } => match op {
+        Expr::Binary {
+            left, op, right, ..
+        } => match op {
             BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
                 let lt = classify_expr(left, ctx)?;
                 let rt = classify_expr(right, ctx)?;
@@ -215,7 +219,9 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 None
             }
         }
-        Expr::Assign { target, op, value, .. } => {
+        Expr::Assign {
+            target, op, value, ..
+        } => {
             if !matches!(op, AssignOp::Eq) {
                 return None;
             }
@@ -338,7 +344,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(self.out, "; Draconic LLVM host_docs (docs SSG markdown subset)").ok();
+        writeln!(
+            self.out,
+            "; Draconic LLVM host_docs (docs SSG markdown subset)"
+        )
+        .ok();
         let decls = [
             GC_INIT,
             HOST_PROCESS_EXIT,
@@ -495,11 +505,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 } else {
-                    writeln!(
-                        self.body,
-                        "  br i1 {cond}, label %{then_l}, label %{end_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {cond}, label %{then_l}, label %{end_l}").ok();
                 }
                 writeln!(self.body, "{then_l}:").ok();
                 self.emit_stmt(consequent)?;
@@ -573,16 +579,15 @@ impl<'a> Emitter<'a> {
         let p = self.emit_string_expr(path)?;
         let t = self.emit_string_expr(text)?;
         let rc = self.fresh();
-        writeln!(
-            self.body,
-            "  {rc} = call i32 @{symbol}(ptr {p}, ptr {t})"
-        )
-        .ok();
+        writeln!(self.body, "  {rc} = call i32 @{symbol}(ptr {p}, ptr {t})").ok();
         self.emit_check_rc(&rc)
     }
 
     fn emit_assign(&mut self, expr: &Expr) -> Result<SlotTy, Diagnostic> {
-        let Expr::Assign { target, op, value, .. } = expr else {
+        let Expr::Assign {
+            target, op, value, ..
+        } = expr
+        else {
             return Err(diag("host_docs: expected assign"));
         };
         if !matches!(op, AssignOp::Eq) {
@@ -631,16 +636,17 @@ impl<'a> Emitter<'a> {
             Expr::Member {
                 computed: false, ..
             } => Some(SlotTy::Number),
-            Expr::Member {
-                computed: true, ..
-            } => Some(SlotTy::String),
+            Expr::Member { computed: true, .. } => Some(SlotTy::String),
             Expr::Assign { value, .. } => self.expr_slot(value),
             _ => None,
         }
     }
 
     fn emit_test(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
-        let Expr::Binary { left, op, right, .. } = expr else {
+        let Expr::Binary {
+            left, op, right, ..
+        } = expr
+        else {
             return Err(diag("host_docs: unsupported test"));
         };
         match op {
@@ -691,7 +697,8 @@ impl<'a> Emitter<'a> {
                         writeln!(
                             self.body,
                             "  {}",
-                            CSTR_EQ_N.call_to(&eq, &format!("ptr {l}, i64 {la}, ptr {r}, i64 {lb}"))
+                            CSTR_EQ_N
+                                .call_to(&eq, &format!("ptr {l}, i64 {la}, ptr {r}, i64 {lb}"))
                         )
                         .ok();
                         let pred = if neg { "ne" } else { "eq" };
@@ -751,7 +758,11 @@ impl<'a> Emitter<'a> {
             }
             Expr::Assign { .. } => {
                 self.emit_assign(expr)?;
-                if let Expr::Assign { target: AssignTarget::Local(id), .. } = expr {
+                if let Expr::Assign {
+                    target: AssignTarget::Local(id),
+                    ..
+                } = expr
+                {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
@@ -833,7 +844,11 @@ impl<'a> Emitter<'a> {
             }
             Expr::Assign { .. } => {
                 self.emit_assign(expr)?;
-                if let Expr::Assign { target: AssignTarget::Local(id), .. } = expr {
+                if let Expr::Assign {
+                    target: AssignTarget::Local(id),
+                    ..
+                } = expr
+                {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();

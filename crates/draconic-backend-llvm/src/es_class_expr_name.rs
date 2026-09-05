@@ -101,13 +101,17 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     }
                 }
             }
-            Stmt::DeclareObjectPattern { properties, init, .. } => {
+            Stmt::DeclareObjectPattern {
+                properties, init, ..
+            } => {
                 if !is_empty_object(init.as_ref()?) {
                     return None;
                 }
                 for prop in properties {
                     match prop {
-                        ObjectPatternEl::Prop { binding, default, .. } => {
+                        ObjectPatternEl::Prop {
+                            binding, default, ..
+                        } => {
                             let Pattern::Local(id) = binding else {
                                 return None;
                             };
@@ -354,12 +358,13 @@ fn extract_class_expr(expr: &Expr) -> Option<ClassName> {
             } if value.to_string_lossy() == "use strict" => {}
             Stmt::Declare {
                 local,
-                init: Some(Expr::Function {
-                    is_async: ca,
-                    is_generator: cg,
-                    is_arrow: carrow,
-                    ..
-                }),
+                init:
+                    Some(Expr::Function {
+                        is_async: ca,
+                        is_generator: cg,
+                        is_arrow: carrow,
+                        ..
+                    }),
                 ..
             } if ctor_local.is_none() => {
                 if *ca || *cg || *carrow {
@@ -375,11 +380,12 @@ fn extract_class_expr(expr: &Expr) -> Option<ClassName> {
                 name_key_locals.insert(*local, ());
             }
             Stmt::Expr {
-                expr: Expr::Call {
-                    callee: def_callee,
-                    args: def_args,
-                    ..
-                },
+                expr:
+                    Expr::Call {
+                        callee: def_callee,
+                        args: def_args,
+                        ..
+                    },
             } if is_object_define_property(def_callee) && def_args.len() == 3 => {
                 let ctor = ctor_local?;
                 // Target must be ctor local.

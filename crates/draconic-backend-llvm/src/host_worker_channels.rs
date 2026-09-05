@@ -17,7 +17,8 @@ pub(crate) fn is_host_worker_channels_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_host_worker_channels(module: &Module) -> Result<String, Diagnostic> {
-    let info = classify(module).ok_or_else(|| diag("internal: not a host_worker_channels module"))?;
+    let info =
+        classify(module).ok_or_else(|| diag("internal: not a host_worker_channels module"))?;
     let mut em = Emitter::new(module, &info);
     em.emit_module()?;
     Ok(em.finish())
@@ -255,11 +256,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(
-            self.out,
-            "; Draconic LLVM host_worker_channels (C02.04)"
-        )
-        .ok();
+        writeln!(self.out, "; Draconic LLVM host_worker_channels (C02.04)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_F64,
@@ -503,10 +500,7 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt

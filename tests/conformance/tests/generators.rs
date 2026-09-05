@@ -152,7 +152,8 @@ fn generator_methods_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "es/generators/generator_methods"),
+        ids.iter()
+            .any(|id| *id == "es/generators/generator_methods"),
         "missing es/generators/generator_methods fixture, got {ids:?}"
     );
 }

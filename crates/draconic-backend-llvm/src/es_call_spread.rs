@@ -96,7 +96,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     }
 
     // Refine Number vs String from call-site argument kinds (untyped params are `any`).
-    refine_fn_kinds_from_calls(&module.body, &mut functions, &fn_binding, &arr_inits, &slot_of)?;
+    refine_fn_kinds_from_calls(
+        &module.body,
+        &mut functions,
+        &fn_binding,
+        &arr_inits,
+        &slot_of,
+    )?;
 
     let mut has_spread_call = false;
     let mut slots = Vec::new();
@@ -237,7 +243,10 @@ fn walk_calls_for_kind(
 ) -> Option<()> {
     match expr {
         Expr::Call {
-            callee, args, optional, ..
+            callee,
+            args,
+            optional,
+            ..
         } => {
             if *optional {
                 return None;
@@ -258,15 +267,15 @@ fn walk_calls_for_kind(
                 return Some(());
             }
             let expanded = expand_args_static(args, arr_inits, slot_of)?;
-            let any_string = expanded.iter().any(|e| expr_is_stringish(e, slot_of, arr_inits));
+            let any_string = expanded
+                .iter()
+                .any(|e| expr_is_stringish(e, slot_of, arr_inits));
             if any_string {
                 functions[idx].kind = FnKind::String;
             }
             Some(())
         }
-        Expr::New {
-            callee, args, ..
-        } => {
+        Expr::New { callee, args, .. } => {
             walk_calls_for_kind(callee, functions, fn_binding, arr_inits, slot_of)?;
             for a in args {
                 match a {
@@ -314,7 +323,10 @@ fn expr_is_stringish(
             left,
             right,
             ..
-        } => expr_is_stringish(left, slot_of, arr_inits) || expr_is_stringish(right, slot_of, arr_inits),
+        } => {
+            expr_is_stringish(left, slot_of, arr_inits)
+                || expr_is_stringish(right, slot_of, arr_inits)
+        }
         Expr::Member {
             object,
             property,
@@ -543,9 +555,9 @@ fn call_or_new_has_spread(expr: &Expr) -> bool {
         Expr::Binary { left, right, .. } => {
             call_or_new_has_spread(left) || call_or_new_has_spread(right)
         }
-        Expr::Member { object, property, .. } => {
-            call_or_new_has_spread(object) || call_or_new_has_spread(property)
-        }
+        Expr::Member {
+            object, property, ..
+        } => call_or_new_has_spread(object) || call_or_new_has_spread(property),
         _ => false,
     }
 }
@@ -723,8 +735,10 @@ fn array_expr_ok(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> bool {
     match expr {
         Expr::Array { elements, .. } => elements.iter().all(|el| match el {
             ArrayElement::Expr(e) => {
-                matches!(e, Expr::Number { .. } | Expr::String { .. } | Expr::Array { .. })
-                    || matches!(e, Expr::Local { id, .. } if slot_of.contains_key(id))
+                matches!(
+                    e,
+                    Expr::Number { .. } | Expr::String { .. } | Expr::Array { .. }
+                ) || matches!(e, Expr::Local { id, .. } if slot_of.contains_key(id))
                     || array_expr_ok(e, slot_of)
             }
             ArrayElement::Elision => true,
@@ -756,11 +770,7 @@ fn object_expr_ok(
 ) -> bool {
     match expr {
         Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
-        Expr::New {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::New { callee, args, .. } => {
             let Expr::Local { id, .. } = callee.as_ref() else {
                 return false;
             };
@@ -1056,11 +1066,7 @@ impl<'a> Emitter<'a> {
                     self.emit_fn_stmt(stmt, f.kind)?;
                 }
                 if !saw_ret {
-                    writeln!(
-                        self.body,
-                        "  ret double 0.00000000000000000e+00"
-                    )
-                    .ok();
+                    writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
                 }
             }
             FnKind::String => {
@@ -1109,11 +1115,7 @@ impl<'a> Emitter<'a> {
                 for stmt in &f.body {
                     self.emit_fn_stmt(stmt, f.kind)?;
                 }
-                writeln!(
-                    self.body,
-                    "  ret double 0.00000000000000000e+00"
-                )
-                .ok();
+                writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
             }
         }
 
@@ -1145,11 +1147,9 @@ impl<'a> Emitter<'a> {
             },
             Stmt::Return { value: None } => {
                 match kind {
-                    FnKind::Number => writeln!(
-                        self.body,
-                        "  ret double 0.00000000000000000e+00"
-                    )
-                    .ok(),
+                    FnKind::Number => {
+                        writeln!(self.body, "  ret double 0.00000000000000000e+00").ok()
+                    }
                     FnKind::String => writeln!(self.body, "  ret ptr null").ok(),
                     FnKind::Ctor => {
                         return Err(diag("es_call_spread: bare return in ctor"));
@@ -1538,11 +1538,7 @@ impl<'a> Emitter<'a> {
             write!(call_args, ", double {v}").ok();
         }
         let ret = self.fresh();
-        writeln!(
-            self.body,
-            "  {ret} = call double @cs_fn_{idx}({call_args})"
-        )
-        .ok();
+        writeln!(self.body, "  {ret} = call double @cs_fn_{idx}({call_args})").ok();
         let _ = ret;
         Ok(obj)
     }

@@ -69,7 +69,11 @@ struct Folder<'a> {
 
 fn try_fold(module: &Module) -> Result<Vec<Observation>, String> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-    let eval_id = module.locals.iter().find(|l| l.name == "eval").map(|l| l.id);
+    let eval_id = module
+        .locals
+        .iter()
+        .find(|l| l.name == "eval")
+        .map(|l| l.id);
     let function_id = module
         .locals
         .iter()
@@ -169,7 +173,9 @@ fn module_uses_eval_or_function(
             }
             Expr::Member {
                 object, property, ..
-            } => walk_expr(object, eval_id, function_id) || walk_expr(property, eval_id, function_id),
+            } => {
+                walk_expr(object, eval_id, function_id) || walk_expr(property, eval_id, function_id)
+            }
             Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
                 if walk_expr(callee, eval_id, function_id) {
                     return true;
@@ -205,10 +211,9 @@ fn value_to_observation(v: Value) -> Result<Observation, String> {
         Value::Prim(EmbedValue::String(s)) => Ok(Observation::String(s)),
         Value::Prim(EmbedValue::Boolean(b)) => Ok(Observation::Bool(b)),
         Value::Prim(EmbedValue::Undefined) => Ok(Observation::String("undefined".into())),
-        Value::BuiltinEval
-        | Value::BuiltinFunction
-        | Value::UserFn(_)
-        | Value::DynFn(_) => Ok(Observation::Function),
+        Value::BuiltinEval | Value::BuiltinFunction | Value::UserFn(_) | Value::DynFn(_) => {
+            Ok(Observation::Function)
+        }
         other => Err(format!("cannot observe value {other:?}")),
     }
 }
@@ -510,8 +515,7 @@ impl<'a> Folder<'a> {
         }
         for pid in &uf.params {
             shadowed.push((*pid, self.env.get(pid).cloned()));
-            self.env
-                .insert(*pid, Value::Prim(EmbedValue::Undefined));
+            self.env.insert(*pid, Value::Prim(EmbedValue::Undefined));
         }
 
         let mut ret = Value::Prim(EmbedValue::Undefined);
@@ -614,10 +618,9 @@ fn is_user_binding_name(name: &str) -> bool {
 fn typeof_name(v: &Value) -> &'static str {
     match v {
         Value::Prim(p) => p.typeof_name(),
-        Value::BuiltinEval
-        | Value::BuiltinFunction
-        | Value::UserFn(_)
-        | Value::DynFn(_) => "function",
+        Value::BuiltinEval | Value::BuiltinFunction | Value::UserFn(_) | Value::DynFn(_) => {
+            "function"
+        }
         Value::GlobalThis => "object",
     }
 }
@@ -650,10 +653,7 @@ fn parse_function_ctor_args(args: &[Arg]) -> Result<DynFunction, String> {
         strs.push(value.to_string_lossy());
     }
     let body = strs.pop().unwrap_or_default();
-    Ok(DynFunction {
-        params: strs,
-        body,
-    })
+    Ok(DynFunction { params: strs, body })
 }
 
 fn const_arg_values(args: &[Arg]) -> Result<Vec<EmbedValue>, String> {

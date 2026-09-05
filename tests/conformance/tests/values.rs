@@ -65,8 +65,7 @@ fn abstract_eq_coercion_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/values/abstract_eq_coercion"),
+        ids.iter().any(|id| *id == "es/values/abstract_eq_coercion"),
         "missing es/values/abstract_eq_coercion fixture, got {ids:?}"
     );
 }

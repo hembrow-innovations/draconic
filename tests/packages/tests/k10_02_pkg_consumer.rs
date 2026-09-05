@@ -79,7 +79,11 @@ fn head_oid(repo: &Path) -> String {
 /// Copy in-repo pkg-lib into a fresh tagged git upstream.
 fn tagged_upstream_from_pkg_lib(root: &Path) -> (PathBuf, String) {
     let src = pkg_lib_dir();
-    assert!(src.is_dir(), "examples/pkg-lib missing at {}", src.display());
+    assert!(
+        src.is_dir(),
+        "examples/pkg-lib missing at {}",
+        src.display()
+    );
 
     let repo = root.join("pkg-lib-upstream");
     fs::create_dir_all(&repo).unwrap();
@@ -117,10 +121,7 @@ fn k10_02_pkg_consumer_layout_and_manifest() {
     );
     let manifest =
         parse_manifest(&fs::read_to_string(&manifest_path).unwrap()).expect("valid manifest");
-    assert_eq!(
-        manifest.module, PKG_CONSUMER_MODULE,
-        "consumer module path"
-    );
+    assert_eq!(manifest.module, PKG_CONSUMER_MODULE, "consumer module path");
     let dep = manifest
         .dependencies
         .get(PKG_LIB_MODULE)
@@ -143,7 +144,10 @@ fn k10_02_pkg_consumer_layout_and_manifest() {
     );
 
     let readme = dir.join("README.md");
-    assert!(readme.is_file(), "README.md required (documented build path)");
+    assert!(
+        readme.is_file(),
+        "README.md required (documented build path)"
+    );
     let doc = fs::read_to_string(&readme).unwrap();
     assert!(
         doc.contains("draconic")

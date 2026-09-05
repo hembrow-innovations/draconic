@@ -31,10 +31,9 @@ fn temp_dir() -> PathBuf {
 fn e2e_run_js_console_log() {
     let dir = temp_dir();
     let out = dir.join("out.js");
-    let module = compile_source(
-        "let console = globalThis.console;\nconsole.log(\"integration-run-js\");\n",
-    )
-    .expect("compile");
+    let module =
+        compile_source("let console = globalThis.console;\nconsole.log(\"integration-run-js\");\n")
+            .expect("compile");
     let js = emit_js(&module).expect("emit_js");
     fs::write(&out, &js).unwrap();
 
@@ -50,10 +49,7 @@ fn e2e_run_js_console_log() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("integration-run-js"),
-        "stdout={stdout}"
-    );
+    assert!(stdout.contains("integration-run-js"), "stdout={stdout}");
 }
 
 /// Native path: compile → LLVM → binary execute (same as CLI `run --target native`).
@@ -93,7 +89,5 @@ fn e2e_run_js_source_with_hashbang() {
         "node failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(
-        String::from_utf8_lossy(&output.stdout).contains("hashbang-src")
-    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("hashbang-src"));
 }

@@ -268,7 +268,8 @@ fn proxy_define_property_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "es/proxies/proxy_define_property"),
+        ids.iter()
+            .any(|id| *id == "es/proxies/proxy_define_property"),
         "missing es/proxies/proxy_define_property fixture, got {ids:?}"
     );
 }

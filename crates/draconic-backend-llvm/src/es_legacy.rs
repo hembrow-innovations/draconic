@@ -53,9 +53,7 @@ impl Heap {
     }
 
     fn has_own(&self, obj: usize, key: &str) -> bool {
-        self.objects
-            .get(obj)
-            .is_some_and(|m| m.contains_key(key))
+        self.objects.get(obj).is_some_and(|m| m.contains_key(key))
     }
 
     fn get(&self, obj: usize, key: &str) -> JsVal {
@@ -190,7 +188,9 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 
 fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::Local { id, .. } => by_id.contains_key(id),
         Expr::IdentName { .. } => true,
         Expr::Object { properties, .. } => properties.iter().all(|p| match p {
@@ -217,9 +217,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                     AssignTarget::Local(id) => by_id.contains_key(id),
                     AssignTarget::Name(_) => true,
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     } => expr_ok(object, by_id) && expr_ok(property, by_id),
                     _ => false,
                 }
@@ -480,12 +478,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -497,11 +490,7 @@ impl Emitter {
             self.emit_num(*n);
         }
 
-        writeln!(
-            self.out,
-            "; Draconic LLVM backend (N08.15 legacy with)"
-        )
-        .ok();
+        writeln!(self.out, "; Draconic LLVM backend (N08.15 legacy with)").ok();
         writeln!(self.out, "{}", llvm_declares(ES_EXPR_DECLARES)).ok();
         writeln!(self.out, "\ndefine i32 @main() {{").ok();
         writeln!(self.out, "entry:").ok();

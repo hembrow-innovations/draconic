@@ -1,6 +1,6 @@
 use draconic_ast::{
     dump_program, AccessorKind, Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp,
-    BinaryOp, BigIntLit, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
+    BigIntLit, BinaryOp, BindingKind, BindingPattern, ClassElement, ExportSpecifier, Expr, Ident,
     ImportAttribute, ImportAttributeKey, ImportPhase, ImportSpecifier, NumberLit, ObjectKey,
     ObjectPatternProp, ObjectProp, Param, Program, Stmt, StringLit, SwitchCase, TemplateElement,
     UnaryOp, UpdateOp,
@@ -124,11 +124,7 @@ impl Parser {
     }
 
     fn all_class_private_names(&self) -> Vec<String> {
-        self.class_private_stack
-            .iter()
-            .flatten()
-            .cloned()
-            .collect()
+        self.class_private_stack.iter().flatten().cloned().collect()
     }
 
     /// `yield` as IdentifierReference / BindingIdentifier (non-strict, non-generator).
@@ -174,8 +170,8 @@ impl Parser {
         let mut directive_prologue = true;
         self.prologue_had_legacy_escape = false;
         while !self.check(&TokenKind::Eof) {
-            let upcoming_legacy_string = self.current().legacy_octal
-                && matches!(self.current().kind, TokenKind::String(_));
+            let upcoming_legacy_string =
+                self.current().legacy_octal && matches!(self.current().kind, TokenKind::String(_));
             self.parse_stmt_list_item_into(&mut body)?;
             if directive_prologue {
                 match body.last() {
@@ -299,8 +295,13 @@ impl Parser {
             // Invalid `using x = a, [] = b` is rejected after the comma in parse_using_decls.
             TokenKind::Ident(name) if !self.is_invalid_ident_name(name) => true,
             // BindingIdentifier may be yield/await/let/static/const tokens in some contexts.
-            TokenKind::Yield | TokenKind::Await | TokenKind::Let | TokenKind::Static
-            | TokenKind::Const | TokenKind::As | TokenKind::From => true,
+            TokenKind::Yield
+            | TokenKind::Await
+            | TokenKind::Let
+            | TokenKind::Static
+            | TokenKind::Const
+            | TokenKind::As
+            | TokenKind::From => true,
             _ => false,
         }
     }
@@ -491,10 +492,7 @@ impl Parser {
     /// Statement, or Annex B plain FunctionDeclaration in non-strict (if / label only).
     /// E19.67: Annex B does not allow `async function` / `function*` here.
     fn parse_stmt_or_annex_b_function(&mut self) -> Result<Stmt, Diagnostic> {
-        if !self.in_strict
-            && self.check(&TokenKind::Function)
-            && !self.peek_is(&TokenKind::Star)
-        {
+        if !self.in_strict && self.check(&TokenKind::Function) && !self.peek_is(&TokenKind::Star) {
             return self.parse_function_decl();
         }
         // Async / generator declarations are never valid Annex B statement forms.
@@ -542,8 +540,8 @@ impl Parser {
         self.using_container_depth += 1;
         self.forbid_direct_using = false;
         while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
-            let upcoming_legacy_string = self.current().legacy_octal
-                && matches!(self.current().kind, TokenKind::String(_));
+            let upcoming_legacy_string =
+                self.current().legacy_octal && matches!(self.current().kind, TokenKind::String(_));
             self.parse_stmt_list_item_into(&mut body)?;
             if directive_prologue {
                 match body.last() {
@@ -848,7 +846,9 @@ impl Parser {
 
         // `for (let/const/var binding in/of right)` and classic `for (let/const/var …; …; …)`.
         // Annex B.3.5: `for (var name = init in right)` only (ident binding).
-        if self.check(&TokenKind::Let) || self.check(&TokenKind::Const) || self.check(&TokenKind::Var)
+        if self.check(&TokenKind::Let)
+            || self.check(&TokenKind::Const)
+            || self.check(&TokenKind::Var)
         {
             let kind = if self.check(&TokenKind::Const) {
                 BindingKind::Const
@@ -1540,10 +1540,7 @@ impl Parser {
             if let Some(frame) = self.class_private_stack.last_mut() {
                 register_private_names_from_element(&el, frame);
             }
-            let needs_field_semi = matches!(
-                &el,
-                ClassElement::Field { .. }
-            );
+            let needs_field_semi = matches!(&el, ClassElement::Field { .. });
             body.push(el);
             // FieldDefinition requires `;` (explicit or ASI). Methods end at `}`.
             if needs_field_semi {
@@ -1881,11 +1878,7 @@ impl Parser {
                     span,
                 ));
             }
-            Ok(ClassElement::Constructor {
-                params,
-                body,
-                span,
-            })
+            Ok(ClassElement::Constructor { params, body, span })
         } else {
             Ok(ClassElement::Method {
                 key,
@@ -2227,9 +2220,9 @@ impl Parser {
             });
         }
         let err_span = self.current().span;
-        let name_tok = self.expect_ident().map_err(|_| {
-            Diagnostic::new("expected type name after `:`".to_string(), err_span)
-        })?;
+        let name_tok = self
+            .expect_ident()
+            .map_err(|_| Diagnostic::new("expected type name after `:`".to_string(), err_span))?;
         let name = name_tok.ident_name();
         let start = name_tok.span.start.0;
         if self.check(&TokenKind::Lt) {
@@ -2358,8 +2351,8 @@ impl Parser {
         let mut handler = None;
         if self.check(&TokenKind::Catch) {
             self.bump(); // catch
-            // Optional catch binding (ES2019): `catch { … }` or `catch (CatchParameter) { … }`.
-            // CatchParameter is BindingIdentifier | BindingPattern (array/object).
+                         // Optional catch binding (ES2019): `catch { … }` or `catch (CatchParameter) { … }`.
+                         // CatchParameter is BindingIdentifier | BindingPattern (array/object).
             if self.check(&TokenKind::LParen) {
                 self.bump();
                 handler_param = Some(self.parse_binding_pattern()?);
@@ -2580,14 +2573,7 @@ impl Parser {
                     } else {
                         let (name, span) = self.expect_ident_name()?;
                         let units = JsString::from(name.as_str());
-                        (
-                            ImportAttributeKey::Ident(Ident {
-                                name,
-                                span,
-                            }),
-                            units,
-                            span,
-                        )
+                        (ImportAttributeKey::Ident(Ident { name, span }), units, span)
                     };
                 if seen_keys.iter().any(|k| k == &key_units) {
                     return Err(Diagnostic::new(
@@ -3027,10 +3013,7 @@ impl Parser {
                 self.parse_stmt_list_item_into(&mut body)?;
             }
             self.forbid_direct_using = prev_forbid;
-            let end = body
-                .last()
-                .map(|s| stmt_span(s).end.0)
-                .unwrap_or(colon_end);
+            let end = body.last().map(|s| stmt_span(s).end.0).unwrap_or(colon_end);
             Ok(SwitchCase {
                 test: Some(test),
                 body,
@@ -3050,10 +3033,7 @@ impl Parser {
                 self.parse_stmt_list_item_into(&mut body)?;
             }
             self.forbid_direct_using = prev_forbid;
-            let end = body
-                .last()
-                .map(|s| stmt_span(s).end.0)
-                .unwrap_or(colon_end);
+            let end = body.last().map(|s| stmt_span(s).end.0).unwrap_or(colon_end);
             Ok(SwitchCase {
                 test: None,
                 body,
@@ -3061,10 +3041,7 @@ impl Parser {
             })
         } else {
             Err(Diagnostic::new(
-                format!(
-                    "expected case or default, found {:?}",
-                    self.current().kind
-                ),
+                format!("expected case or default, found {:?}", self.current().kind),
                 self.current().span,
             ))
         }
@@ -3422,14 +3399,13 @@ impl Parser {
     fn parse_yield(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::Yield)?.span.start.0;
         // No LineTerminator between `yield` and `*` (E19.39 yield-star-after-newline).
-        let delegate = if self.check(&TokenKind::Star)
-            && !self.current().preceded_by_line_terminator
-        {
-            self.bump();
-            true
-        } else {
-            false
-        };
+        let delegate =
+            if self.check(&TokenKind::Star) && !self.current().preceded_by_line_terminator {
+                self.bump();
+                true
+            } else {
+                false
+            };
         // No LineTerminator before the operand (incl. bare `yield` then `*` on next line).
         let arg = if !delegate
             && (self.current().preceded_by_line_terminator
@@ -3507,10 +3483,7 @@ impl Parser {
     }
 
     fn lookahead_paren_arrow_from(&self, mut i: usize) -> bool {
-        if !matches!(
-            self.tokens.get(i).map(|t| &t.kind),
-            Some(TokenKind::LParen)
-        ) {
+        if !matches!(self.tokens.get(i).map(|t| &t.kind), Some(TokenKind::LParen)) {
             return false;
         }
         i += 1;
@@ -3539,13 +3512,11 @@ impl Parser {
             i += 1;
         }
         // E19.58: no LineTerminator between ArrowParameters and `=>`.
-        matches!(
-            self.tokens.get(i).map(|t| &t.kind),
-            Some(TokenKind::Arrow)
-        ) && !self
-            .tokens
-            .get(i)
-            .is_some_and(|t| t.preceded_by_line_terminator)
+        matches!(self.tokens.get(i).map(|t| &t.kind), Some(TokenKind::Arrow))
+            && !self
+                .tokens
+                .get(i)
+                .is_some_and(|t| t.preceded_by_line_terminator)
     }
 
     /// `async? (params): ret? => body` or bare `async? param => body`.
@@ -4970,8 +4941,9 @@ impl Parser {
                     span: tok.span,
                 })
             }
-            TokenKind::TemplateNoSubstitution(_)
-            | TokenKind::TemplateHead(_) => self.parse_template_literal(),
+            TokenKind::TemplateNoSubstitution(_) | TokenKind::TemplateHead(_) => {
+                self.parse_template_literal()
+            }
             TokenKind::True => {
                 self.bump();
                 Ok(Expr::Boolean {
@@ -5176,10 +5148,7 @@ impl Parser {
                         }
                         _ => {
                             return Err(Diagnostic::new(
-                                format!(
-                                    "expected template continuation, found {:?}",
-                                    cont.kind
-                                ),
+                                format!("expected template continuation, found {:?}", cont.kind),
                                 cont.span,
                             ));
                         }
@@ -5667,7 +5636,13 @@ fn object_prop_is_proto_data(prop: &ObjectProp) -> bool {
             ..
         } => {
             // Only `PropertyName : AssignmentExpression` form — not methods/shorthand.
-            if matches!(value, Expr::FunctionExpression { is_method: true, .. }) {
+            if matches!(
+                value,
+                Expr::FunctionExpression {
+                    is_method: true,
+                    ..
+                }
+            ) {
                 return false;
             }
             match key {
@@ -5748,9 +5723,12 @@ fn expr_contains_await_expr(expr: &Expr) -> bool {
         | Expr::Unary { arg: inner, .. }
         | Expr::Update { arg: inner, .. }
         | Expr::As { expr: inner, .. } => expr_contains_await_expr(inner),
-        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
-            expr_contains_await_expr(left) || expr_contains_await_expr(right)
-        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_await_expr(left) || expr_contains_await_expr(right),
         Expr::Conditional {
             test,
             consequent,
@@ -5781,7 +5759,9 @@ fn expr_contains_await_expr(expr: &Expr) -> bool {
             ObjectProp::Spread { expr, .. } => expr_contains_await_expr(expr),
             ObjectProp::Accessor { key, .. } => object_key_contains_await_expr(key),
         }),
-        Expr::TemplateLiteral { expressions, .. } => expressions.iter().any(expr_contains_await_expr),
+        Expr::TemplateLiteral { expressions, .. } => {
+            expressions.iter().any(expr_contains_await_expr)
+        }
         Expr::TaggedTemplate {
             tag, expressions, ..
         } => expr_contains_await_expr(tag) || expressions.iter().any(expr_contains_await_expr),
@@ -5789,7 +5769,9 @@ fn expr_contains_await_expr(expr: &Expr) -> bool {
             source, options, ..
         } => {
             expr_contains_await_expr(source)
-                || options.as_ref().is_some_and(|o| expr_contains_await_expr(o))
+                || options
+                    .as_ref()
+                    .is_some_and(|o| expr_contains_await_expr(o))
         }
         Expr::PrivateIn { object, .. } => expr_contains_await_expr(object),
         _ => false,
@@ -5886,7 +5868,7 @@ fn js_number_to_property_key(n: f64) -> String {
     }
     let abs = n.abs();
     // ECMA-262 Number::toString(10): scientific when |n| < 1e-6 or |n| >= 1e21.
-    if abs < 1e-6 || abs >= 1e21 {
+    if !(1e-6..1e21).contains(&abs) {
         return js_number_to_exponential(n);
     }
     if n.fract() == 0.0 && abs <= 9007199254740991.0 {
@@ -5928,13 +5910,19 @@ fn expr_is_private_member_reference(expr: &Expr) -> bool {
 fn register_private_names_from_element(el: &ClassElement, frame: &mut Vec<String>) {
     match el {
         ClassElement::Field {
-            key, is_private: true, ..
+            key,
+            is_private: true,
+            ..
         }
         | ClassElement::Method {
-            key, is_private: true, ..
+            key,
+            is_private: true,
+            ..
         }
         | ClassElement::Accessor {
-            key, is_private: true, ..
+            key,
+            is_private: true,
+            ..
         } => {
             if let ObjectKey::Ident(id) = key {
                 if !frame.iter().any(|n| n == &id.name) {
@@ -6160,7 +6148,10 @@ fn validate_class_body(
                     ));
                 }
             }
-            ClassElement::StaticBlock { body: block_body, span } => {
+            ClassElement::StaticBlock {
+                body: block_body,
+                span,
+            } => {
                 if stmt_contains_super_call(block_body) {
                     return Err(Diagnostic::new(
                         "static block cannot contain super call".to_string(),
@@ -6192,9 +6183,7 @@ fn validate_class_body(
         let has_static = *sg || *ss;
         if has_instance && has_static {
             return Err(Diagnostic::new(
-                format!(
-                    "private name #{name} cannot mix static and instance accessors"
-                ),
+                format!("private name #{name} cannot mix static and instance accessors"),
                 Span::dummy(),
             ));
         }
@@ -6398,7 +6387,9 @@ fn stmt_contains_return(stmt: &Stmt) -> bool {
         | Stmt::ForIn { body, .. }
         | Stmt::Labeled { body, .. }
         | Stmt::With { body, .. } => stmt_contains_return(body),
-        Stmt::Switch { cases, .. } => cases.iter().any(|c| c.body.iter().any(stmt_contains_return)),
+        Stmt::Switch { cases, .. } => cases
+            .iter()
+            .any(|c| c.body.iter().any(stmt_contains_return)),
         Stmt::Try {
             block,
             handler,
@@ -6420,7 +6411,9 @@ fn stmt_contains_arguments_deep(stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Expression { expr, .. } => expr_contains_arguments_deep(expr),
         Stmt::Block { body, .. } => body.iter().any(stmt_contains_arguments_deep),
-        Stmt::Return { argument, .. } => argument.as_ref().is_some_and(expr_contains_arguments_deep),
+        Stmt::Return { argument, .. } => {
+            argument.as_ref().is_some_and(expr_contains_arguments_deep)
+        }
         Stmt::Let { init, .. } => init.as_ref().is_some_and(expr_contains_arguments_deep),
         _ => false,
     }
@@ -6529,11 +6522,7 @@ fn check_class_element_private_refs(
             }
             check_stmt_private_refs(body, declared)
         }
-        ClassElement::Constructor {
-            params,
-            body,
-            span,
-        } => {
+        ClassElement::Constructor { params, body, span } => {
             for p in params {
                 if let Some(d) = &p.default {
                     check_expr_private_refs(d, declared, *span)?;
@@ -6554,17 +6543,13 @@ fn check_stmt_private_refs(stmt: &Stmt, declared: &[String]) -> Result<(), Diagn
             Ok(())
         }
         Stmt::Expression { expr, span, .. } => check_expr_private_refs(expr, declared, *span),
-        Stmt::Return {
-            argument, span, ..
-        } => {
+        Stmt::Return { argument, span, .. } => {
             if let Some(a) = argument {
                 check_expr_private_refs(a, declared, *span)?;
             }
             Ok(())
         }
-        Stmt::Throw {
-            argument, span, ..
-        } => check_expr_private_refs(argument, declared, *span),
+        Stmt::Throw { argument, span, .. } => check_expr_private_refs(argument, declared, *span),
         Stmt::If {
             test,
             consequent,
@@ -6579,7 +6564,12 @@ fn check_stmt_private_refs(stmt: &Stmt, declared: &[String]) -> Result<(), Diagn
             }
             Ok(())
         }
-        Stmt::While { test, body, span, .. } | Stmt::DoWhile { test, body, span, .. } => {
+        Stmt::While {
+            test, body, span, ..
+        }
+        | Stmt::DoWhile {
+            test, body, span, ..
+        } => {
             check_expr_private_refs(test, declared, *span)?;
             check_stmt_private_refs(body, declared)
         }
@@ -6686,11 +6676,7 @@ fn check_stmt_private_refs(stmt: &Stmt, declared: &[String]) -> Result<(), Diagn
     }
 }
 
-fn check_expr_private_refs(
-    expr: &Expr,
-    declared: &[String],
-    span: Span,
-) -> Result<(), Diagnostic> {
+fn check_expr_private_refs(expr: &Expr, declared: &[String], span: Span) -> Result<(), Diagnostic> {
     match expr {
         Expr::MemberExpression {
             object,
@@ -6872,9 +6858,12 @@ fn expr_contains_super_call(expr: &Expr) -> bool {
         | Expr::Unary { arg: inner, .. }
         | Expr::Update { arg: inner, .. }
         | Expr::As { expr: inner, .. } => expr_contains_super_call(inner),
-        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
-            expr_contains_super_call(left) || expr_contains_super_call(right)
-        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_super_call(left) || expr_contains_super_call(right),
         Expr::Conditional {
             test,
             consequent,
@@ -6912,7 +6901,9 @@ fn expr_contains_super_call(expr: &Expr) -> bool {
             source, options, ..
         } => {
             expr_contains_super_call(source)
-                || options.as_ref().is_some_and(|o| expr_contains_super_call(o))
+                || options
+                    .as_ref()
+                    .is_some_and(|o| expr_contains_super_call(o))
         }
         Expr::PrivateIn { object, .. } => expr_contains_super_call(object),
         Expr::ArrayPattern { elements, .. } => elements.iter().any(|el| match el {
@@ -6922,9 +6913,7 @@ fn expr_contains_super_call(expr: &Expr) -> bool {
             _ => false,
         }),
         Expr::ObjectPattern { properties, .. } => properties.iter().any(|p| match p {
-            ObjectPatternProp::Prop {
-                key, default, ..
-            } => {
+            ObjectPatternProp::Prop { key, default, .. } => {
                 object_key_contains_super_call(key)
                     || default.as_ref().is_some_and(expr_contains_super_call)
             }
@@ -6961,7 +6950,9 @@ fn stmt_contains_super_call(stmt: &Stmt) -> bool {
         } => {
             expr_contains_super_call(test)
                 || stmt_contains_super_call(consequent)
-                || alternate.as_ref().is_some_and(|a| stmt_contains_super_call(a))
+                || alternate
+                    .as_ref()
+                    .is_some_and(|a| stmt_contains_super_call(a))
         }
         Stmt::While { test, body, .. } | Stmt::DoWhile { test, body, .. } => {
             expr_contains_super_call(test) || stmt_contains_super_call(body)
@@ -6989,9 +6980,12 @@ fn expr_contains_arguments_ref(expr: &Expr) -> bool {
         | Expr::Unary { arg: inner, .. }
         | Expr::Update { arg: inner, .. }
         | Expr::As { expr: inner, .. } => expr_contains_arguments_ref(inner),
-        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
-            expr_contains_arguments_ref(left) || expr_contains_arguments_ref(right)
-        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_contains_arguments_ref(left) || expr_contains_arguments_ref(right),
         Expr::Conditional {
             test,
             consequent,
@@ -7301,8 +7295,7 @@ fn expr_to_binding_pattern(expr: &Expr) -> Option<BindingPattern> {
         Expr::Ident(id) => Some(BindingPattern::Ident(id.clone())),
         // E19.82.10: private members (`obj.#f`) are valid assignment-pattern targets.
         Expr::MemberExpression {
-            optional: false,
-            ..
+            optional: false, ..
         } => Some(BindingPattern::Member(Box::new(expr.clone()))),
         Expr::ArrayExpression {
             elements,
@@ -7514,7 +7507,8 @@ Program
     fn parse_const_requires_initializer() {
         let err = parse("const x;").unwrap_err();
         assert!(
-            err.message.contains("const declaration requires an initializer"),
+            err.message
+                .contains("const declaration requires an initializer"),
             "got: {}",
             err.message
         );
@@ -7748,7 +7742,8 @@ Program
     fn parse_for_of_var_init_rejected() {
         let err = parse_and_dump("for (var k = 1 of s) x = k;").unwrap_err();
         assert!(
-            err.message.contains("for-of binding cannot have an initializer"),
+            err.message
+                .contains("for-of binding cannot have an initializer"),
             "{err:?}"
         );
     }
@@ -7849,7 +7844,8 @@ Program
 
     #[test]
     fn parse_for_await_of_let() {
-        let dump = parse_and_dump("async function f() { for await (let x of a) { y = x; } }").unwrap();
+        let dump =
+            parse_and_dump("async function f() { for await (let x of a) { y = x; } }").unwrap();
         assert!(dump.contains("ForOf await"), "got:\n{dump}");
         assert!(dump.contains("name: x"), "got:\n{dump}");
     }
@@ -7889,8 +7885,7 @@ Program
 
     #[test]
     fn parse_labeled_break_continue() {
-        let dump =
-            parse_and_dump("outer: while (true) { break outer; continue outer; }").unwrap();
+        let dump = parse_and_dump("outer: while (true) { break outer; continue outer; }").unwrap();
         assert_eq!(
             dump,
             "\
@@ -7909,10 +7904,9 @@ Program
 
     #[test]
     fn parse_switch() {
-        let dump = parse_and_dump(
-            "switch (x) { case 1: a = 1; break; case 2: a = 2; default: a = 0; }",
-        )
-        .unwrap();
+        let dump =
+            parse_and_dump("switch (x) { case 1: a = 1; break; case 2: a = 2; default: a = 0; }")
+                .unwrap();
         assert_eq!(
             dump,
             "\
@@ -7961,12 +7955,10 @@ Program
         );
     }
 
-
     /// F06.01: `extern "C" function` declarations (no body).
     #[test]
     fn parse_extern_c_function_decl() {
-        let dump =
-            parse_and_dump(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        let dump = parse_and_dump(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
         assert_eq!(
             dump,
             "\
@@ -7989,10 +7981,9 @@ Program
 
     #[test]
     fn parse_extern_c_fnptr_type_param() {
-        let dump = parse_and_dump(
-            r#"extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;"#,
-        )
-        .unwrap();
+        let dump =
+            parse_and_dump(r#"extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;"#)
+                .unwrap();
         assert_eq!(
             dump,
             "\
@@ -8066,11 +8057,7 @@ Program
     #[test]
     fn parse_extern_c_function_rejects_generator() {
         let err = parse(r#"extern "C" function* g(): i32;"#).unwrap_err();
-        assert!(
-            err.message.contains("generator"),
-            "got: {}",
-            err.message
-        );
+        assert!(err.message.contains("generator"), "got: {}", err.message);
     }
 
     #[test]
@@ -8254,7 +8241,8 @@ Program
 
     #[test]
     fn parse_default_params() {
-        let dump = parse_and_dump("function f(a = 1, b) { return a + b; } let g = (x = 2) => x;").unwrap();
+        let dump =
+            parse_and_dump("function f(a = 1, b) { return a + b; } let g = (x = 2) => x;").unwrap();
         assert_eq!(
             dump,
             "\
@@ -8346,8 +8334,8 @@ Program
 
     #[test]
     fn parse_object_literal_and_member() {
-        let dump = parse_and_dump(r#"let o = { a: 1, "b": 2 }; let x = o.a; let y = o["b"];"#)
-            .unwrap();
+        let dump =
+            parse_and_dump(r#"let o = { a: 1, "b": 2 }; let x = o.a; let y = o["b"];"#).unwrap();
         assert!(dump.contains("ObjectExpression"));
         assert!(dump.contains("key: Ident a"));
         assert!(dump.contains("key: String \"b\""));
@@ -8394,8 +8382,9 @@ Program
     #[test]
     fn parse_call_args_trailing_comma() {
         // E19.21: trailing comma in Arguments (call and new).
-        let dump = parse_and_dump("f(a,); g(a, b,); h(...a,); i(1, ...b,); new C(x,); new D(...y,);")
-            .unwrap();
+        let dump =
+            parse_and_dump("f(a,); g(a, b,); h(...a,); i(1, ...b,); new C(x,); new D(...y,);")
+                .unwrap();
         assert!(dump.contains("Call\n"), "got:\n{dump}");
         assert!(dump.contains("New\n"), "got:\n{dump}");
         assert!(dump.contains("arg[0]:\n        Ident a"), "got:\n{dump}");
@@ -8410,8 +8399,9 @@ Program
 
     #[test]
     fn parse_object_literal_sugar() {
-        let dump = parse_and_dump("let a = 1; let k = \"z\"; let o = { a, m() { return 1; }, [k]: 2 };")
-            .unwrap();
+        let dump =
+            parse_and_dump("let a = 1; let k = \"z\"; let o = { a, m() { return 1; }, [k]: 2 };")
+                .unwrap();
         assert!(dump.contains("prop shorthand:"));
         assert!(dump.contains("key: Ident a"));
         assert!(dump.contains("FunctionExpression"));
@@ -8498,10 +8488,7 @@ Program
 
     #[test]
     fn parse_private_in() {
-        let dump = parse_and_dump(
-            "class C { #x = 1; m(o) { return #x in o; } }",
-        )
-        .unwrap();
+        let dump = parse_and_dump("class C { #x = 1; m(o) { return #x in o; } }").unwrap();
         assert!(dump.contains("PrivateIn"), "{dump}");
         assert!(dump.contains("name: #x"), "{dump}");
         assert!(dump.contains("Ident o"), "{dump}");
@@ -8527,7 +8514,8 @@ Program
 
     #[test]
     fn parse_new_expression() {
-        let dump = parse_and_dump("let p = new Point(1, 2); let q = new Foo; let x = new A().b;").unwrap();
+        let dump =
+            parse_and_dump("let p = new Point(1, 2); let q = new Foo; let x = new A().b;").unwrap();
         assert!(dump.contains("New\n"));
         assert!(dump.contains("arg[0]:"));
         assert!(dump.contains("MemberExpression"));
@@ -8557,7 +8545,10 @@ Program
         assert!(!dump.contains("ImportCall"), "{dump}");
         assert!(parse("const u = import.meta;").is_err());
         let dump2 = parse_module_and_dump("const p = import(import.meta);").unwrap();
-        assert!(dump2.contains("ImportCall\n") && dump2.contains("ImportMeta\n"), "{dump2}");
+        assert!(
+            dump2.contains("ImportCall\n") && dump2.contains("ImportMeta\n"),
+            "{dump2}"
+        );
     }
 
     #[test]
@@ -8632,8 +8623,7 @@ Program
 
     #[test]
     fn parse_import_assert_attributes() {
-        let dump =
-            parse_and_dump("import x from \"./m.js\" assert { type: \"json\" };").unwrap();
+        let dump = parse_and_dump("import x from \"./m.js\" assert { type: \"json\" };").unwrap();
         assert!(
             dump.contains("ImportAttribute") && dump.contains("key: type"),
             "expected assert attributes, got:\n{dump}"
@@ -8664,8 +8654,7 @@ Program
 
     #[test]
     fn parse_export_all_with_attributes() {
-        let dump =
-            parse_and_dump("export * from \"./m.js\" with { type: \"json\" };").unwrap();
+        let dump = parse_and_dump("export * from \"./m.js\" with { type: \"json\" };").unwrap();
         assert!(
             dump.contains("ExportAllDeclaration")
                 && dump.contains("ImportAttribute")
@@ -8685,16 +8674,15 @@ Program
 
     #[test]
     fn parse_import_attribute_duplicate_key_fails() {
-        assert!(parse(
-            "import x from \"./m.js\" with { type: \"json\", \"typ\\u0065\": \"\" };"
-        )
-        .is_err());
+        assert!(
+            parse("import x from \"./m.js\" with { type: \"json\", \"typ\\u0065\": \"\" };")
+                .is_err()
+        );
     }
 
     #[test]
     fn parse_import_attribute_trailing_comma() {
-        let dump =
-            parse_and_dump("import \"./m.js\" with { type: \"json\", };").unwrap();
+        let dump = parse_and_dump("import \"./m.js\" with { type: \"json\", };").unwrap();
         assert!(
             dump.contains("ImportAttribute") && dump.contains("key: type"),
             "expected trailing comma with clause, got:\n{dump}"
@@ -9319,8 +9307,7 @@ Program
         assert!(ary.contains("catch ([a]):"), "got:\n{ary}");
         let obj = parse_and_dump("try { throw {x: 1}; } catch ({x}) { y = x; }").unwrap();
         assert!(obj.contains("catch ({x}):"), "got:\n{obj}");
-        let nested =
-            parse_and_dump("try { throw [[1]]; } catch ([[a]]) { z = a; }").unwrap();
+        let nested = parse_and_dump("try { throw [[1]]; } catch ([[a]]) { z = a; }").unwrap();
         assert!(nested.contains("catch ([[a]]):"), "got:\n{nested}");
         let rest = parse_and_dump("try { throw [1, 2]; } catch ([a, ...r]) { z = r; }").unwrap();
         assert!(rest.contains("catch ([a, ...r]):"), "got:\n{rest}");
@@ -9372,7 +9359,10 @@ Program
     fn parse_yield_bare_and_conditional_rhs() {
         let bare = parse_and_dump("function* g() { yield; }").unwrap();
         assert!(bare.contains("Unary yield"), "got:\n{bare}");
-        assert!(bare.contains("Unary void"), "bare yield → void 0, got:\n{bare}");
+        assert!(
+            bare.contains("Unary void"),
+            "bare yield → void 0, got:\n{bare}"
+        );
 
         let cond = parse_and_dump("function* g() { yield 1 ? 2 : 3; }").unwrap();
         assert!(
@@ -9460,10 +9450,7 @@ Program
             "lexical static/public non-strict"
         );
         // LexicalBinding BoundNames must not include "let".
-        assert!(
-            parse_and_dump("let let = 1;").is_err(),
-            "let let must fail"
-        );
+        assert!(parse_and_dump("let let = 1;").is_err(), "let let must fail");
         assert!(
             parse_and_dump("const let = 1;").is_err(),
             "const let must fail"
@@ -9555,8 +9542,9 @@ Program
         );
 
         // Class field Initializer is [~Await]: script allows await-ident even in async.
-        let field = parse_and_dump("var await = 1; async function f() { return class { x = await; }; }")
-            .unwrap();
+        let field =
+            parse_and_dump("var await = 1; async function f() { return class { x = await; }; }")
+                .unwrap();
         assert!(
             field.contains("Ident await") && !field.contains("Unary await"),
             "class field await-ident in async, got:\n{field}"
@@ -9612,9 +9600,7 @@ Program
     fn parse_as_type_assertion() {
         let dump = parse_and_dump("let x = n as i32;").unwrap();
         assert!(
-            dump.contains("As\n")
-                && dump.contains("Ident n")
-                && dump.contains("NamedType i32"),
+            dump.contains("As\n") && dump.contains("Ident n") && dump.contains("NamedType i32"),
             "expected As node, got:\n{dump}"
         );
         let chain = parse_and_dump("let y = (n + 1) as number as i32;").unwrap();
@@ -9662,8 +9648,8 @@ Program
 
     #[test]
     fn parse_export_class() {
-        let dump = parse_and_dump("export class Point { constructor(x) { this.x = x; } }\n")
-            .unwrap();
+        let dump =
+            parse_and_dump("export class Point { constructor(x) { this.x = x; } }\n").unwrap();
         assert!(
             dump.contains("ExportNamedDeclaration")
                 && dump.contains("ClassDeclaration")
@@ -9704,8 +9690,9 @@ Program
     #[test]
     fn parse_export_var_await_module() {
         // E19.54: `export var x = await expr` under Module [+Await].
-        let prog = parse_module("export var name1 = await foo;\nexport var { x = await foo } = {};\n")
-            .expect("export var await");
+        let prog =
+            parse_module("export var name1 = await foo;\nexport var { x = await foo } = {};\n")
+                .expect("export var await");
         let dump = dump_program(&prog);
         assert!(
             dump.contains("ExportNamedDeclaration")
@@ -9756,8 +9743,8 @@ Program
             dump.contains("StaticBlock") && dump.contains("StaticField"),
             "expected static block + field, got:\n{dump}"
         );
-        let multi = parse_and_dump("class C { static { let a = 1; } static { let b = 2; } }\n")
-            .unwrap();
+        let multi =
+            parse_and_dump("class C { static { let a = 1; } static { let b = 2; } }\n").unwrap();
         assert_eq!(
             multi.matches("StaticBlock").count(),
             2,
@@ -10068,7 +10055,9 @@ Program
             "let + ASI in if body must be expression; got:\n{dump}"
         );
         assert!(
-            parse_and_dump("if (true) let;\n").unwrap().contains("Ident let"),
+            parse_and_dump("if (true) let;\n")
+                .unwrap()
+                .contains("Ident let"),
             "bare let; in if body must parse as identifier"
         );
         // StatementListItem still allows lexical decls (incl. case/default lists).
@@ -10190,10 +10179,7 @@ Program
             parse("\"use strict\"; let f = function eval() {};").is_err(),
             "strict FE eval name must fail"
         );
-        assert!(
-            parse("class eval {}").is_err(),
-            "class eval name must fail"
-        );
+        assert!(parse("class eval {}").is_err(), "class eval name must fail");
         assert!(
             parse_module("import { eval } from \"./m.js\";").is_err(),
             "import eval binding must fail"
@@ -10372,10 +10358,7 @@ Program
             "block using decl: {dump}"
         );
         let multi = parse_and_dump("{ using a = null, b = null; }\n").unwrap();
-        assert!(
-            multi.matches("Using").count() >= 2,
-            "multi using: {multi}"
-        );
+        assert!(multi.matches("Using").count() >= 2, "multi using: {multi}");
         let aw = parse_and_dump("async function f() { await using x = null; }\n").unwrap();
         assert!(
             aw.contains("AwaitUsing") && aw.contains("name: x"),
@@ -10432,10 +10415,7 @@ Program
         );
         // `using` remains a valid identifier when not a declaration.
         let id = parse_and_dump("let using = 1; using + 2;\n").unwrap();
-        assert!(
-            id.contains("name: using"),
-            "using as ident: {id}"
-        );
+        assert!(id.contains("name: using"), "using as ident: {id}");
         // Module top-level using OK.
         let mod_prog = parse_module("using x = null;\n").unwrap();
         let mod_dump = dump_program(&mod_prog);

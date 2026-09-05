@@ -145,10 +145,7 @@ fn k09_01_tagged_lib_consumer_resolve_fetch() {
     fs::write(ws.join(LOCK_FILE), &lock_text).unwrap();
     let lock_round = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
     assert_eq!(lock_round.packages[lib_path].commit_oid, oid);
-    assert_eq!(
-        lock_round.packages[lib_path].content_hash,
-        pin.content_hash
-    );
+    assert_eq!(lock_round.packages[lib_path].content_hash, pin.content_hash);
 
     // Second resolve is cache-hit stable (same pin).
     let lock2 = resolve_direct_deps(&manifest, &cache).expect("resolve again");

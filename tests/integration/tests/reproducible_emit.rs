@@ -104,7 +104,10 @@ fn js_emit_is_byte_identical_across_two_compiles() {
 fn llvm_ir_emit_is_byte_identical_across_two_compiles() {
     let a = compile_llvm(SRC);
     let b = compile_llvm(SRC);
-    assert_eq!(a, b, "LLVM IR emit must be byte-identical for the same source");
+    assert_eq!(
+        a, b,
+        "LLVM IR emit must be byte-identical for the same source"
+    );
     assert!(!a.is_empty(), "expected non-empty LLVM IR");
 }
 

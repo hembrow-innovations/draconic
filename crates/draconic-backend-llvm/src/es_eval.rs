@@ -37,7 +37,11 @@ fn classify_tag(module: &Module) -> &'static str {
 }
 
 fn module_has_direct_eval(module: &Module) -> bool {
-    let eval_id = module.locals.iter().find(|l| l.name == "eval").map(|l| l.id);
+    let eval_id = module
+        .locals
+        .iter()
+        .find(|l| l.name == "eval")
+        .map(|l| l.id);
     fn walk(stmt: &Stmt, eval_id: Option<LocalId>) -> bool {
         match stmt {
             Stmt::Declare { init: Some(e), .. }

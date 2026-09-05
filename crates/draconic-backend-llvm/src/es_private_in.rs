@@ -47,7 +47,10 @@ enum JsVal {
     Null,
     Object(usize),
     /// Callable + object props (`fn_idx` body, `obj_idx` props/prototype).
-    Fn { fn_idx: usize, obj_idx: usize },
+    Fn {
+        fn_idx: usize,
+        obj_idx: usize,
+    },
     WeakMap(usize),
     WeakSet(usize),
     Proxy(usize),
@@ -251,7 +254,9 @@ fn module_looks_like_private_in(module: &Module) -> bool {
                     }
                 }
             }
-            Expr::Member { object, property, .. } => {
+            Expr::Member {
+                object, property, ..
+            } => {
                 walk_expr(object, names, has_wm, has_ws, has_define);
                 walk_expr(property, names, has_wm, has_ws, has_define);
             }
@@ -307,9 +312,9 @@ fn module_looks_like_private_in(module: &Module) -> bool {
         has_define: &mut bool,
     ) {
         match s {
-            Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } | Stmt::Throw { value: e } => {
-                walk_expr(e, names, has_wm, has_ws, has_define)
-            }
+            Stmt::Declare { init: Some(e), .. }
+            | Stmt::Expr { expr: e }
+            | Stmt::Throw { value: e } => walk_expr(e, names, has_wm, has_ws, has_define),
             Stmt::Block { body } | Stmt::Function { body, .. } => {
                 for s in body {
                     walk_stmt(s, names, has_wm, has_ws, has_define);
@@ -506,10 +511,7 @@ impl World {
                 Pattern::Name(n) => ParamBind::Name(n.clone()),
                 _ => return Err(()),
             };
-            precs.push(ParamRec {
-                bind,
-                rest: p.rest,
-            });
+            precs.push(ParamRec { bind, rest: p.rest });
         }
         let fn_idx = self.fns.len();
         self.fns.push(FnRec {
@@ -536,11 +538,7 @@ impl World {
                 obj_idx: fn_obj_idx,
             },
         );
-        object_set_prop(
-            &mut rec,
-            "prototype".into(),
-            JsVal::Object(proto_idx),
-        );
+        object_set_prop(&mut rec, "prototype".into(), JsVal::Object(proto_idx));
         self.objects.push(rec);
         self.objects.push(proto_rec);
         // fix constructor circular — already set with correct fn_obj_idx
@@ -714,9 +712,7 @@ impl World {
             Expr::Assign {
                 target:
                     AssignTarget::Member {
-                        object,
-                        property,
-                        ..
+                        object, property, ..
                     },
                 op: AssignOp::Eq,
                 value,
@@ -1111,12 +1107,8 @@ impl World {
                 let this_idx = self.objects.len();
                 self.objects.push(rec);
                 let this_obj = JsVal::Object(this_idx);
-                let ret = self.call_fn_idx_new(
-                    *fn_idx,
-                    this_obj.clone(),
-                    args,
-                    new_target.clone(),
-                )?;
+                let ret =
+                    self.call_fn_idx_new(*fn_idx, this_obj.clone(), args, new_target.clone())?;
                 match ret {
                     JsVal::Object(_) | JsVal::Fn { .. } | JsVal::Proxy(_) => Ok(ret),
                     JsVal::Undef => Ok(this_obj),
@@ -1600,12 +1592,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -1676,8 +1663,7 @@ mod tests {
 
     #[test]
     fn private_in_classifies_and_emits() {
-        let src =
-            include_str!("../../../tests/conformance/fixtures/es/annex-b/private_in.drac");
+        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/private_in.drac");
         let m = compile_source(src).expect("compile");
         assert!(
             is_es_private_in_module(&m),

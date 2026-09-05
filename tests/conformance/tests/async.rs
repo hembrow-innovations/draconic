@@ -36,7 +36,8 @@ fn promise_resolve_reject_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "es/async/promise_resolve_reject"),
+        ids.iter()
+            .any(|id| *id == "es/async/promise_resolve_reject"),
         "missing es/async/promise_resolve_reject fixture, got {ids:?}"
     );
 }

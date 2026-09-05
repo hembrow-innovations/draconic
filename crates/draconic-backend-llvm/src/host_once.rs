@@ -432,10 +432,7 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt

@@ -13,8 +13,8 @@ use draconic_ir::{
     ObjectProp, ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
-    llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, OBJECT_COPY_OWN,
-    OBJECT_DELETE, OBJECT_GET, OBJECT_SET, PRINT_F64, PRINT_STR,
+    llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT,
+    OBJECT_COPY_OWN, OBJECT_DELETE, OBJECT_GET, OBJECT_SET, PRINT_F64, PRINT_STR,
 };
 
 /// qNaN payload marking JS `undefined` for missing props / uninit slots.
@@ -25,7 +25,8 @@ pub(crate) fn is_es_object_destructure_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_es_object_destructure(module: &Module) -> Result<String, Diagnostic> {
-    let info = classify(module).ok_or_else(|| diag("internal: not an es_object_destructure module"))?;
+    let info =
+        classify(module).ok_or_else(|| diag("internal: not an es_object_destructure module"))?;
     let mut em = Emitter::new(module, &info);
     em.emit_module(&info)?;
     Ok(em.finish())
@@ -254,7 +255,15 @@ fn classify_object_pattern(
                         return None;
                     }
                 }
-                classify_binding(binding, SlotTy::Number, top, by_id, slot_of, print_locals, seen_print)?;
+                classify_binding(
+                    binding,
+                    SlotTy::Number,
+                    top,
+                    by_id,
+                    slot_of,
+                    print_locals,
+                    seen_print,
+                )?;
             }
             ObjectPatternEl::Rest(binding) => {
                 classify_binding(
@@ -495,7 +504,10 @@ fn object_lit_ok(
                     && !object_expr_ok(value, by_id, slot_of)
                 {
                     // nested object lit
-                    if let Expr::Object { properties: inner, .. } = value {
+                    if let Expr::Object {
+                        properties: inner, ..
+                    } = value
+                    {
                         if !object_lit_ok(inner, by_id, slot_of) {
                             return false;
                         }
@@ -780,19 +792,11 @@ impl<'a> Emitter<'a> {
                     let bits = self.fresh();
                     writeln!(self.body, "  {bits} = bitcast double {v} to i64").ok();
                     let is_u = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  {is_u} = icmp eq i64 {bits}, {UNDEF_BITS}").ok();
                     let und_l = self.fresh_label("print_und");
                     let num_l = self.fresh_label("print_num");
                     let end_l = self.fresh_label("print_end");
-                    writeln!(
-                        self.body,
-                        "  br i1 {is_u}, label %{und_l}, label %{num_l}"
-                    )
-                    .ok();
+                    writeln!(self.body, "  br i1 {is_u}, label %{und_l}, label %{num_l}").ok();
                     writeln!(self.body, "{und_l}:").ok();
                     self.emit_print_str("undefined")?;
                     writeln!(self.body, "  br label %{end_l}").ok();
@@ -875,12 +879,7 @@ impl<'a> Emitter<'a> {
         let body = std::mem::take(&mut self.body);
         self.body = fn_body;
 
-        writeln!(
-            self.out,
-            "define double @d_fn_{}(ptr %arg0) {{",
-            f.idx
-        )
-        .ok();
+        writeln!(self.out, "define double @d_fn_{}(ptr %arg0) {{", f.idx).ok();
         writeln!(self.out, "entry:").ok();
         self.out.push_str(&body);
         writeln!(self.out, "}}").ok();
@@ -1189,7 +1188,9 @@ impl<'a> Emitter<'a> {
                     self.emit_string_expr(property)?
                 } else {
                     match property.as_ref() {
-                        Expr::String { value, .. } => self.string_const(&value.to_string_lossy())?,
+                        Expr::String { value, .. } => {
+                            self.string_const(&value.to_string_lossy())?
+                        }
                         _ => return Err(diag("es_od: member pattern key")),
                     }
                 };
@@ -1205,9 +1206,7 @@ impl<'a> Emitter<'a> {
                 // Nested object pattern: val_ptr is the object to destructure.
                 self.emit_object_destructure(inner, val_ptr, false)
             }
-            Pattern::Array(_) | Pattern::Name(_) => {
-                Err(diag("es_od: unsupported pattern binding"))
-            }
+            Pattern::Array(_) | Pattern::Name(_) => Err(diag("es_od: unsupported pattern binding")),
         }
     }
 
@@ -1230,9 +1229,8 @@ impl<'a> Emitter<'a> {
                             writeln!(
                                 self.body,
                                 "  {}",
-                                OBJECT_SET.call(&format!(
-                                    "ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"
-                                ))
+                                OBJECT_SET
+                                    .call(&format!("ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"))
                             )
                             .ok();
                         }
@@ -1342,10 +1340,7 @@ impl<'a> Emitter<'a> {
                 Ok(t)
             }
             Expr::Binary {
-                left,
-                op,
-                right,
-                ..
+                left, op, right, ..
             } => {
                 let l = self.emit_number_expr(left)?;
                 let r = self.emit_number_expr(right)?;
@@ -1433,11 +1428,7 @@ impl<'a> Emitter<'a> {
                 };
                 let arg = self.emit_object_expr(arg_e)?;
                 let t = self.fresh();
-                writeln!(
-                    self.body,
-                    "  {t} = call double @d_fn_{idx}(ptr {arg})"
-                )
-                .ok();
+                writeln!(self.body, "  {t} = call double @d_fn_{idx}(ptr {arg})").ok();
                 Ok(t)
             }
             _ => Err(diag("es_od: unsupported number expr")),

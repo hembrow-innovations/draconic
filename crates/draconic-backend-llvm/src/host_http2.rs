@@ -12,12 +12,12 @@ use std::fmt::Write as _;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP2_CLIENT_PREFACE,
-    HOST_HTTP2_CLIENT_OPEN, HOST_HTTP2_ENCODE_REQUEST, HOST_HTTP2_ENCODE_RESPONSE,
-    HOST_HTTP2_PARSE_REQUEST, HOST_HTTP2_PARSE_RESPONSE, HOST_HTTP2_SERVER_PREFACE,
-    HOST_HTTP2_SERVER_REPLY, HOST_HTTP2_SETTINGS_ACK,
-    HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT,
-    HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, PRINT_I64,
+    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP2_CLIENT_OPEN, HOST_HTTP2_CLIENT_PREFACE,
+    HOST_HTTP2_ENCODE_REQUEST, HOST_HTTP2_ENCODE_RESPONSE, HOST_HTTP2_PARSE_REQUEST,
+    HOST_HTTP2_PARSE_RESPONSE, HOST_HTTP2_SERVER_PREFACE, HOST_HTTP2_SERVER_REPLY,
+    HOST_HTTP2_SETTINGS_ACK, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE,
+    HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ,
+    HOST_TCP_WRITE, PRINT_I64,
 };
 
 pub(crate) fn is_host_http2_module(module: &Module) -> bool {
@@ -608,9 +608,8 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "closeTcp") =>
             {
-                let h = self.emit_handle(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http2: closeTcp"))?,
-                )?;
+                let h = self
+                    .emit_handle(arg_expr(&args[0]).ok_or_else(|| diag("host_http2: closeTcp"))?)?;
                 let rc = self.fresh();
                 writeln!(
                     self.body,
@@ -951,9 +950,8 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "tcpAccept") =>
             {
-                let h = self.emit_handle(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http2: accept"))?,
-                )?;
+                let h = self
+                    .emit_handle(arg_expr(&args[0]).ok_or_else(|| diag("host_http2: accept"))?)?;
                 let out = self.fresh();
                 let rc = self.fresh();
                 let c = self.fresh();

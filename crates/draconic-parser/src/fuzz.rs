@@ -54,8 +54,7 @@ mod tests {
     #[test]
     fn fuzz_parse_structured_garbage_no_panic() {
         // Nested-ish noise that often stresses recursive descent.
-        let s = "{{{{{{{{ monsta }}}}}}}} ;;;; async function* #x() { await yield; }\n"
-            .repeat(8);
+        let s = "{{{{{{{{ monsta }}}}}}}} ;;;; async function* #x() { await yield; }\n".repeat(8);
         fuzz_parse(s.as_bytes());
         fuzz_parse(b"`${`${`${1}`}`}`;\n");
         fuzz_parse(b"/a/g /b/;\n");

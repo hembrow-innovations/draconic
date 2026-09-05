@@ -132,9 +132,7 @@ fn module_has_instanceof(module: &Module) -> bool {
 
 fn stmt_has_instanceof(stmt: &Stmt) -> bool {
     match stmt {
-        Stmt::Declare {
-            init: Some(e), ..
-        }
+        Stmt::Declare { init: Some(e), .. }
         | Stmt::Expr { expr: e }
         | Stmt::Return { value: Some(e) }
         | Stmt::Throw { value: e } => expr_has_instanceof(e),
@@ -158,9 +156,7 @@ fn expr_has_instanceof(expr: &Expr) -> bool {
             op: BinaryOp::InstanceOf,
             ..
         } => true,
-        Expr::Binary { left, right, .. } => {
-            expr_has_instanceof(left) || expr_has_instanceof(right)
-        }
+        Expr::Binary { left, right, .. } => expr_has_instanceof(left) || expr_has_instanceof(right),
         Expr::Unary { arg, .. } => expr_has_instanceof(arg),
         Expr::Conditional {
             test,
@@ -257,7 +253,9 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => simple_params_ok(params) && body_ok(body, by_id),
         Expr::Unary { arg, .. } => expr_ok(arg, by_id),
-        Expr::Binary { left, right, op, .. } => {
+        Expr::Binary {
+            left, right, op, ..
+        } => {
             matches!(
                 op,
                 BinaryOp::InstanceOf
@@ -274,11 +272,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             optional: false,
             ..
         } => expr_ok(object, by_id) && expr_ok(property, by_id),
-        Expr::New {
-            callee,
-            args,
-            ..
-        }
+        Expr::New { callee, args, .. }
         | Expr::Call {
             callee,
             args,
@@ -298,12 +292,9 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => expr_ok(value, by_id),
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -383,22 +374,14 @@ fn builtin_for_name(name: &str) -> Option<BuiltinKind> {
     }
 }
 
-fn eval_body(
-    body: &[Stmt],
-    env: &mut HashMap<LocalId, Val>,
-    heap: &mut Heap,
-) -> Option<()> {
+fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, Val>, heap: &mut Heap) -> Option<()> {
     for stmt in body {
         eval_stmt(stmt, env, heap)?;
     }
     Some(())
 }
 
-fn eval_stmt(
-    stmt: &Stmt,
-    env: &mut HashMap<LocalId, Val>,
-    heap: &mut Heap,
-) -> Option<()> {
+fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, Val>, heap: &mut Heap) -> Option<()> {
     match stmt {
         Stmt::Function { local, .. } => {
             let ctor = heap.alloc_ctor();
@@ -438,11 +421,7 @@ fn eval_stmt(
     }
 }
 
-fn eval_expr(
-    expr: &Expr,
-    env: &mut HashMap<LocalId, Val>,
-    heap: &mut Heap,
-) -> Option<Val> {
+fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, Val>, heap: &mut Heap) -> Option<Val> {
     match expr {
         Expr::Number { raw, .. } => {
             let n: f64 = raw.parse().ok()?;
@@ -469,10 +448,7 @@ fn eval_expr(
             Some(Val::Ctor(ctor))
         }
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = eval_expr(left, env, heap)?;
             let r = eval_expr(right, env, heap)?;
@@ -556,12 +532,9 @@ fn eval_expr(
             Some(v)
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -601,11 +574,7 @@ fn eval_expr(
     }
 }
 
-fn eval_class_iife(
-    body: &[Stmt],
-    env: &mut HashMap<LocalId, Val>,
-    heap: &mut Heap,
-) -> Option<Val> {
+fn eval_class_iife(body: &[Stmt], env: &mut HashMap<LocalId, Val>, heap: &mut Heap) -> Option<Val> {
     // Empty / simple class builder: bind nested function decls as ctors, run
     // defineProperty side-effect-free, return the class ctor local.
     let mut local_env = env.clone();
@@ -631,7 +600,9 @@ fn eval_class_iife(
                 let v = eval_expr(e, &mut local_env, heap)?;
                 local_env.insert(*local, v);
             }
-            Stmt::Declare { local, init: None, .. } => {
+            Stmt::Declare {
+                local, init: None, ..
+            } => {
                 local_env.insert(*local, Val::Undef);
             }
             Stmt::Expr { expr } => {
@@ -677,11 +648,7 @@ fn is_object_define_property(callee: &Expr) -> bool {
     }
 }
 
-fn eval_key(
-    expr: &Expr,
-    env: &mut HashMap<LocalId, Val>,
-    heap: &mut Heap,
-) -> Option<String> {
+fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, Val>, heap: &mut Heap) -> Option<String> {
     match expr {
         Expr::String { value, .. } => Some(value.to_string_lossy()),
         e => match eval_expr(e, env, heap)? {
@@ -816,12 +783,7 @@ impl Emitter {
 
     fn emit_num(&mut self, n: f64) {
         let lit = format!("{n:?}");
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -888,18 +850,20 @@ mod tests {
 
     #[test]
     fn instanceof_fixture_classifies_and_emits() {
-        let src =
-            include_str!("../../../tests/conformance/fixtures/es/annex-b/instanceof.drac");
+        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/instanceof.drac");
         let m = compile_source(src).expect("compile");
-        assert!(is_es_instanceof_module(&m), "should classify instanceof fixture");
+        assert!(
+            is_es_instanceof_module(&m),
+            "should classify instanceof fixture"
+        );
         let ir = emit_es_instanceof(&m).expect("emit");
-        for s in [
-            "true", "false", "1.0",
-        ] {
+        for s in ["true", "false", "1.0"] {
             assert!(ir.contains(s), "missing {s}:\n{ir}");
         }
         assert!(
-            ir.contains("print_str") || ir.contains("print_f64") || ir.contains("draconic_rt_print"),
+            ir.contains("print_str")
+                || ir.contains("print_f64")
+                || ir.contains("draconic_rt_print"),
             "should print observations:\n{ir}"
         );
     }

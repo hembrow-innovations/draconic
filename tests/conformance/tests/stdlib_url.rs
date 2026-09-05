@@ -20,9 +20,19 @@ fn parse_basics_runs_both_targets() {
         .iter()
         .find(|f| f.id == "stdlib/url/parse_basics")
         .expect("stdlib/url/parse_basics");
-    assert_eq!(fixture.targets.len(), 2, "L08.01 targets both js and native");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L08.01 targets both js and native"
+    );
     for r in run_fixture(fixture) {
-        assert!(r.ok, "{} @ {}: {}", r.fixture_id, r.target.as_str(), r.message);
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
     }
 }
 
@@ -43,8 +53,18 @@ fn query_roundtrip_runs_both_targets() {
         .iter()
         .find(|f| f.id == "stdlib/url/query_roundtrip")
         .expect("stdlib/url/query_roundtrip");
-    assert_eq!(fixture.targets.len(), 2, "L08.02 targets both js and native");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L08.02 targets both js and native"
+    );
     for r in run_fixture(fixture) {
-        assert!(r.ok, "{} @ {}: {}", r.fixture_id, r.target.as_str(), r.message);
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
     }
 }

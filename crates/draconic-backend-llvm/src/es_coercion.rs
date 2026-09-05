@@ -9,12 +9,8 @@ use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{
-    AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, Stmt,
-};
-use draconic_runtime::abi::{
-    llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64,
-};
+use draconic_ir::{AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, Stmt};
+use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64};
 
 pub(crate) fn is_es_coercion_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -291,9 +287,15 @@ fn involves_bool(expr: &Expr, _by_id: &HashMap<LocalId, &Local>) -> bool {
     matches!(expr.ty(), Type::Boolean) || matches!(expr, Expr::Boolean { .. })
 }
 
-fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>, objs: &std::collections::HashSet<LocalId>) -> bool {
+fn expr_ok(
+    expr: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    objs: &std::collections::HashSet<LocalId>,
+) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::Local { id, ty } => {
             if is_nan_global(*id, by_id) {
                 return true;
@@ -517,7 +519,9 @@ fn eval_expr(
         }
         Expr::Object { properties, .. } => {
             if !properties.is_empty()
-                && !properties.iter().all(|p| matches!(p, ObjectProp::Property { .. }))
+                && !properties
+                    .iter()
+                    .all(|p| matches!(p, ObjectProp::Property { .. }))
             {
                 // only empty objects
             }
@@ -671,12 +675,7 @@ impl<'a> Emitter<'a> {
                     } else {
                         format!("{n:?}")
                     };
-                    writeln!(
-                        self.body,
-                        "  {}",
-                        PRINT_F64.call(&format!("double {lit}"))
-                    )
-                    .ok();
+                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
                 }
             }
         }

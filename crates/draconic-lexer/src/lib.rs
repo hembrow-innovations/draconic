@@ -942,8 +942,7 @@ impl<'a> Lexer<'a> {
                 let first = self.bump();
                 // Standard EscapeSequence `0` requires lookahead ∉ DecimalDigit.
                 // `\0`+digit / `\1`–`\7` are LegacyOctalEscapeSequence (E19.69 strict error).
-                let is_legacy = first != b'0'
-                    || (!self.is_eof() && self.peek().is_ascii_digit());
+                let is_legacy = first != b'0' || (!self.is_eof() && self.peek().is_ascii_digit());
                 self.scan_legacy_octal_escape_into(value, first);
                 Ok(is_legacy)
             }
@@ -1157,7 +1156,7 @@ impl<'a> Lexer<'a> {
         let mut is_integer = true;
         if !self.is_eof() && self.peek() == b'.' {
             self.bump(); // .
-            // DecimalDigits_opt — empty ok; `_` alone / leading `_` invalid.
+                         // DecimalDigits_opt — empty ok; `_` alone / leading `_` invalid.
             if !self.is_eof() && (self.peek().is_ascii_digit() || self.peek() == b'_') {
                 self.scan_decimal_digits_required(start)?;
             }
@@ -1273,7 +1272,7 @@ impl<'a> Lexer<'a> {
                 ));
             }
             self.bump(); // n
-            // E19.67: NumericLiteral must not be followed by IdentifierStart.
+                         // E19.67: NumericLiteral must not be followed by IdentifierStart.
             self.reject_numeric_followed_by_ident(start)?;
             let raw = self.src[start..self.pos].to_string();
             return Ok(TokenKind::BigInt(raw));
@@ -1390,7 +1389,7 @@ impl<'a> Lexer<'a> {
             }
             if self.peek() == b'_' {
                 let after = self.peek_at(1);
-                if after.is_some_and(|b| is_digit(b)) {
+                if after.is_some_and(&is_digit) {
                     self.bump(); // _
                     self.bump(); // digit
                     continue;
@@ -1645,10 +1644,7 @@ impl<'a> Lexer<'a> {
         }
         let flags = self.src[flags_start..self.pos].to_string();
         if let Err(msg) = regexp::validate_regexp_literal(&pattern, &flags) {
-            return Err(Diagnostic::new(
-                msg,
-                Span::new(start, self.pos as u32),
-            ));
+            return Err(Diagnostic::new(msg, Span::new(start, self.pos as u32)));
         }
         self.at_line_start = false;
         Ok(self.finish_token(
@@ -1740,11 +1736,7 @@ fn unicode_general_category_space_separator(ch: char) -> bool {
     // Zs: Space_Separator (USP in ECMA-262).
     matches!(
         ch,
-        '\u{1680}'
-            | '\u{2000}'..='\u{200A}'
-            | '\u{202F}'
-            | '\u{205F}'
-            | '\u{3000}'
+        '\u{1680}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
     )
 }
 
@@ -1755,10 +1747,7 @@ fn is_ident_start_char(ch: char) -> bool {
 
 /// IdentifierPart: Unicode ID_Continue | `$` | ZWNJ | ZWJ
 fn is_ident_continue_char(ch: char) -> bool {
-    ch == '$'
-        || ch == '\u{200C}'
-        || ch == '\u{200D}'
-        || unicode_id_start::is_id_continue(ch)
+    ch == '$' || ch == '\u{200C}' || ch == '\u{200D}' || unicode_id_start::is_id_continue(ch)
 }
 
 fn hex_digit(b: u8) -> Option<u32> {
@@ -2447,8 +2436,7 @@ mod tests {
         for src in ["10._", "10._e1", "10._1"] {
             let err = Lexer::new(src).tokenize().unwrap_err();
             assert!(
-                err.message.contains("invalid number")
-                    || err.message.contains("numeric separator"),
+                err.message.contains("invalid number") || err.message.contains("numeric separator"),
                 "src={src:?} unexpected: {}",
                 err.message
             );
@@ -2936,5 +2924,3 @@ mod tests {
         );
     }
 }
-
-

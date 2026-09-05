@@ -10,12 +10,8 @@ use std::fmt::Write as _;
 
 use draconic_ast::{BinaryOp, JsString};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{
-    Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
-};
-use draconic_runtime::abi::{
-    llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64,
-};
+use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt};
+use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64};
 
 pub(crate) fn is_es_to_primitive_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -340,7 +336,10 @@ fn object_lit_ok(properties: &[ObjectProp]) -> bool {
             Stmt::Return {
                 value: Some(expr), ..
             } => match expr {
-                Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {}
+                Expr::Number { .. }
+                | Expr::String { .. }
+                | Expr::Boolean { .. }
+                | Expr::Null { .. } => {}
                 Expr::Object { properties, .. } if properties.is_empty() => {}
                 _ => return false,
             },
@@ -359,7 +358,11 @@ fn has_to_primitive_marker(expr: &Expr) -> bool {
         } => {
             let op_ok = matches!(
                 op,
-                BinaryOp::Add | BinaryOp::EqEq | BinaryOp::NotEq | BinaryOp::EqEqEq | BinaryOp::NotEqEq
+                BinaryOp::Add
+                    | BinaryOp::EqEq
+                    | BinaryOp::NotEq
+                    | BinaryOp::EqEqEq
+                    | BinaryOp::NotEqEq
             );
             op_ok
                 && (involves_object(left)
@@ -385,7 +388,9 @@ fn expr_ok(
     objs: &std::collections::HashSet<LocalId>,
 ) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::Boolean { .. } | Expr::String { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::Local { id, ty } => {
             if is_object_ty(ty) && !matches!(ty, Type::Any) {
                 return objs.contains(id);
@@ -484,11 +489,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     })
 }
 
-fn eval_expr(
-    expr: &Expr,
-    values: &HashMap<LocalId, JsVal>,
-    next_obj: &mut u64,
-) -> Option<JsVal> {
+fn eval_expr(expr: &Expr, values: &HashMap<LocalId, JsVal>, next_obj: &mut u64) -> Option<JsVal> {
     match expr {
         Expr::Number { raw, .. } => Some(JsVal::Num(raw.parse().ok()?)),
         Expr::Boolean { value, .. } => Some(JsVal::Bool(*value)),
@@ -583,12 +584,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_val(&mut self, v: &JsVal) -> Result<(), Diagnostic> {

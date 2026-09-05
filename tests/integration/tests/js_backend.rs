@@ -38,9 +38,8 @@ fn assert_node_ok(script: &str) {
 #[test]
 fn minimal_let_add_runs() {
     let js = compile_to_js("let x = 1 + 2;");
-    let script = format!(
-        "{js}\nif (x !== 3) {{ console.error('want 3 got', x); process.exit(1); }}"
-    );
+    let script =
+        format!("{js}\nif (x !== 3) {{ console.error('want 3 got', x); process.exit(1); }}");
     assert_node_ok(&script);
 }
 

@@ -537,14 +537,14 @@ impl Expr {
             | Expr::RegExp { ty, .. }
             | Expr::Template { ty, .. }
             | Expr::TaggedTemplate { ty, .. }
-             | Expr::Boolean { ty, .. }
-             | Expr::Null { ty }
-             | Expr::This { ty }
-             | Expr::NewTarget { ty }
-             | Expr::ImportMeta { ty }
-             | Expr::ImportCall { ty, .. }
-             | Expr::Super { ty }
-             | Expr::Unary { ty, .. }
+            | Expr::Boolean { ty, .. }
+            | Expr::Null { ty }
+            | Expr::This { ty }
+            | Expr::NewTarget { ty }
+            | Expr::ImportMeta { ty }
+            | Expr::ImportCall { ty, .. }
+            | Expr::Super { ty }
+            | Expr::Unary { ty, .. }
             | Expr::Binary { ty, .. }
             | Expr::Conditional { ty, .. }
             | Expr::Assign { ty, .. }
@@ -626,7 +626,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         body_spans = hoisted_spans;
     }
 
-    locals.extend(ctx.extra_locals.drain(..));
+    locals.append(&mut ctx.extra_locals);
 
     debug_assert_eq!(body.len(), body_spans.len());
     Module {
@@ -768,7 +768,7 @@ fn lower_stmt(
             BindingPattern::Member(_) => {
                 panic!("member binding is assignment-only; rejected at check")
             }
-        }
+        },
         AstStmt::Block { body, .. } => {
             let body = lower_stmt_body(checked, ctx, body, super_class);
             Some(Stmt::Block { body })
@@ -797,8 +797,7 @@ fn lower_stmt(
         }
         AstStmt::While { test, body, .. } => {
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::While {
                 test: lower_expr(checked, ctx, test, super_class),
@@ -807,8 +806,7 @@ fn lower_stmt(
         }
         AstStmt::DoWhile { body, test, .. } => {
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::DoWhile {
                 body,
@@ -832,8 +830,7 @@ fn lower_stmt(
                 .as_ref()
                 .map(|e| lower_expr(checked, ctx, e, super_class));
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::For {
                 init,
@@ -846,12 +843,10 @@ fn lower_stmt(
             left, right, body, ..
         } => {
             let left = Box::new(
-                lower_stmt(checked, ctx, left, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, left, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::ForIn {
                 left,
@@ -867,12 +862,10 @@ fn lower_stmt(
             ..
         } => {
             let left = Box::new(
-                lower_stmt(checked, ctx, left, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, left, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::ForOf {
                 left,
@@ -889,8 +882,7 @@ fn lower_stmt(
         }),
         AstStmt::Labeled { label, body, .. } => {
             let body = Box::new(
-                lower_stmt(checked, ctx, body, super_class)
-                    .unwrap_or(Stmt::Block { body: vec![] }),
+                lower_stmt(checked, ctx, body, super_class).unwrap_or(Stmt::Block { body: vec![] }),
             );
             Some(Stmt::Labeled {
                 label: label.name.clone(),
@@ -993,9 +985,7 @@ fn lower_stmt(
                                     ty: Type::Any,
                                 },
                             },
-                            Stmt::Break {
-                                label: Some(label),
-                            },
+                            Stmt::Break { label: Some(label) },
                         ],
                     });
                 }
@@ -1169,14 +1159,7 @@ fn lower_class(
     } else {
         name.name.as_str()
     };
-    let mut body = lower_class_local(
-        checked,
-        ctx,
-        inner,
-        super_class,
-        elements,
-        Some(name_hint),
-    );
+    let mut body = lower_class_local(checked, ctx, inner, super_class, elements, Some(name_hint));
     ctx.class_name_remap.pop();
     body.push(Stmt::Return {
         value: Some(Expr::Local {
@@ -1342,9 +1325,12 @@ fn ast_has_yield(expr: &AstExpr) -> bool {
         | AstExpr::Paren { expr: arg, .. }
         | AstExpr::As { expr: arg, .. }
         | AstExpr::Update { arg, .. } => ast_has_yield(arg),
-        AstExpr::Binary { left, right, .. } | AstExpr::Assign { target: left, value: right, .. } => {
-            ast_has_yield(left) || ast_has_yield(right)
-        }
+        AstExpr::Binary { left, right, .. }
+        | AstExpr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => ast_has_yield(left) || ast_has_yield(right),
         AstExpr::Conditional {
             test,
             consequent,
@@ -1429,9 +1415,12 @@ fn stmt_has_yield(stmt: &AstStmt) -> bool {
                 || update.as_ref().is_some_and(ast_has_yield)
                 || stmt_has_yield(body)
         }
-        AstStmt::ForIn { left, right, body, .. } | AstStmt::ForOf { left, right, body, .. } => {
-            stmt_has_yield(left) || ast_has_yield(right) || stmt_has_yield(body)
+        AstStmt::ForIn {
+            left, right, body, ..
         }
+        | AstStmt::ForOf {
+            left, right, body, ..
+        } => stmt_has_yield(left) || ast_has_yield(right) || stmt_has_yield(body),
         AstStmt::Try {
             block,
             handler,
@@ -1465,16 +1454,17 @@ fn ast_has_await(expr: &AstExpr) -> bool {
             op: UnaryOp::Await, ..
         } => true,
         AstExpr::FunctionExpression { .. } | AstExpr::ClassExpression { .. } => false,
-        AstExpr::ArrowFunction {
-            is_async: true, ..
-        } => false,
+        AstExpr::ArrowFunction { is_async: true, .. } => false,
         AstExpr::Unary { arg, .. }
         | AstExpr::Paren { expr: arg, .. }
         | AstExpr::As { expr: arg, .. }
         | AstExpr::Update { arg, .. } => ast_has_await(arg),
-        AstExpr::Binary { left, right, .. } | AstExpr::Assign { target: left, value: right, .. } => {
-            ast_has_await(left) || ast_has_await(right)
-        }
+        AstExpr::Binary { left, right, .. }
+        | AstExpr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => ast_has_await(left) || ast_has_await(right),
         AstExpr::Conditional {
             test,
             consequent,
@@ -1557,9 +1547,12 @@ fn stmt_has_await(stmt: &AstStmt) -> bool {
                 || update.as_ref().is_some_and(ast_has_await)
                 || stmt_has_await(body)
         }
-        AstStmt::ForIn { left, right, body, .. } | AstStmt::ForOf { left, right, body, .. } => {
-            stmt_has_await(left) || ast_has_await(right) || stmt_has_await(body)
+        AstStmt::ForIn {
+            left, right, body, ..
         }
+        | AstStmt::ForOf {
+            left, right, body, ..
+        } => stmt_has_await(left) || ast_has_await(right) || stmt_has_await(body),
         AstStmt::Try {
             block,
             handler,
@@ -2042,8 +2035,7 @@ fn heritage_validation_stmts(parent: Expr, proto_out: Option<LocalId>) -> Vec<St
                 ty: Type::Function,
             }),
             args: vec![Arg::Expr(Expr::String {
-                value: "Class extends value does not have valid prototype property"
-                    .into(),
+                value: "Class extends value does not have valid prototype property".into(),
                 ty: Type::String,
             })],
             ty: Type::Any,
@@ -2119,10 +2111,7 @@ fn define_class_element_with_home(
 ) -> Vec<Stmt> {
     // Evaluate key once (yield/await/ToPropertyKey side effects) (E19.78).
     // Unique name: JS emit uses local names, not ids.
-    let key_id = ctx.alloc_synthetic_local(
-        format!("__drac_ck_{}", ctx.next_synth_id),
-        Type::Any,
-    );
+    let key_id = ctx.alloc_synthetic_local(format!("__drac_ck_{}", ctx.next_synth_id), Type::Any);
     let key_local = Expr::Local {
         id: key_id,
         ty: Type::Any,
@@ -2235,9 +2224,7 @@ fn define_class_element_with_home(
                 default: None,
                 rest: false,
             }],
-            body: vec![Stmt::Return {
-                value: Some(clean),
-            }],
+            body: vec![Stmt::Return { value: Some(clean) }],
             is_async: false,
             is_generator: false,
             is_arrow: true,
@@ -2277,9 +2264,9 @@ fn lower_object_prop_key(
 /// body contains a `"use strict"` directive must have a simple parameter list —
 /// injecting the directive into a non-simple-param function is a SyntaxError.
 fn params_are_simple(params: &[Param]) -> bool {
-    params.iter().all(|p| {
-        !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_))
-    })
+    params
+        .iter()
+        .all(|p| !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_)))
 }
 
 /// Class bodies are strict; method-form install is sloppy unless we inject a directive (E19.72).
@@ -2310,10 +2297,7 @@ fn undef_expr() -> Expr {
 }
 
 fn local_expr(id: LocalId) -> Expr {
-    Expr::Local {
-        id,
-        ty: Type::Any,
-    }
+    Expr::Local { id, ty: Type::Any }
 }
 
 /// `(() => { throw new ReferenceError(msg); })()`
@@ -2375,10 +2359,7 @@ fn class_ctor_new_target_check() -> Stmt {
 
 /// `Object.setPrototypeOf(obj, proto)` — avoids poisoned `__proto__` setters (E19.82).
 fn object_set_prototype_of(obj: Expr, proto: Expr) -> Expr {
-    object_method_call(
-        "setPrototypeOf",
-        vec![Arg::Expr(obj), Arg::Expr(proto)],
-    )
+    object_method_call("setPrototypeOf", vec![Arg::Expr(obj), Arg::Expr(proto)])
 }
 
 /// ES GetThisBinding for derived ctor: uninitialized → ReferenceError.
@@ -2845,15 +2826,10 @@ fn lower_class_local(
                     && matches!(field_key, draconic_ast::ObjectKey::Computed(_))
                 {
                     let key_id = ctx.alloc_synthetic_local(
-                        format!(
-                            "__drac_cfk_{}_{}",
-                            local.0,
-                            computed_field_key_locals.len()
-                        ),
+                        format!("__drac_cfk_{}_{}", local.0, computed_field_key_locals.len()),
                         Type::Any,
                     );
-                    let key_expr =
-                        lower_object_key_name_expr(checked, ctx, field_key, super_class);
+                    let key_expr = lower_object_key_name_expr(checked, ctx, field_key, super_class);
                     // Reflect.ownKeys({[key]:1})[0] forces ToPropertyKey.
                     let to_key = Expr::Member {
                         object: Box::new(Expr::Call {
@@ -3008,12 +2984,8 @@ fn lower_class_local(
     // Private accessors: synthetic get/set function locals (E18.39).
     let mut private_accessor_map: HashMap<String, (Option<LocalId>, Option<LocalId>)> =
         HashMap::new();
-    let mut private_accessor_meta: Vec<(
-        LocalId,
-        String,
-        &Vec<draconic_ast::Param>,
-        &AstStmt,
-    )> = Vec::new();
+    let mut private_accessor_meta: Vec<(LocalId, String, &Vec<draconic_ast::Param>, &AstStmt)> =
+        Vec::new();
     for (kind, acc_key, params, body, is_static, is_private) in &accessors {
         if !*is_private {
             continue;
@@ -3090,10 +3062,7 @@ fn lower_class_local(
             is_generator,
         });
         // SetFunctionName(closure, PrivateName) → "#description" (E19.82).
-        private_method_fns.push(set_function_name_stmt(
-            fn_id,
-            &format!("#{method_name}"),
-        ));
+        private_method_fns.push(set_function_name_stmt(fn_id, &format!("#{method_name}")));
     }
     for (fn_id, display_name, params, body) in private_accessor_meta {
         private_method_fns.push(Stmt::Function {
@@ -3113,18 +3082,12 @@ fn lower_class_local(
     let is_derived = super_class.is_some();
     let default_derived_ctor = ctor_body_ast.is_none() && is_derived;
     let derived_this_id = if is_derived {
-        Some(ctx.alloc_synthetic_local(
-            format!("__drac_this_{}", local.0),
-            Type::Any,
-        ))
+        Some(ctx.alloc_synthetic_local(format!("__drac_this_{}", local.0), Type::Any))
     } else {
         None
     };
     let super_local_id = if is_derived {
-        Some(ctx.alloc_synthetic_local(
-            format!("__drac_super_{}", local.0),
-            Type::Any,
-        ))
+        Some(ctx.alloc_synthetic_local(format!("__drac_super_{}", local.0), Type::Any))
     } else {
         None
     };
@@ -3190,9 +3153,7 @@ fn lower_class_local(
         };
         let expr = call_method_with_home(
             instance_super_home.clone(),
-            vec![Stmt::Expr {
-                expr: assign_expr,
-            }],
+            vec![Stmt::Expr { expr: assign_expr }],
             ctor_this(),
         );
         instance_init_exprs.push(expr);
@@ -3240,9 +3201,7 @@ fn lower_class_local(
             kind: BindingKind::Let,
         });
         for init in &instance_init_exprs {
-            body.push(Stmt::Expr {
-                expr: init.clone(),
-            });
+            body.push(Stmt::Expr { expr: init.clone() });
         }
         body.push(Stmt::Return {
             value: Some(local_expr(this_id)),
@@ -3253,14 +3212,8 @@ fn lower_class_local(
         let super_id = super_local_id.expect("super temp");
         // User-defined derived ctor: TDZ this, super() binds via Reflect.construct.
         // Return completion is deferred past user try/catch via labeled break (E19.82).
-        let ret_mode_id = ctx.alloc_synthetic_local(
-            format!("__drac_rm_{}", local.0),
-            Type::Number,
-        );
-        let ret_val_id = ctx.alloc_synthetic_local(
-            format!("__drac_rv_{}", local.0),
-            Type::Any,
-        );
+        let ret_mode_id = ctx.alloc_synthetic_local(format!("__drac_rm_{}", local.0), Type::Number);
+        let ret_val_id = ctx.alloc_synthetic_local(format!("__drac_rv_{}", local.0), Type::Any);
         let ctor_label = format!("__drac_ctor_{}", local.0);
         ctx.derived_this = Some(this_id);
         ctx.derived_super = Some(super_id);
@@ -3334,9 +3287,7 @@ fn lower_class_local(
         if !instance_init_exprs.is_empty() {
             let mut new_body = Vec::with_capacity(body.len() + instance_init_exprs.len());
             for init in &instance_init_exprs {
-                new_body.push(Stmt::Expr {
-                    expr: init.clone(),
-                });
+                new_body.push(Stmt::Expr { expr: init.clone() });
             }
             new_body.extend(body);
             body = new_body;
@@ -3360,10 +3311,7 @@ fn lower_class_local(
             init: Some(parent),
             kind: BindingKind::Let,
         });
-        let proto_id = ctx.alloc_synthetic_local(
-            format!("__drac_sproto_{}", local.0),
-            Type::Any,
-        );
+        let proto_id = ctx.alloc_synthetic_local(format!("__drac_sproto_{}", local.0), Type::Any);
         out.push(Stmt::Declare {
             local: proto_id,
             init: None,
@@ -3811,7 +3759,11 @@ fn is_anonymous_function_def(expr: &AstExpr) -> bool {
     loop {
         match e {
             AstExpr::Paren { expr: inner, .. } | AstExpr::As { expr: inner, .. } => e = inner,
-            AstExpr::FunctionExpression { name: None, is_method: false, .. } => return true,
+            AstExpr::FunctionExpression {
+                name: None,
+                is_method: false,
+                ..
+            } => return true,
             AstExpr::ArrowFunction { .. } => return true,
             _ => return false,
         }
@@ -3918,20 +3870,12 @@ fn source_contains_arguments_ident(src: &str) -> bool {
             continue;
         }
         // identifier start
-        if c == b'_'
-            || c == b'$'
-            || c.is_ascii_alphabetic()
-            || (c >= 0x80)
-        {
+        if c == b'_' || c == b'$' || c.is_ascii_alphabetic() || (c >= 0x80) {
             let start = i;
             i += 1;
             while i < b.len() {
                 let d = b[i];
-                if d == b'_'
-                    || d == b'$'
-                    || d.is_ascii_alphanumeric()
-                    || d >= 0x80
-                {
+                if d == b'_' || d == b'$' || d.is_ascii_alphanumeric() || d >= 0x80 {
                     i += 1;
                 } else {
                     break;
@@ -3970,7 +3914,7 @@ fn ctx_private_names(ctx: &LowerCtx) -> Vec<String> {
 fn parse_eval_expr_with_privates(src: &str, private_names: &[String]) -> Option<AstExpr> {
     let mut decls = String::new();
     for n in private_names {
-        decls.push_str("#");
+        decls.push('#');
         decls.push_str(n);
         decls.push(';');
     }
@@ -4036,8 +3980,9 @@ fn try_lower_direct_eval_private(
 /// `(() => { throw new SyntaxError("…arguments…"); })()` for field-init eval (E19.82.06).
 fn field_init_eval_arguments_error() -> Expr {
     let msg = Expr::String {
-        value: "'arguments' is not allowed in class field initializer or static initialization block"
-            .into(),
+        value:
+            "'arguments' is not allowed in class field initializer or static initialization block"
+                .into(),
         ty: Type::String,
     };
     let err = Expr::New {
@@ -4195,9 +4140,7 @@ fn private_brand_add(ctx: &mut LowerCtx, brand: LocalId, object: Expr) -> Expr {
                 default: None,
                 rest: false,
             }],
-            body: vec![Stmt::Return {
-                value: Some(body),
-            }],
+            body: vec![Stmt::Return { value: Some(body) }],
             is_async: false,
             is_generator: false,
             is_arrow: true,
@@ -4273,9 +4216,7 @@ fn private_field_add(ctx: &mut LowerCtx, wm: LocalId, object: Expr, value: Expr)
                     rest: false,
                 },
             ],
-            body: vec![Stmt::Return {
-                value: Some(body),
-            }],
+            body: vec![Stmt::Return { value: Some(body) }],
             is_async: false,
             is_generator: false,
             is_arrow: true,
@@ -4362,7 +4303,6 @@ fn private_in_check(brand: LocalId, object: Expr) -> Expr {
         ty: Type::Boolean,
     }
 }
-
 
 fn ensure_private_brand(
     ctx: &mut LowerCtx,
@@ -4597,25 +4537,23 @@ fn private_field_get(ctx: &mut LowerCtx, wm: LocalId, object: Expr) -> Expr {
         ctx,
         wm,
         object,
-        |o| {
-            Expr::Call {
-                callee: Box::new(Expr::Member {
-                    object: Box::new(Expr::Local {
-                        id: wm,
-                        ty: Type::Any,
-                    }),
-                    property: Box::new(Expr::String {
-                        value: "get".into(),
-                        ty: Type::String,
-                    }),
-                    computed: false,
-                    optional: false,
-                    ty: Type::Function,
+        |o| Expr::Call {
+            callee: Box::new(Expr::Member {
+                object: Box::new(Expr::Local {
+                    id: wm,
+                    ty: Type::Any,
                 }),
-                args: vec![Arg::Expr(o)],
+                property: Box::new(Expr::String {
+                    value: "get".into(),
+                    ty: Type::String,
+                }),
+                computed: false,
                 optional: false,
-                ty: Type::Any,
-            }
+                ty: Type::Function,
+            }),
+            args: vec![Arg::Expr(o)],
+            optional: false,
+            ty: Type::Any,
         },
         "Cannot read private member from an object whose class did not declare it",
     )
@@ -4684,9 +4622,7 @@ fn private_member_get(ctx: &mut LowerCtx, fname: &str, object: Expr) -> Expr {
                 &format!("Cannot read private accessor #{fname}"),
             );
         }
-        return throw_type_error_expr(&format!(
-            "Private accessor #{fname} has no getter"
-        ));
+        return throw_type_error_expr(&format!("Private accessor #{fname} has no getter"));
     }
     if let Some(wm) = ctx.private_fields.get(fname).copied() {
         return private_field_get(ctx, wm, object);
@@ -4729,9 +4665,7 @@ fn throw_type_error_expr(message: &str) -> Expr {
 fn private_member_set(ctx: &mut LowerCtx, fname: &str, object: Expr, value: Expr) -> Expr {
     // Private methods are not writable (TypeError, not IR panic).
     if ctx.private_methods.contains_key(fname) {
-        return throw_type_error_expr(&format!(
-            "Private method #{fname} is not writable"
-        ));
+        return throw_type_error_expr(&format!("Private method #{fname} is not writable"));
     }
     if let Some((get, set)) = ctx.private_accessors.get(fname).copied() {
         let _ = get;
@@ -4742,8 +4676,7 @@ fn private_member_set(ctx: &mut LowerCtx, fname: &str, object: Expr, value: Expr
                 brand,
                 object,
                 |o| {
-                    let set_call =
-                        private_fn_call(set_id, o, vec![Arg::Expr(value.clone())]);
+                    let set_call = private_fn_call(set_id, o, vec![Arg::Expr(value.clone())]);
                     Expr::Binary {
                         left: Box::new(set_call),
                         op: BinaryOp::Comma,
@@ -4754,9 +4687,7 @@ fn private_member_set(ctx: &mut LowerCtx, fname: &str, object: Expr, value: Expr
                 &format!("Cannot write private accessor #{fname}"),
             );
         }
-        return throw_type_error_expr(&format!(
-            "Private accessor #{fname} has no setter"
-        ));
+        return throw_type_error_expr(&format!("Private accessor #{fname} has no setter"));
     }
     if let Some(wm) = ctx.private_fields.get(fname).copied() {
         return private_field_set(ctx, wm, object, value);
@@ -4859,9 +4790,7 @@ fn lower_private_assign(
             }
         }
         other => {
-            let binop = other
-                .binary_op()
-                .expect("compound assign op has binary_op");
+            let binop = other.binary_op().expect("compound assign op has binary_op");
             let cur = private_member_get(ctx, fname, obj_local());
             let combined = Expr::Binary {
                 left: Box::new(cur),
@@ -4891,15 +4820,13 @@ fn binding_pattern_has_private(pat: &BindingPattern) -> bool {
         BindingPattern::Ident(_) => false,
         BindingPattern::Member(expr) => matches!(
             expr.as_ref(),
-            AstExpr::MemberExpression {
-                private: true,
-                ..
-            }
+            AstExpr::MemberExpression { private: true, .. }
         ),
         BindingPattern::Array { elements, .. } => elements.iter().any(|el| match el {
             ArrayPatternElement::Elision => false,
-            ArrayPatternElement::Pattern { binding, .. }
-            | ArrayPatternElement::Rest(binding) => binding_pattern_has_private(binding),
+            ArrayPatternElement::Pattern { binding, .. } | ArrayPatternElement::Rest(binding) => {
+                binding_pattern_has_private(binding)
+            }
         }),
         BindingPattern::Object { properties, .. } => properties.iter().any(|p| match p {
             ObjectPatternProp::Prop { binding, .. } | ObjectPatternProp::Rest(binding) => {
@@ -5056,7 +4983,8 @@ where
                     AstExpr::Ident(id) => id.name.as_str(),
                     _ => panic!("private member property must be ident"),
                 };
-                let obj_id = ctx.alloc_synthetic_local(format!("__drac_dstr_lref_{fname}"), Type::Any);
+                let obj_id =
+                    ctx.alloc_synthetic_local(format!("__drac_dstr_lref_{fname}"), Type::Any);
                 let val_id = ctx.alloc_synthetic_local(format!("__drac_dstr_v_{fname}"), Type::Any);
                 let bind_obj = bind_local(obj_id, lower_expr(checked, ctx, object, super_class));
                 let bind_val = bind_local(val_id, value_after_lref(ctx));
@@ -5440,7 +5368,7 @@ fn lower_object_pattern_assign(
                     checked,
                     ctx,
                     binding,
-                    |ctx| {
+                    |_ctx| {
                         let mut rest_steps = vec![bind_local(
                             rest_id,
                             Expr::Object {
@@ -5810,15 +5738,7 @@ fn lower_expr_hint(
                     AstExpr::Ident(id) => id.name.as_str(),
                     _ => panic!("private member property must be ident"),
                 };
-                return lower_private_assign(
-                    checked,
-                    ctx,
-                    fname,
-                    object,
-                    *op,
-                    value,
-                    super_class,
-                );
+                return lower_private_assign(checked, ctx, fname, object, *op, value, super_class);
             }
             // E19.82.10: destructuring assign into private fields — desugar so
             // lref-before-GetV order and PrivateFieldSet apply (not native `#` emit).
@@ -6226,9 +6146,7 @@ fn lower_expr_hint(
                                 default: None,
                                 rest: false,
                             }],
-                            body: vec![Stmt::Return {
-                                value: Some(call),
-                            }],
+                            body: vec![Stmt::Return { value: Some(call) }],
                             is_async: false,
                             is_generator: false,
                             is_arrow: true,
@@ -6274,24 +6192,21 @@ fn lower_expr_hint(
                                         optional: false,
                                         ty: Type::Function,
                                     };
-                                    let mut call_args =
-                                        Vec::with_capacity(lowered_args.len() + 1);
+                                    let mut call_args = Vec::with_capacity(lowered_args.len() + 1);
                                     call_args.push(Arg::Expr(o));
                                     call_args.extend(lowered_args.iter().cloned());
                                     Expr::Call {
                                         callee: Box::new(call_member),
                                         args: call_args,
                                         optional: false,
-                                        ty: result_ty.clone(),
+                                        ty: result_ty,
                                     }
                                 },
                                 &err,
                             )
                         };
                         if *member_optional || *optional {
-                            return optional_private_chain(ctx, obj_expr, |ctx, o| {
-                                build(ctx, o)
-                            });
+                            return optional_private_chain(ctx, obj_expr, |ctx, o| build(ctx, o));
                         }
                         return build(ctx, obj_expr);
                     }
@@ -6307,11 +6222,7 @@ fn lower_expr_hint(
                 ty: expr_ty(checked, *span),
             }
         }
-        AstExpr::New {
-            callee,
-            args,
-            span,
-        } => Expr::New {
+        AstExpr::New { callee, args, span } => Expr::New {
             callee: Box::new(lower_expr(checked, ctx, callee, super_class)),
             args: args
                 .iter()
@@ -6349,11 +6260,7 @@ fn lower_expr_hint(
             let prev_ret_mode = ctx.derived_ret_mode.take();
             let prev_ret_val = ctx.derived_ret_val.take();
             let prev_field_init = ctx.in_field_init;
-            if *is_method {
-                ctx.object_super = true;
-            } else {
-                ctx.object_super = false;
-            }
+            ctx.object_super = *is_method;
             ctx.derived_ctor_body = false;
             // Nested functions are not field-init PerformEval sites (E19.82.06).
             ctx.in_field_init = false;
@@ -6458,7 +6365,7 @@ fn lower_expr_hint(
                                 prop_name_hint.as_deref(),
                             ),
                         }
-                    },
+                    }
                     AstObjectProp::Accessor {
                         kind,
                         key,
@@ -7444,11 +7351,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str(&format!("String {:?} : {ty}\n", value.to_string_lossy()));
         }
-        Expr::RegExp {
-            pattern,
-            flags,
-            ty,
-        } => {
+        Expr::RegExp { pattern, flags, ty } => {
             indent(level, out);
             out.push_str(&format!("RegExp /{pattern}/{flags} : {ty}\n"));
         }
@@ -7539,7 +7442,10 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_expr(arg, level + 1, out);
         }
         Expr::Binary {
-            left, op, right, ty,
+            left,
+            op,
+            right,
+            ty,
         } => {
             indent(level, out);
             out.push_str(&format!("Binary {op} : {ty}\n"));
@@ -7913,7 +7819,13 @@ mod tests {
         let module = lower_src("let a = 1 + 2;");
         match &module.body[0] {
             Stmt::Declare {
-                init: Some(Expr::Binary { op, ty, left, right }),
+                init:
+                    Some(Expr::Binary {
+                        op,
+                        ty,
+                        left,
+                        right,
+                    }),
                 ..
             } => {
                 assert_eq!(*op, BinaryOp::Add);
@@ -7984,9 +7896,7 @@ mod tests {
             Stmt::Declare {
                 init:
                     Some(Expr::Binary {
-                        left: box_left,
-                        ty,
-                        ..
+                        left: box_left, ty, ..
                     }),
                 ..
             } => {
@@ -8030,12 +7940,13 @@ mod tests {
         let module = lower_src("let f; f(1);");
         match &module.body[1] {
             Stmt::Expr {
-                expr: Expr::Call {
-                    callee,
-                    args,
-                    optional,
-                    ty,
-                },
+                expr:
+                    Expr::Call {
+                        callee,
+                        args,
+                        optional,
+                        ty,
+                    },
             } => {
                 assert_eq!(*ty, Type::Any);
                 assert!(!*optional);
@@ -8123,7 +8034,6 @@ mod tests {
         }
     }
 
-
     /// Repeated / nested lower must not share private-field bookkeeping (issues-15).
     #[test]
     fn lower_private_field_state_isolated_across_calls() {
@@ -8163,11 +8073,23 @@ mod tests {
             .map(|l| l.name.as_str())
             .collect();
 
-        assert_eq!(wm_a1.len(), 1, "A should allocate one private-field WeakMap");
+        assert_eq!(
+            wm_a1.len(),
+            1,
+            "A should allocate one private-field WeakMap"
+        );
         assert_eq!(wm_b.len(), 1, "B should allocate one private-field WeakMap");
         assert_eq!(wm_a2.len(), 1, "second A lower should allocate one WeakMap");
-        assert!(wm_a1[0].contains("x"), "A WeakMap name should mention x: {}", wm_a1[0]);
-        assert!(wm_b[0].contains("y"), "B WeakMap name should mention y: {}", wm_b[0]);
+        assert!(
+            wm_a1[0].contains("x"),
+            "A WeakMap name should mention x: {}",
+            wm_a1[0]
+        );
+        assert!(
+            wm_b[0].contains("y"),
+            "B WeakMap name should mention y: {}",
+            wm_b[0]
+        );
         assert_ne!(wm_a1[0], wm_b[0]);
         assert_eq!(wm_a1[0], wm_a2[0]);
         assert_eq!(dump_module(&a1), dump_module(&a2));
@@ -8320,11 +8242,23 @@ mod tests {
             ty: Type::Number,
         };
         assert!(params_are_simple(&[p(id(0), None, false)]));
-        assert!(params_are_simple(&[p(id(0), None, false), p(id(1), None, false)]));
-        assert!(!params_are_simple(&[p(id(0), Some(num()), false)]), "default param");
+        assert!(params_are_simple(&[
+            p(id(0), None, false),
+            p(id(1), None, false)
+        ]));
+        assert!(
+            !params_are_simple(&[p(id(0), Some(num()), false)]),
+            "default param"
+        );
         assert!(!params_are_simple(&[p(id(0), None, true)]), "rest param");
-        assert!(!params_are_simple(&[p(Pattern::Array(vec![]), None, false)]), "destructured param");
-        assert!(!params_are_simple(&[p(Pattern::Object(vec![]), None, false)]), "object pattern param");
+        assert!(
+            !params_are_simple(&[p(Pattern::Array(vec![]), None, false)]),
+            "destructured param"
+        );
+        assert!(
+            !params_are_simple(&[p(Pattern::Object(vec![]), None, false)]),
+            "object pattern param"
+        );
     }
 
     #[test]
@@ -8396,7 +8330,13 @@ mod tests {
                 name,
                 params,
                 ret,
-            } => Some((local, abi.as_str(), name.as_str(), params.as_slice(), ret.as_ref())),
+            } => Some((
+                local,
+                abi.as_str(),
+                name.as_str(),
+                params.as_slice(),
+                ret.as_ref(),
+            )),
             _ => None,
         });
         let (add_id, abi, name, params, ret) = externs.next().expect("add");
@@ -8504,9 +8444,9 @@ mod tests {
         );
         assert!(module.has_extern_ffi);
         let take = module.body.iter().find_map(|s| match s {
-            Stmt::ExternFunction { name, params, ret, .. } if name == "take" => {
-                Some((params.as_slice(), ret.as_ref()))
-            }
+            Stmt::ExternFunction {
+                name, params, ret, ..
+            } if name == "take" => Some((params.as_slice(), ret.as_ref())),
             _ => None,
         });
         let (params, ret) = take.expect("take");
@@ -8516,9 +8456,9 @@ mod tests {
         );
         assert_eq!(ret, Some(&Type::Native(NativeType::I32)));
         let make = module.body.iter().find_map(|s| match s {
-            Stmt::ExternFunction { name, params, ret, .. } if name == "make" => {
-                Some((params.as_slice(), ret.as_ref()))
-            }
+            Stmt::ExternFunction {
+                name, params, ret, ..
+            } if name == "make" => Some((params.as_slice(), ret.as_ref())),
             _ => None,
         });
         let (params, ret) = make.expect("make");

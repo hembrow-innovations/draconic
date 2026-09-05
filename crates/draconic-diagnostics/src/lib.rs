@@ -355,10 +355,7 @@ mod tests {
             d.help.as_deref(),
             Some("widen the annotation or change the value")
         );
-        assert_eq!(
-            d.to_string(),
-            "[E0300] type mismatch at 0..1"
-        );
+        assert_eq!(d.to_string(), "[E0300] type mismatch at 0..1");
     }
 
     #[test]
@@ -417,9 +414,12 @@ error: unresolved identifier `foo`
     fn pretty_print_with_code_and_help() {
         let src = "let x: string = 1;\n";
         // "1" at bytes 16..17
-        let d = Diagnostic::new("type `number` is not assignable to type `string`", Span::new(16, 17))
-            .with_code(codes::NOT_ASSIGNABLE)
-            .with_help("change the value to match the expected type, or widen the annotation");
+        let d = Diagnostic::new(
+            "type `number` is not assignable to type `string`",
+            Span::new(16, 17),
+        )
+        .with_code(codes::NOT_ASSIGNABLE)
+        .with_help("change the value to match the expected type, or widen the annotation");
         let file = SourceFile::new("main.drac", src);
         let pretty = d.pretty(&file);
         assert_eq!(

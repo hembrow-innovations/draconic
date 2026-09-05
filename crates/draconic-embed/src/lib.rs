@@ -183,9 +183,7 @@ pub fn eval_source_with_bindings(
     let mut seen = std::collections::HashSet::new();
     for (name, _) in bindings {
         if !seen.insert(name.as_str()) {
-            return Err(diag(format!(
-                "embed eval: duplicate binding name {name:?}"
-            )));
+            return Err(diag(format!("embed eval: duplicate binding name {name:?}")));
         }
     }
     let mut script = String::new();
@@ -379,10 +377,7 @@ fn eval_expr(
                     return Ok(EmbedValue::Undefined);
                 }
             }
-            Err(diag(format!(
-                "embed eval: unbound local %{}",
-                id.0
-            )))
+            Err(diag(format!("embed eval: unbound local %{}", id.0)))
         }
         Expr::Unary { op, arg, .. } => {
             let v = eval_expr(arg, env, module, ctx)?;
@@ -401,11 +396,7 @@ fn eval_expr(
     }
 }
 
-fn eval_unary(
-    op: UnaryOp,
-    v: EmbedValue,
-    alloc: &mut EvalAlloc,
-) -> Result<EmbedValue, Diagnostic> {
+fn eval_unary(op: UnaryOp, v: EmbedValue, alloc: &mut EvalAlloc) -> Result<EmbedValue, Diagnostic> {
     match op {
         UnaryOp::Plus => Ok(EmbedValue::Number(to_number(&v)?)),
         UnaryOp::Minus => Ok(EmbedValue::Number(-to_number(&v)?)),
@@ -461,8 +452,11 @@ fn to_number(v: &EmbedValue) -> Result<f64, Diagnostic> {
             if t.is_empty() {
                 return Ok(0.0);
             }
-            t.parse::<f64>()
-                .map_err(|_| diag(format!("embed eval: cannot convert string to number: {s:?}")))
+            t.parse::<f64>().map_err(|_| {
+                diag(format!(
+                    "embed eval: cannot convert string to number: {s:?}"
+                ))
+            })
         }
     }
 }
@@ -505,26 +499,17 @@ fn to_string_js(v: &EmbedValue) -> String {
 
 fn parse_number_raw(raw: &str) -> Result<f64, Diagnostic> {
     let s = raw.replace('_', "");
-    if let Some(hex) = s
-        .strip_prefix("0x")
-        .or_else(|| s.strip_prefix("0X"))
-    {
+    if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
         return i64::from_str_radix(hex, 16)
             .map(|n| n as f64)
             .map_err(|_| diag(format!("embed eval: bad hex number: {raw}")));
     }
-    if let Some(bin) = s
-        .strip_prefix("0b")
-        .or_else(|| s.strip_prefix("0B"))
-    {
+    if let Some(bin) = s.strip_prefix("0b").or_else(|| s.strip_prefix("0B")) {
         return i64::from_str_radix(bin, 2)
             .map(|n| n as f64)
             .map_err(|_| diag(format!("embed eval: bad binary number: {raw}")));
     }
-    if let Some(oct) = s
-        .strip_prefix("0o")
-        .or_else(|| s.strip_prefix("0O"))
-    {
+    if let Some(oct) = s.strip_prefix("0o").or_else(|| s.strip_prefix("0O")) {
         return i64::from_str_radix(oct, 8)
             .map(|n| n as f64)
             .map_err(|_| diag(format!("embed eval: bad octal number: {raw}")));
@@ -654,21 +639,15 @@ mod tests {
 
     #[test]
     fn eval_source_with_bindings_resolves_free_ident() {
-        let v = eval_source_with_bindings(
-            "gx",
-            &[("gx".into(), EmbedValue::Number(200.0))],
-        )
-        .unwrap();
+        let v =
+            eval_source_with_bindings("gx", &[("gx".into(), EmbedValue::Number(200.0))]).unwrap();
         assert_eq!(v, EmbedValue::Number(200.0));
     }
 
     #[test]
     fn eval_source_with_bindings_global_style() {
-        let v = eval_source_with_bindings(
-            "gx",
-            &[("gx".into(), EmbedValue::Number(100.0))],
-        )
-        .unwrap();
+        let v =
+            eval_source_with_bindings("gx", &[("gx".into(), EmbedValue::Number(100.0))]).unwrap();
         assert_eq!(v, EmbedValue::Number(100.0));
     }
 
@@ -702,11 +681,8 @@ mod tests {
     fn eval_source_with_bindings_rejects_when_combined_script_oversize() {
         // Source alone is small; bindings + source exceed the cap.
         let pad = " ".repeat(MAX_EVAL_SOURCE_BYTES);
-        let err = eval_source_with_bindings(
-            &pad,
-            &[("gx".into(), EmbedValue::Number(1.0))],
-        )
-        .unwrap_err();
+        let err =
+            eval_source_with_bindings(&pad, &[("gx".into(), EmbedValue::Number(1.0))]).unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("maximum source size") || msg.contains("exceeds"),
@@ -716,7 +692,10 @@ mod tests {
 
     #[test]
     fn eval_function_call_rejects_oversize_body() {
-        let body = format!("return {}", "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES));
+        let body = format!(
+            "return {}",
+            "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES)
+        );
         let err = eval_function_call(&[], &body, &[]).unwrap_err();
         let msg = err.to_string();
         assert!(

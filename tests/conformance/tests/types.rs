@@ -343,8 +343,8 @@ fn duplicate_type_alias_errors() {
 
 #[test]
 fn parse_object_type_and_alias() {
-    let program = parse("type P = { x: number, y: string }; let p: P = { x: 1, y: \"a\" };")
-        .unwrap();
+    let program =
+        parse("type P = { x: number, y: string }; let p: P = { x: 1, y: \"a\" };").unwrap();
     assert!(!program.body.is_empty());
     check(program).unwrap();
 }
@@ -565,8 +565,8 @@ fn union_erase_runs() {
 
 #[test]
 fn parse_union_and_intersection() {
-    let program = parse("type T = string | number; type U = { a: number } & { b: string };")
-        .unwrap();
+    let program =
+        parse("type T = string | number; type U = { a: number } & { b: string };").unwrap();
     assert!(!program.body.is_empty());
     check(program).unwrap();
 }
@@ -804,7 +804,8 @@ fn native_types_erase_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "types/native/native_types_erase"),
+        ids.iter()
+            .any(|id| *id == "types/native/native_types_erase"),
         "missing types/native/native_types_erase fixture, got {ids:?}"
     );
 }
@@ -1231,11 +1232,7 @@ fn call_annotated_call_ok_runs() {
 fn call_reject_fixtures_run() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     for fixture in fixtures.iter().filter(|f| f.id.starts_with("types/reject")) {
-        assert!(
-            !fixture.targets.is_empty(),
-            "{}: no targets",
-            fixture.id
-        );
+        assert!(!fixture.targets.is_empty(), "{}: no targets", fixture.id);
         for r in run_fixture(fixture) {
             assert!(
                 r.ok,
@@ -1255,7 +1252,8 @@ fn call_untyped_non_callable_ok_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "types/call_untyped_non_callable_ok"),
+        ids.iter()
+            .any(|id| *id == "types/call_untyped_non_callable_ok"),
         "missing types/call_untyped_non_callable_ok fixture, got {ids:?}"
     );
 }
@@ -1284,7 +1282,8 @@ fn call_annotated_callable_ok_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "types/call_annotated_callable_ok"),
+        ids.iter()
+            .any(|id| *id == "types/call_annotated_callable_ok"),
         "missing types/call_annotated_callable_ok fixture, got {ids:?}"
     );
 }
@@ -1349,8 +1348,8 @@ fn call_untyped_number_ok() {
 
 #[test]
 fn call_annotated_function_ok() {
-    let program = parse("function g(a: number): number { return a * 2; } let m: number = g(21);")
-        .unwrap();
+    let program =
+        parse("function g(a: number): number { return a * 2; } let m: number = g(21);").unwrap();
     check(program).expect("annotated declared function is callable");
 }
 
@@ -1423,7 +1422,8 @@ fn unknown_shape_prop_dynamic_ok_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter().any(|id| *id == "types/unknown_shape_prop_dynamic_ok"),
+        ids.iter()
+            .any(|id| *id == "types/unknown_shape_prop_dynamic_ok"),
         "missing types/unknown_shape_prop_dynamic_ok fixture, got {ids:?}"
     );
 }

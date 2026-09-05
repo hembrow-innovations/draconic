@@ -102,9 +102,7 @@ impl Heap {
     }
 
     fn has_own(&self, oid: usize, key: &str) -> bool {
-        self.objects
-            .get(oid)
-            .is_some_and(|m| m.contains_key(key))
+        self.objects.get(oid).is_some_and(|m| m.contains_key(key))
     }
 
     fn delete(&mut self, oid: usize, key: &str) -> bool {
@@ -159,9 +157,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             match env.locals.get(local) {
                 Some(JsVal::Num(n)) => observations.push(Obs::Num(*n)),
                 Some(JsVal::Str(s)) => observations.push(Obs::Str(s.clone())),
-                Some(JsVal::Undef)
-                    if matches!(loc.ty, Type::String | Type::Any | Type::Number) =>
-                {
+                Some(JsVal::Undef) if matches!(loc.ty, Type::String | Type::Any | Type::Number) => {
                     observations.push(Obs::Str("undefined".into()));
                 }
                 Some(JsVal::Bool(b)) => observations.push(Obs::Num(if *b { 1.0 } else { 0.0 })),
@@ -189,10 +185,15 @@ fn module_has_static_block_shape(module: &Module) -> bool {
     fn expr_has(e: &Expr) -> bool {
         match e {
             Expr::Call { callee, args, .. } => {
-                expr_has(callee) || args.iter().any(|a| matches!(a, Arg::Expr(e) if expr_has(e)))
+                expr_has(callee)
+                    || args
+                        .iter()
+                        .any(|a| matches!(a, Arg::Expr(e) if expr_has(e)))
             }
             Expr::Function { body, .. } => body.iter().any(stmt_has),
-            Expr::Member { object, property, .. } => expr_has(object) || expr_has(property),
+            Expr::Member {
+                object, property, ..
+            } => expr_has(object) || expr_has(property),
             Expr::Object { properties, .. } => properties.iter().any(|p| match p {
                 ObjectProp::Property {
                     key: ObjectPropKey::Static(k),
@@ -213,16 +214,17 @@ fn module_has_static_block_shape(module: &Module) -> bool {
                 ..
             } => expr_has(test) || expr_has(consequent) || expr_has(alternate),
             Expr::New { callee, args, .. } => {
-                expr_has(callee) || args.iter().any(|a| matches!(a, Arg::Expr(e) if expr_has(e)))
+                expr_has(callee)
+                    || args
+                        .iter()
+                        .any(|a| matches!(a, Arg::Expr(e) if expr_has(e)))
             }
             _ => false,
         }
     }
     fn stmt_has(s: &Stmt) -> bool {
         match s {
-            Stmt::Declare {
-                init: Some(e), ..
-            } => expr_has(e),
+            Stmt::Declare { init: Some(e), .. } => expr_has(e),
             Stmt::Expr { expr } => expr_has(expr),
             Stmt::Block { body } | Stmt::Function { body, .. } => body.iter().any(stmt_has),
             Stmt::Return { value: Some(e) } | Stmt::Throw { value: e } => expr_has(e),
@@ -308,27 +310,21 @@ fn eval_stmt(
             }
         }
         Stmt::Throw { .. } => Err(()),
-        Stmt::Try {
-            block,
-            handler,
-            ..
-        } => {
-            match eval_body(block, env, heap, by_id) {
-                Ok(()) => Ok(None),
-                Err(()) => {
-                    if let Some(h) = handler {
-                        for s in h {
-                            if let Some(v) = eval_stmt(s, env, heap, by_id)? {
-                                return Ok(Some(v));
-                            }
+        Stmt::Try { block, handler, .. } => match eval_body(block, env, heap, by_id) {
+            Ok(()) => Ok(None),
+            Err(()) => {
+                if let Some(h) = handler {
+                    for s in h {
+                        if let Some(v) = eval_stmt(s, env, heap, by_id)? {
+                            return Ok(Some(v));
                         }
-                        Ok(None)
-                    } else {
-                        Err(())
                     }
+                    Ok(None)
+                } else {
+                    Err(())
                 }
             }
-        }
+        },
         _ => Err(()),
     }
 }
@@ -455,9 +451,7 @@ fn eval_expr(
             }
             eval_call(callee, args, env, heap, by_id)
         }
-        Expr::New {
-            callee, args, ..
-        } => eval_new(callee, args, env, heap, by_id),
+        Expr::New { callee, args, .. } => eval_new(callee, args, env, heap, by_id),
         _ => Err(()),
     }
 }
@@ -566,11 +560,7 @@ fn to_key(v: &JsVal) -> Result<String, ()> {
                 Ok(format!("{n}"))
             }
         }
-        JsVal::Bool(b) => Ok(if *b {
-            "true".into()
-        } else {
-            "false".into()
-        }),
+        JsVal::Bool(b) => Ok(if *b { "true".into() } else { "false".into() }),
         JsVal::Undef => Ok("undefined".into()),
         JsVal::Null => Ok("null".into()),
         _ => Err(()),

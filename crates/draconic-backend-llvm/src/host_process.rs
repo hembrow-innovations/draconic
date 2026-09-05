@@ -156,19 +156,17 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
 
 fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     match expr {
-        Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "processArgs") => {
+        Expr::Call { callee, args, .. }
+            if args.is_empty() && is_named_callee(callee, "processArgs") =>
+        {
             ctx.has_process_args = true;
             Some(SlotTy::Array)
         }
-        Expr::Call { callee, args, .. }
-            if args.is_empty() && is_named_callee(callee, "pid") =>
-        {
+        Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "pid") => {
             ctx.has_pid = true;
             Some(SlotTy::Number)
         }
-        Expr::Call { callee, args, .. }
-            if args.is_empty() && is_named_callee(callee, "ppid") =>
-        {
+        Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "ppid") => {
             ctx.has_pid = true;
             Some(SlotTy::Number)
         }
@@ -198,7 +196,9 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             // Not assigned as value in fixtures; treat as void if ever used as expr.
             Some(SlotTy::Number)
         }
-        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envDelete") => {
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "envDelete") =>
+        {
             ctx.has_env = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
             Some(SlotTy::Number)
@@ -560,12 +560,12 @@ impl<'a> Emitter<'a> {
                 let name = ident_name(callee).ok_or_else(|| diag("host_process: bad call"))?;
                 match name {
                     "envSet" if args.len() == 2 => {
-                        let k = self.emit_string_expr(arg_expr(&args[0]).ok_or_else(|| {
-                            diag("host_process: envSet key")
-                        })?)?;
-                        let v = self.emit_string_expr(arg_expr(&args[1]).ok_or_else(|| {
-                            diag("host_process: envSet value")
-                        })?)?;
+                        let k = self.emit_string_expr(
+                            arg_expr(&args[0]).ok_or_else(|| diag("host_process: envSet key"))?,
+                        )?;
+                        let v = self.emit_string_expr(
+                            arg_expr(&args[1]).ok_or_else(|| diag("host_process: envSet value"))?,
+                        )?;
                         let _rc = self.fresh();
                         writeln!(
                             self.body,
@@ -576,9 +576,10 @@ impl<'a> Emitter<'a> {
                         Ok(())
                     }
                     "envDelete" if args.len() == 1 => {
-                        let k = self.emit_string_expr(arg_expr(&args[0]).ok_or_else(|| {
-                            diag("host_process: envDelete key")
-                        })?)?;
+                        let k = self.emit_string_expr(
+                            arg_expr(&args[0])
+                                .ok_or_else(|| diag("host_process: envDelete key"))?,
+                        )?;
                         let _rc = self.fresh();
                         writeln!(
                             self.body,
@@ -599,9 +600,10 @@ impl<'a> Emitter<'a> {
                             .ok();
                             c
                         } else {
-                            let f = self.emit_number_expr(arg_expr(&args[0]).ok_or_else(|| {
-                                diag("host_process: exit code")
-                            })?)?;
+                            let f = self.emit_number_expr(
+                                arg_expr(&args[0])
+                                    .ok_or_else(|| diag("host_process: exit code"))?,
+                            )?;
                             let c = self.fresh();
                             writeln!(self.body, "  {c} = fptosi double {f} to i32").ok();
                             c
@@ -618,9 +620,10 @@ impl<'a> Emitter<'a> {
                         Ok(())
                     }
                     "setExitCode" if args.len() == 1 => {
-                        let f = self.emit_number_expr(arg_expr(&args[0]).ok_or_else(|| {
-                            diag("host_process: setExitCode code")
-                        })?)?;
+                        let f = self.emit_number_expr(
+                            arg_expr(&args[0])
+                                .ok_or_else(|| diag("host_process: setExitCode code"))?,
+                        )?;
                         let c = self.fresh();
                         writeln!(self.body, "  {c} = fptosi double {f} to i32").ok();
                         writeln!(
@@ -665,12 +668,7 @@ impl<'a> Emitter<'a> {
         let loop_end = format!("args_loop_end_{}", self.next_tmp);
         self.next_tmp += 1;
 
-        writeln!(
-            self.body,
-            "  {}",
-            HOST_PROCESS_USER_ARGC.call_to(&n32, "")
-        )
-        .ok();
+        writeln!(self.body, "  {}", HOST_PROCESS_USER_ARGC.call_to(&n32, "")).ok();
         writeln!(self.body, "  {n64} = sext i32 {n32} to i64").ok();
         writeln!(
             self.body,
@@ -798,10 +796,7 @@ impl<'a> Emitter<'a> {
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq
@@ -902,7 +897,11 @@ impl<'a> Emitter<'a> {
                 .ok();
                 writeln!(self.body, "  store i8 0, ptr {empty_ptr}").ok();
                 writeln!(self.body, "  {is_null} = icmp eq ptr {el}, null").ok();
-                writeln!(self.body, "  br i1 {is_null}, label %{join}, label %{use_el}").ok();
+                writeln!(
+                    self.body,
+                    "  br i1 {is_null}, label %{join}, label %{use_el}"
+                )
+                .ok();
                 writeln!(self.body, "{use_el}:").ok();
                 writeln!(self.body, "  br label %{end}").ok();
                 writeln!(self.body, "{join}:").ok();
@@ -1028,11 +1027,11 @@ mod tests {
         let ir = emit_host_process(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_process_set_argv"), "{ir}");
         assert!(ir.contains("draconic_rt_host_process_user_argc"), "{ir}");
-        assert!(ir.contains("define i32 @main(i32 %argc, ptr %argv)"), "{ir}");
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-hp-ir-{}",
-            std::process::id()
-        ));
+        assert!(
+            ir.contains("define i32 @main(i32 %argc, ptr %argv)"),
+            "{ir}"
+        );
+        let dir = std::env::temp_dir().join(format!("draconic-hp-ir-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let ll = dir.join("t.ll");
         std::fs::write(&ll, &ir).unwrap();
@@ -1071,10 +1070,7 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_env_set"), "{ir}");
         assert!(ir.contains("draconic_rt_host_env_delete"), "{ir}");
         assert!(ir.contains("define i32 @main()"), "{ir}");
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-hp-env-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("draconic-hp-env-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let ll = dir.join("t.ll");
         std::fs::write(&ll, &ir).unwrap();
@@ -1103,8 +1099,14 @@ mod tests {
         );
         assert!(is_host_process_module(&m));
         let ir = emit_host_process(&m).expect("emit");
-        assert!(ir.contains("draconic_rt_host_process_set_exit_code"), "{ir}");
-        assert!(ir.contains("draconic_rt_host_process_get_exit_code"), "{ir}");
+        assert!(
+            ir.contains("draconic_rt_host_process_set_exit_code"),
+            "{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_host_process_get_exit_code"),
+            "{ir}"
+        );
         assert!(ir.contains("ret i32"), "{ir}");
         let m2 = lower_src("exit(7);");
         assert!(is_host_process_module(&m2));
@@ -1115,7 +1117,10 @@ mod tests {
         assert!(is_host_process_module(&m3));
         let ir3 = emit_host_process(&m3).expect("emit");
         assert!(ir3.contains("draconic_rt_host_process_exit"), "{ir3}");
-        assert!(ir3.contains("draconic_rt_host_process_get_exit_code"), "{ir3}");
+        assert!(
+            ir3.contains("draconic_rt_host_process_get_exit_code"),
+            "{ir3}"
+        );
     }
 
     #[test]
@@ -1133,10 +1138,7 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_process_pid"), "{ir}");
         assert!(ir.contains("draconic_rt_host_process_ppid"), "{ir}");
         assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-hp-pid-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("draconic-hp-pid-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let ll = dir.join("t.ll");
         std::fs::write(&ll, &ir).unwrap();

@@ -117,19 +117,13 @@ fn k10_01_pkg_lib_layout_and_manifest() {
     );
     let manifest =
         parse_manifest(&fs::read_to_string(&manifest_path).unwrap()).expect("valid manifest");
-    assert!(
-        !manifest.module.is_empty(),
-        "module path must be non-empty"
-    );
+    assert!(!manifest.module.is_empty(), "module path must be non-empty");
     assert!(
         manifest.module.contains('/'),
         "module path should be Go-like (host/path), got {}",
         manifest.module
     );
-    assert!(
-        manifest.dependencies.is_empty(),
-        "minimal lib has no deps"
-    );
+    assert!(manifest.dependencies.is_empty(), "minimal lib has no deps");
 
     let index = dir.join("index.drac");
     assert!(index.is_file(), "package root entry index.drac required");

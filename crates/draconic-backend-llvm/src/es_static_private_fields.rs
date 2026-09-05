@@ -23,9 +23,8 @@ pub(crate) fn is_es_static_private_fields_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_es_static_private_fields(module: &Module) -> Result<String, Diagnostic> {
-    let obs = classify(module).ok_or_else(|| {
-        diag("internal: not an es_static_private_fields module")
-    })?;
+    let obs =
+        classify(module).ok_or_else(|| diag("internal: not an es_static_private_fields module"))?;
     Ok(emit_obs(&obs))
 }
 
@@ -185,9 +184,7 @@ mod tests {
             !ir.contains("draconic_rt_hello"),
             "must not use hello stub:\n{ir}"
         );
-        for s in [
-            "2.0", "10.0", "3.0", "7.0", "100.0", "101.0", "undefined",
-        ] {
+        for s in ["2.0", "10.0", "3.0", "7.0", "100.0", "101.0", "undefined"] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }
     }

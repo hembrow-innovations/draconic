@@ -12,12 +12,13 @@ use std::fmt::Write as _;
 use draconic_ast::{AssignOp, BinaryOp, JsString, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey, Stmt,
+    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, ObjectProp, ObjectPropKey,
+    Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ES_VALUES_DECLARES, GC_INIT, OBJECT_GET, OBJECT_GET_BY_SYMBOL,
-    OBJECT_SET, OBJECT_SET_BY_SYMBOL, PRINT_BOOL, PRINT_BYTES, PRINT_F64, SYMBOL_FOR, SYMBOL_KEY_FOR,
-    SYMBOL_NEW,
+    OBJECT_SET, OBJECT_SET_BY_SYMBOL, PRINT_BOOL, PRINT_BYTES, PRINT_F64, SYMBOL_FOR,
+    SYMBOL_KEY_FOR, SYMBOL_NEW,
 };
 
 pub(crate) fn is_es_values_module(module: &Module) -> bool {
@@ -314,8 +315,7 @@ fn member_assign_ok(
         Expr::Local { id, .. } => objects.contains(id),
         _ => false,
     };
-    obj_ok
-        && (member_key_is_symbol(property, by_id, symbols) || member_key_is_string(property))
+    obj_ok && (member_key_is_symbol(property, by_id, symbols) || member_key_is_string(property))
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -661,12 +661,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_side_effect(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         let Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..

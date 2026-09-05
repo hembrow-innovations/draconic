@@ -14,10 +14,7 @@ fn assert_fixture_present(id: &str) {
 fn assert_fixture_runs_js(id: &str) {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load");
     let fixture = fixtures.iter().find(|f| f.id == id).expect(id);
-    assert!(
-        fixture.targets.contains(&Target::Js),
-        "{id} must target js"
-    );
+    assert!(fixture.targets.contains(&Target::Js), "{id} must target js");
     for r in run_fixture(fixture) {
         assert!(
             r.ok,

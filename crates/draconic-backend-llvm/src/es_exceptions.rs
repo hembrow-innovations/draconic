@@ -14,9 +14,7 @@ use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, BindingKind, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{
-    Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt,
-};
+use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BYTES, PRINT_F64};
 
 pub(crate) fn is_es_exceptions_module(module: &Module) -> bool {
@@ -106,7 +104,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         if let Stmt::Declare { local, .. } = stmt {
             let loc = by_id.get(local)?;
             if matches!(loc.ty, Type::Number | Type::Any | Type::String) {
-                if matches!(env.get(local), Some(JsVal::Fn(_)) | Some(JsVal::BuiltinString)) {
+                if matches!(
+                    env.get(local),
+                    Some(JsVal::Fn(_)) | Some(JsVal::BuiltinString)
+                ) {
                     continue;
                 }
                 user_locals.push(*local);
@@ -210,7 +211,10 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             let Some(loc) = by_id.get(local) else {
                 return false;
             };
-            if !matches!(loc.ty, Type::Number | Type::Any | Type::String | Type::Function) {
+            if !matches!(
+                loc.ty,
+                Type::Number | Type::Any | Type::String | Type::Function
+            ) {
                 return false;
             }
             match init {
@@ -263,7 +267,9 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 
 fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => true,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Null { .. } => {
+            true
+        }
         Expr::Local { id, .. } => by_id.contains_key(id),
         Expr::Unary { op, arg, .. } => {
             matches!(
@@ -271,14 +277,12 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                 UnaryOp::Plus | UnaryOp::Minus | UnaryOp::Not | UnaryOp::TypeOf
             ) && expr_ok(arg, by_id)
         }
-        Expr::Binary { left, right, op, .. } => {
+        Expr::Binary {
+            left, right, op, ..
+        } => {
             matches!(
                 op,
-                BinaryOp::Add
-                    | BinaryOp::Sub
-                    | BinaryOp::Mul
-                    | BinaryOp::Div
-                    | BinaryOp::Rem
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem
             ) && expr_ok(left, by_id)
                 && expr_ok(right, by_id)
         }
@@ -305,11 +309,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     }
 }
 
-fn same_name(
-    a: LocalId,
-    b: LocalId,
-    by_id: &HashMap<LocalId, &Local>,
-) -> bool {
+fn same_name(a: LocalId, b: LocalId, by_id: &HashMap<LocalId, &Local>) -> bool {
     match (by_id.get(&a), by_id.get(&b)) {
         (Some(la), Some(lb)) => la.name == lb.name,
         _ => false,
@@ -342,10 +342,7 @@ fn eval_stmt(
     match stmt {
         Stmt::Function { .. } => Ok(Flow::Normal),
         Stmt::Declare {
-            local,
-            kind,
-            init,
-            ..
+            local, kind, init, ..
         } => {
             // Annex B.3.4: `catch (e) { var e = init }` — initializer assigns the
             // catch binding; bare `var e` is a no-op on the catch binding; outer
@@ -487,7 +484,11 @@ fn eval_expr(
                 Err(flow) => return Ok(Err(flow)),
             };
             if *op == BinaryOp::Add && (matches!(l, JsVal::Str(_)) || matches!(r, JsVal::Str(_))) {
-                return Ok(Ok(JsVal::Str(format!("{}{}", to_string(&l), to_string(&r)))));
+                return Ok(Ok(JsVal::Str(format!(
+                    "{}{}",
+                    to_string(&l),
+                    to_string(&r)
+                ))));
             }
             let ln = to_number(&l);
             let rn = to_number(&r);
@@ -659,12 +660,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_str(&mut self, s: &str) {

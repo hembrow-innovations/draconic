@@ -21,11 +21,12 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, HOST_FS_APPEND_FILE,
-    HOST_FS_APPEND_TEXT, HOST_FS_COPY_FILE, HOST_FS_EXISTS, HOST_FS_HANDLE_READ, HOST_FS_HANDLE_SEEK,
-    HOST_FS_HANDLE_WRITE, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL, HOST_FS_OPEN, HOST_FS_READ_FILE,
-    HOST_FS_READ_TEXT, HOST_FS_READDIR, HOST_FS_REMOVE_FILE, HOST_FS_RENAME_FILE, HOST_FS_RMDIR,
-    HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT, HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT,
-    HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_BOOL, PRINT_F64, PRINT_STR,
+    HOST_FS_APPEND_TEXT, HOST_FS_COPY_FILE, HOST_FS_EXISTS, HOST_FS_HANDLE_READ,
+    HOST_FS_HANDLE_SEEK, HOST_FS_HANDLE_WRITE, HOST_FS_MKDIR, HOST_FS_MKDIR_ALL, HOST_FS_OPEN,
+    HOST_FS_READDIR, HOST_FS_READ_FILE, HOST_FS_READ_TEXT, HOST_FS_REMOVE_FILE,
+    HOST_FS_RENAME_FILE, HOST_FS_RMDIR, HOST_FS_STAT, HOST_FS_WRITE_FILE, HOST_FS_WRITE_TEXT,
+    HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_BOOL,
+    PRINT_F64, PRINT_STR,
 };
 
 pub(crate) fn is_host_fs_module(module: &Module) -> bool {
@@ -261,9 +262,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
-        Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "mkdir") =>
-        {
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "mkdir") => {
             ctx.has_fs = true;
             ctx.needs_mkdir = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
@@ -277,9 +276,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             Some(())
         }
-        Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "rmdir") =>
-        {
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "rmdir") => {
             ctx.has_fs = true;
             ctx.needs_rmdir = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
@@ -420,17 +417,13 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.needs_handle_read = true;
             Some(SlotTy::DynBytes)
         }
-        Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "exists") =>
-        {
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "exists") => {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             ctx.has_fs = true;
             ctx.needs_exists = true;
             Some(SlotTy::Bool)
         }
-        Expr::Call { callee, args, .. }
-            if args.len() == 1 && is_named_callee(callee, "stat") =>
-        {
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "stat") => {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             ctx.has_fs = true;
             ctx.needs_stat = true;
@@ -1207,11 +1200,7 @@ impl<'a> Emitter<'a> {
         let p = self.emit_string_expr(path)?;
         let t = self.emit_string_expr(text)?;
         let rc = self.fresh();
-        writeln!(
-            self.body,
-            "  {rc} = call i32 @{symbol}(ptr {p}, ptr {t})"
-        )
-        .ok();
+        writeln!(self.body, "  {rc} = call i32 @{symbol}(ptr {p}, ptr {t})").ok();
         self.emit_check_rc(&rc)
     }
 
@@ -1285,11 +1274,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {is0} = icmp eq i8 {ch}, 0").ok();
         let inc_l = format!("wlen_inc_{}", self.next_tmp);
         self.next_tmp += 1;
-        writeln!(
-            self.body,
-            "  br i1 {is0}, label %{done_l}, label %{inc_l}"
-        )
-        .ok();
+        writeln!(self.body, "  br i1 {is0}, label %{done_l}, label %{inc_l}").ok();
         writeln!(self.body, "{inc_l}:").ok();
         let iv2 = self.fresh();
         let iv3 = self.fresh();

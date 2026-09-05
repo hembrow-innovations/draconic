@@ -123,8 +123,7 @@ fn exponentiation_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/expressions/exponentiation"),
+        ids.iter().any(|id| *id == "es/expressions/exponentiation"),
         "missing es/expressions/exponentiation fixture, got {ids:?}"
     );
 }
@@ -269,8 +268,7 @@ fn unary_keywords_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/expressions/unary_keywords"),
+        ids.iter().any(|id| *id == "es/expressions/unary_keywords"),
         "missing es/expressions/unary_keywords fixture, got {ids:?}"
     );
 }

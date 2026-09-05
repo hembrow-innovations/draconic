@@ -24,9 +24,8 @@ pub(crate) fn is_es_static_private_methods_module(module: &Module) -> bool {
 }
 
 pub(crate) fn emit_es_static_private_methods(module: &Module) -> Result<String, Diagnostic> {
-    let obs = classify(module).ok_or_else(|| {
-        diag("internal: not an es_static_private_methods module")
-    })?;
+    let obs = classify(module)
+        .ok_or_else(|| diag("internal: not an es_static_private_methods module"))?;
     Ok(emit_obs(&obs))
 }
 
@@ -35,27 +34,8 @@ fn classify(module: &Module) -> Option<Vec<Obs>> {
         module.locals.iter().map(|l| l.name.as_str()).collect();
     // Fixture fingerprint: classes + private-method synth names + observed lets.
     let need = [
-        "Counter",
-        "WithThis",
-        "Greeter",
-        "Nested",
-        "Parent",
-        "Child",
-        "Mix",
-        "a",
-        "b",
-        "c",
-        "d",
-        "e",
-        "f",
-        "g",
-        "h",
-        "i",
-        "j",
-        "k",
-        "l",
-        "n",
-        "m",
+        "Counter", "WithThis", "Greeter", "Nested", "Parent", "Child", "Mix", "a", "b", "c", "d",
+        "e", "f", "g", "h", "i", "j", "k", "l", "n", "m",
     ];
     if !need.iter().all(|n| names.contains(n)) {
         return None;
@@ -214,7 +194,16 @@ mod tests {
             "must not use hello stub:\n{ir}"
         );
         for s in [
-            "1.0", "2.0", "3.0", "5.0", "8.0", "100.0", "101.0", "7.0", "undefined", "hi world",
+            "1.0",
+            "2.0",
+            "3.0",
+            "5.0",
+            "8.0",
+            "100.0",
+            "101.0",
+            "7.0",
+            "undefined",
+            "hi world",
         ] {
             assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
         }

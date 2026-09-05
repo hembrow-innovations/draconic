@@ -259,11 +259,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_module(&mut self) -> Result<(), Diagnostic> {
-        writeln!(
-            self.out,
-            "; Draconic LLVM host_path (H03 path helpers)"
-        )
-        .ok();
+        writeln!(self.out, "; Draconic LLVM host_path (H03 path helpers)").ok();
         let decls = vec![
             GC_INIT,
             PRINT_STR,
@@ -448,12 +444,7 @@ impl<'a> Emitter<'a> {
             arg_expr(&args[0]).ok_or_else(|| diag(&format!("host_path: {name} arg")))?,
         )?;
         let r = self.fresh();
-        writeln!(
-            self.body,
-            "  {}",
-            abi.call_to(&r, &format!("ptr {a}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", abi.call_to(&r, &format!("ptr {a}"))).ok();
         Ok(r)
     }
 
@@ -466,12 +457,7 @@ impl<'a> Emitter<'a> {
         let n = args.len();
         let r = self.fresh();
         if n == 0 {
-            writeln!(
-                self.body,
-                "  {}",
-                abi.call_to(&r, "i64 0, ptr null")
-            )
-            .ok();
+            writeln!(self.body, "  {}", abi.call_to(&r, "i64 0, ptr null")).ok();
             return Ok(r);
         }
         let arr = self.fresh();

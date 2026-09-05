@@ -230,9 +230,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         values.insert(*local, v.clone());
                     }
                 }
-                Some(JsVal::Undef)
-                    if matches!(loc.ty, Type::Any | Type::String | Type::Number) =>
-                {
+                Some(JsVal::Undef) if matches!(loc.ty, Type::Any | Type::String | Type::Number) => {
                     // skip undefined for print unless we need it
                 }
                 Some(
@@ -277,9 +275,7 @@ fn stmt_has_proxy(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
         } => {
             expr_has_proxy(test, by_id)
                 || stmt_has_proxy(consequent, by_id)
-                || alternate
-                    .as_ref()
-                    .is_some_and(|a| stmt_has_proxy(a, by_id))
+                || alternate.as_ref().is_some_and(|a| stmt_has_proxy(a, by_id))
         }
         Stmt::Return { value: Some(e) } => expr_has_proxy(e, by_id),
         _ => false,
@@ -288,11 +284,9 @@ fn stmt_has_proxy(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
 
 fn expr_has_proxy(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
     match expr {
-        Expr::Local { id, .. } => {
-            by_id
-                .get(id)
-                .is_some_and(|l| l.name == "Proxy" || l.name == "Reflect")
-        }
+        Expr::Local { id, .. } => by_id
+            .get(id)
+            .is_some_and(|l| l.name == "Proxy" || l.name == "Reflect"),
         Expr::New { callee, args, .. } => {
             expr_has_proxy(callee, by_id)
                 || args.iter().any(|a| match a {
@@ -307,9 +301,9 @@ fn expr_has_proxy(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                     _ => false,
                 })
         }
-        Expr::Member { object, property, .. } => {
-            expr_has_proxy(object, by_id) || expr_has_proxy(property, by_id)
-        }
+        Expr::Member {
+            object, property, ..
+        } => expr_has_proxy(object, by_id) || expr_has_proxy(property, by_id),
         Expr::Unary { arg, .. } => expr_has_proxy(arg, by_id),
         Expr::Binary { left, right, .. } => {
             expr_has_proxy(left, by_id) || expr_has_proxy(right, by_id)
@@ -640,10 +634,7 @@ fn eval_expr(
             Ok(JsVal::Bool(has))
         }
         Expr::Binary {
-            left,
-            op,
-            right,
-            ..
+            left, op, right, ..
         } => {
             let l = eval_expr(left, env, fns, objects, proxies)?;
             let r = eval_expr(right, env, fns, objects, proxies)?;
@@ -656,9 +647,7 @@ fn eval_expr(
                     ObjectProp::Property { key, value } => {
                         let k = match key {
                             ObjectPropKey::Static(s) => js_string_to_utf8(s),
-                            ObjectPropKey::Computed(e) => {
-                                eval_key(e, env, fns, objects, proxies)?
-                            }
+                            ObjectPropKey::Computed(e) => eval_key(e, env, fns, objects, proxies)?,
                         };
                         let v = eval_expr(value, env, fns, objects, proxies)?;
                         object_set_prop(&mut rec, k, v);
@@ -859,12 +848,9 @@ fn eval_expr(
             Ok(v)
         }
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object,
-                    property,
-                    ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -921,12 +907,7 @@ fn object_to_arg_list(obj: &JsVal, objects: &[ObjectRec]) -> Result<Vec<JsVal>, 
             };
             let mut out = Vec::with_capacity(len);
             for i in 0..len {
-                out.push(
-                    props
-                        .get(&i.to_string())
-                        .cloned()
-                        .unwrap_or(JsVal::Undef),
-                );
+                out.push(props.get(&i.to_string()).cloned().unwrap_or(JsVal::Undef));
             }
             Ok(out)
         }
@@ -1040,13 +1021,7 @@ fn call_reflect(
                 _ => return Err(()),
             };
             let ok = proxy_or_object_define_property(
-                &args[0],
-                &key,
-                &args[2],
-                env,
-                fns,
-                objects,
-                proxies,
+                &args[0], &key, &args[2], env, fns, objects, proxies,
             )?;
             Ok(JsVal::Bool(ok))
         }
@@ -1059,14 +1034,7 @@ fn call_reflect(
                 JsVal::Num(n) => format!("{}", *n as i64),
                 _ => return Err(()),
             };
-            proxy_or_object_get_own_property_descriptor(
-                &args[0],
-                &key,
-                env,
-                fns,
-                objects,
-                proxies,
-            )
+            proxy_or_object_get_own_property_descriptor(&args[0], &key, env, fns, objects, proxies)
         }
         ReflectOp::IsExtensible => {
             if args.is_empty() {
@@ -1409,9 +1377,7 @@ fn proxy_or_object_define_property(
                 let v = call_fn(trap_idx, &args, env, fns, objects, proxies)?;
                 Ok(is_truthy(&v))
             } else {
-                proxy_or_object_define_property(
-                    &rec.target, key, desc, env, fns, objects, proxies,
-                )
+                proxy_or_object_define_property(&rec.target, key, desc, env, fns, objects, proxies)
             }
         }
         _ => Err(()),
@@ -1441,7 +1407,12 @@ fn proxy_or_object_get_own_property_descriptor(
                 call_fn(trap_idx, &args, env, fns, objects, proxies)
             } else {
                 proxy_or_object_get_own_property_descriptor(
-                    &rec.target, key, env, fns, objects, proxies,
+                    &rec.target,
+                    key,
+                    env,
+                    fns,
+                    objects,
+                    proxies,
                 )
             }
         }
@@ -1534,12 +1505,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {

@@ -926,7 +926,9 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  store i64 {n}, ptr {len_slot}").ok();
                 Ok(())
             }
-            _ => Err(diag("host_http_server: expected tcpRead/tlsRead for DynBytes")),
+            _ => Err(diag(
+                "host_http_server: expected tcpRead/tlsRead for DynBytes",
+            )),
         }
     }
 
@@ -1255,7 +1257,8 @@ impl<'a> Emitter<'a> {
                 if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
             {
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tlsClientWrap conn"))?,
+                    arg_expr(&args[0])
+                        .ok_or_else(|| diag("host_http_server: tlsClientWrap conn"))?,
                 )?;
                 let name = self.emit_string_expr(
                     arg_expr(&args[1])
@@ -1292,7 +1295,8 @@ impl<'a> Emitter<'a> {
                 if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
             {
                 let h = self.emit_handle_i64(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: tlsServerWrap conn"))?,
+                    arg_expr(&args[0])
+                        .ok_or_else(|| diag("host_http_server: tlsServerWrap conn"))?,
                 )?;
                 let cert = self.emit_string_expr(
                     arg_expr(&args[1])

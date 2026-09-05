@@ -157,8 +157,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             Some(SlotTy::Number)
         }
         Expr::Call { callee, args, .. }
-            if is_named_callee(callee, "processStdout") || is_named_callee(callee, "processStderr")
-        =>
+            if is_named_callee(callee, "processStdout")
+                || is_named_callee(callee, "processStderr") =>
         {
             ctx.uses_spawn = true;
             if args.len() != 1 {
@@ -490,11 +490,7 @@ impl<'a> Emitter<'a> {
         let argc = argv.len() as i32;
 
         let argv_arr = self.fresh();
-        writeln!(
-            self.body,
-            "  {argv_arr} = alloca [{argc} x ptr], align 8"
-        )
-        .ok();
+        writeln!(self.body, "  {argv_arr} = alloca [{argc} x ptr], align 8").ok();
         for (i, s) in argv.iter().enumerate() {
             let p = self.emit_cstr_ptr(s);
             let ep = self.fresh();
@@ -723,10 +719,7 @@ impl<'a> Emitter<'a> {
                 Ok(v)
             }
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt
@@ -744,11 +737,7 @@ impl<'a> Emitter<'a> {
                     let l = self.emit_string_expr(left)?;
                     let r = self.emit_string_expr(right)?;
                     let cmp = self.fresh();
-                    writeln!(
-                        self.body,
-                        "  {cmp} = call i32 @strcmp(ptr {l}, ptr {r})"
-                    )
-                    .ok();
+                    writeln!(self.body, "  {cmp} = call i32 @strcmp(ptr {l}, ptr {r})").ok();
                     // Ensure strcmp is declared once via body — add declare in emit_module if needed.
                     let is_eq = matches!(op, BinaryOp::EqEqEq | BinaryOp::EqEq);
                     let z = self.fresh();
@@ -844,11 +833,7 @@ impl<'a> Emitter<'a> {
                 };
                 writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
                 writeln!(self.body, "  store ptr null, ptr {out}").ok();
-                writeln!(
-                    self.body,
-                    "  {rc} = call i32 @{sym}(i32 {h}, ptr {out})"
-                )
-                .ok();
+                writeln!(self.body, "  {rc} = call i32 @{sym}(i32 {h}, ptr {out})").ok();
                 let empty = self.emit_cstr_ptr("");
                 let ok_l = self.fresh_label("ps_ok");
                 let bad_l = self.fresh_label("ps_bad");
@@ -921,10 +906,7 @@ mod tests {
         assert!(is_host_subprocess_module(&m));
         let ir = emit_host_subprocess(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_process_run"), "{ir}");
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-hs-ir-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("draconic-hs-ir-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let ll = dir.join("t.ll");
         std::fs::write(&ll, &ir).unwrap();
@@ -967,10 +949,7 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_process_stdout"), "{ir}");
         assert!(ir.contains("draconic_rt_host_process_kill"), "{ir}");
         assert!(ir.contains("declare i32 @strcmp"), "{ir}");
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-hs-spawn-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("draconic-hs-spawn-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let ll = dir.join("t.ll");
         std::fs::write(&ll, &ir).unwrap();

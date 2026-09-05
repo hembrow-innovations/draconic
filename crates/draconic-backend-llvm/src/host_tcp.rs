@@ -324,7 +324,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
         }
         Expr::Binary {
-            op: BinaryOp::Gt
+            op:
+                BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
@@ -679,7 +680,8 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 2
-                    && (is_named_callee(callee, "tcpRead") || is_named_callee(callee, "tlsRead")) =>
+                    && (is_named_callee(callee, "tcpRead")
+                        || is_named_callee(callee, "tlsRead")) =>
             {
                 let is_tls = is_named_callee(callee, "tlsRead");
                 let h = self.emit_handle_i64(
@@ -726,7 +728,8 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 1
-                    && (is_named_callee(callee, "closeTcp") || is_named_callee(callee, "closeTls")) =>
+                    && (is_named_callee(callee, "closeTcp")
+                        || is_named_callee(callee, "closeTls")) =>
             {
                 let h = self.emit_handle_i64(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: close handle"))?,
@@ -742,7 +745,8 @@ impl<'a> Emitter<'a> {
             }
             Expr::Call { callee, args, .. }
                 if args.len() == 2
-                    && (is_named_callee(callee, "tcpWrite") || is_named_callee(callee, "tlsWrite")) =>
+                    && (is_named_callee(callee, "tcpWrite")
+                        || is_named_callee(callee, "tlsWrite")) =>
             {
                 let is_tls = is_named_callee(callee, "tlsWrite");
                 let h = self.emit_handle_i64(
@@ -765,7 +769,8 @@ impl<'a> Emitter<'a> {
                 self.emit_check_rc(&rc)
             }
             Expr::Call { callee, args, .. }
-                if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpShutdown") =>
+                if (args.len() == 1 || args.len() == 2)
+                    && is_named_callee(callee, "tcpShutdown") =>
             {
                 let h = self.emit_handle_i64(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_tcp: tcpShutdown handle"))?,
@@ -852,11 +857,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {ch} = load i8, ptr {cp}").ok();
         let is0 = self.fresh();
         writeln!(self.body, "  {is0} = icmp eq i8 {ch}, 0").ok();
-        writeln!(
-            self.body,
-            "  br i1 {is0}, label %{done_l}, label %{inc_l}"
-        )
-        .ok();
+        writeln!(self.body, "  br i1 {is0}, label %{done_l}, label %{inc_l}").ok();
         writeln!(self.body, "{inc_l}:").ok();
         let iv2 = self.fresh();
         let iv3 = self.fresh();
@@ -1181,10 +1182,7 @@ impl<'a> Emitter<'a> {
     fn emit_bool_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt

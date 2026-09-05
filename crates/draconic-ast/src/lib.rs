@@ -32,10 +32,7 @@ impl BindingKind {
     pub fn is_lexical(self) -> bool {
         matches!(
             self,
-            BindingKind::Let
-                | BindingKind::Const
-                | BindingKind::Using
-                | BindingKind::AwaitUsing
+            BindingKind::Let | BindingKind::Const | BindingKind::Using | BindingKind::AwaitUsing
         )
     }
 
@@ -119,9 +116,7 @@ impl BindingPattern {
                 for el in elements {
                     match el {
                         ArrayPatternElement::Elision => {}
-                        ArrayPatternElement::Pattern { binding, .. } => {
-                            binding.for_each_ident(f)
-                        }
+                        ArrayPatternElement::Pattern { binding, .. } => binding.for_each_ident(f),
                         ArrayPatternElement::Rest(binding) => binding.for_each_ident(f),
                     }
                 }
@@ -468,10 +463,7 @@ pub enum ClassElement {
         span: Span,
     },
     /// `static { … }` static initialization block (E18.41).
-    StaticBlock {
-        body: Box<Stmt>,
-        span: Span,
-    },
+    StaticBlock { body: Box<Stmt>, span: Span },
 }
 
 /// Object/class accessor kind (`get` / `set`).
@@ -715,10 +707,7 @@ pub enum ObjectProp {
         span: Span,
     },
     /// `...expr` spread element.
-    Spread {
-        expr: Expr,
-        span: Span,
-    },
+    Spread { expr: Expr, span: Span },
 }
 
 /// Object literal property key (ident, string, or computed `[expr]`).
@@ -761,30 +750,15 @@ pub enum TypeAnn {
         span: Span,
     },
     /// `{ a: T; b: U }` (`;` or `,` separators).
-    Object {
-        props: Vec<TypeProp>,
-        span: Span,
-    },
+    Object { props: Vec<TypeProp>, span: Span },
     /// `[T, U, V]` fixed-length tuple / fixed array type (N03.02).
-    Tuple {
-        elements: Vec<TypeAnn>,
-        span: Span,
-    },
+    Tuple { elements: Vec<TypeAnn>, span: Span },
     /// `*T` — pointer to `T` (N03.03 native).
-    Pointer {
-        inner: Box<TypeAnn>,
-        span: Span,
-    },
+    Pointer { inner: Box<TypeAnn>, span: Span },
     /// `A | B | C` (flattened left-associative).
-    Union {
-        types: Vec<TypeAnn>,
-        span: Span,
-    },
+    Union { types: Vec<TypeAnn>, span: Span },
     /// `A & B & C` (flattened left-associative).
-    Intersection {
-        types: Vec<TypeAnn>,
-        span: Span,
-    },
+    Intersection { types: Vec<TypeAnn>, span: Span },
 }
 
 /// One property in a structural object type (`name: Type`).
@@ -1237,7 +1211,10 @@ fn dump_import_attributes(attributes: &[ImportAttribute], level: usize, out: &mu
             }
         }
         indent(level + 1, out);
-        out.push_str(&format!("value: {:?}\n", attr.value.value.to_string_lossy()));
+        out.push_str(&format!(
+            "value: {:?}\n",
+            attr.value.value.to_string_lossy()
+        ));
     }
 }
 
@@ -1356,10 +1333,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             dump_stmt(body, level + 2, out);
         }
         Stmt::ForIn {
-            left,
-            right,
-            body,
-            ..
+            left, right, body, ..
         } => {
             indent(level, out);
             out.push_str("ForIn\n");
@@ -1599,9 +1573,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                                 out.push_str(&format!("StaticPrivateAccessor {kind_s}\n"))
                             }
                             (true, false) => out.push_str(&format!("StaticAccessor {kind_s}\n")),
-                            (false, true) => {
-                                out.push_str(&format!("PrivateAccessor {kind_s}\n"))
-                            }
+                            (false, true) => out.push_str(&format!("PrivateAccessor {kind_s}\n")),
                             (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
                         dump_class_element_key(key, *is_private, level + 2, out);
@@ -1726,9 +1698,7 @@ fn dump_stmt(stmt: &Stmt, level: usize, out: &mut String) {
             dump_import_attributes(attributes, level + 1, out);
         }
         Stmt::ExportDefaultDeclaration {
-            declaration,
-            local,
-            ..
+            declaration, local, ..
         } => {
             indent(level, out);
             out.push_str("ExportDefaultDeclaration\n");
@@ -1820,9 +1790,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             indent(level, out);
             out.push_str(&format!("String {:?}\n", s.value.to_string_lossy()));
         }
-        Expr::RegExp {
-            pattern, flags, ..
-        } => {
+        Expr::RegExp { pattern, flags, .. } => {
             indent(level, out);
             out.push_str(&format!("RegExp /{pattern}/{flags}\n"));
         }
@@ -1927,10 +1895,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_expr(alternate, level + 1, out);
         }
         Expr::Assign {
-            target,
-            op,
-            value,
-            ..
+            target, op, value, ..
         } => {
             indent(level, out);
             out.push_str(&format!("Assign {op}\n"));
@@ -1938,10 +1903,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
             dump_expr(value, level + 1, out);
         }
         Expr::Update {
-            op,
-            arg,
-            prefix,
-            ..
+            op, arg, prefix, ..
         } => {
             indent(level, out);
             if *prefix {
@@ -2115,9 +2077,7 @@ fn dump_expr(expr: &Expr, level: usize, out: &mut String) {
                                 out.push_str(&format!("StaticPrivateAccessor {kind_s}\n"))
                             }
                             (true, false) => out.push_str(&format!("StaticAccessor {kind_s}\n")),
-                            (false, true) => {
-                                out.push_str(&format!("PrivateAccessor {kind_s}\n"))
-                            }
+                            (false, true) => out.push_str(&format!("PrivateAccessor {kind_s}\n")),
                             (false, false) => out.push_str(&format!("Accessor {kind_s}\n")),
                         }
                         dump_class_element_key(key, *is_private, level + 2, out);

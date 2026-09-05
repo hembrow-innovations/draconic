@@ -75,8 +75,7 @@ fn expect_matchers_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/testing/expect_matchers"),
+        ids.iter().any(|id| *id == "stdlib/testing/expect_matchers"),
         "missing stdlib/testing/expect_matchers fixture, got {ids:?}"
     );
 }
@@ -143,8 +142,7 @@ fn nested_hooks_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "stdlib/testing/nested_hooks"),
+        ids.iter().any(|id| *id == "stdlib/testing/nested_hooks"),
         "missing stdlib/testing/nested_hooks fixture, got {ids:?}"
     );
 }

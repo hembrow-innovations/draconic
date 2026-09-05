@@ -123,7 +123,13 @@ fn kind_from_init(e: &Expr) -> Option<SlotKind> {
             ..
         } => Some(SlotKind::String),
         Expr::Binary {
-            op: BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::EqEqEq | BinaryOp::EqEq,
+            op:
+                BinaryOp::Gt
+                | BinaryOp::GtEq
+                | BinaryOp::Lt
+                | BinaryOp::LtEq
+                | BinaryOp::EqEqEq
+                | BinaryOp::EqEq,
             ..
         } => Some(SlotKind::Bool),
         _ => None,
@@ -150,10 +156,7 @@ fn check_stmt(stmt: &Stmt, uses: &mut bool) -> Result<(), String> {
 }
 
 fn is_signal_api_name(name: &str) -> bool {
-    name == "onSignal"
-        || name == "raiseSignal"
-        || name == "ignoreSignal"
-        || name == "restoreSignal"
+    name == "onSignal" || name == "raiseSignal" || name == "ignoreSignal" || name == "restoreSignal"
 }
 
 fn is_named_callee(callee: &Expr, name: &str) -> bool {
@@ -551,10 +554,7 @@ impl<'a> Emitter<'a> {
                 ..
             } => self.emit_typeof(arg),
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } => self.emit_binary(*op, left, right),
             Expr::Call { callee, args, .. } if is_named_callee(callee, "onSignal") => {
                 self.emit_on_signal(args)
@@ -743,10 +743,7 @@ impl<'a> Emitter<'a> {
         writeln!(
             self.body,
             "  {}",
-            HOST_SIGNAL_WATCH.call_to(
-                &err,
-                &format!("i32 {code}, ptr @{fn_name}, ptr {data_op}")
-            )
+            HOST_SIGNAL_WATCH.call_to(&err, &format!("i32 {code}, ptr @{fn_name}, ptr {data_op}"))
         )
         .ok();
         Ok("0".into())

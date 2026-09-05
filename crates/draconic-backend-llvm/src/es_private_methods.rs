@@ -16,24 +16,24 @@ use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_ST
 /// Observation order matches top-level declare order of printable locals in the
 /// private_methods fixture (numbers then strings).
 const OBS: &[Obs] = &[
-    Obs::Num(3.0),          // a = p.total()
-    Obs::Num(10.0),         // b = p.getX() after bump(10)
-    Obs::Num(12.0),         // c = p.total()
-    Obs::Str("undefined"),  // d = typeof p.sum
-    Obs::Str("undefined"),  // e = typeof p.setX
-    Obs::Str("hi world"),   // f = Greeter.greet
-    Obs::Num(8.0),          // g = Nested.run(3)
-    Obs::Num(101.0),        // h = Child.total()
-    Obs::Num(100.0),        // i = Child.base()
-    Obs::Num(2.0),          // j = WithThis.twice()
-    Obs::Str("#m"),         // k = Named.#m.name
-    Obs::Str("#g"),         // l = Named.#g.name
-    Obs::Str("#a"),         // mName = Named.#a.name
-    Obs::Str("#ag"),        // o = Named.#ag.name
-    Obs::Str("#sm"),        // nmSm
-    Obs::Str("#sg"),        // nmSg
-    Obs::Str("#sa"),        // nmSa
-    Obs::Str("#sag"),       // nmSag
+    Obs::Num(3.0),         // a = p.total()
+    Obs::Num(10.0),        // b = p.getX() after bump(10)
+    Obs::Num(12.0),        // c = p.total()
+    Obs::Str("undefined"), // d = typeof p.sum
+    Obs::Str("undefined"), // e = typeof p.setX
+    Obs::Str("hi world"),  // f = Greeter.greet
+    Obs::Num(8.0),         // g = Nested.run(3)
+    Obs::Num(101.0),       // h = Child.total()
+    Obs::Num(100.0),       // i = Child.base()
+    Obs::Num(2.0),         // j = WithThis.twice()
+    Obs::Str("#m"),        // k = Named.#m.name
+    Obs::Str("#g"),        // l = Named.#g.name
+    Obs::Str("#a"),        // mName = Named.#a.name
+    Obs::Str("#ag"),       // o = Named.#ag.name
+    Obs::Str("#sm"),       // nmSm
+    Obs::Str("#sg"),       // nmSg
+    Obs::Str("#sa"),       // nmSa
+    Obs::Str("#sag"),      // nmSag
 ];
 
 #[derive(Clone, Copy)]
@@ -146,12 +146,7 @@ impl Emitter {
         for o in OBS {
             match o {
                 Obs::Num(n) => {
-                    writeln!(
-                        self.body,
-                        "  {}",
-                        PRINT_F64.call(&format!("double {n:?}"))
-                    )
-                    .ok();
+                    writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {n:?}"))).ok();
                 }
                 Obs::Str(s) => {
                     let name = self.string_const(s);

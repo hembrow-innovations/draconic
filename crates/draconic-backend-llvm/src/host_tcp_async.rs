@@ -15,10 +15,10 @@ use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, Local, LocalId, Module, Param, Pattern, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, HOST_HANDLE_CLOSE, HOST_TCP_ACCEPT, HOST_TCP_ACCEPT_ASYNC,
+    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_TCP_ACCEPT, HOST_TCP_ACCEPT_ASYNC,
     HOST_TCP_ASYNC_DECLARES, HOST_TCP_CONNECT, HOST_TCP_CONNECT_ASYNC, HOST_TCP_LISTEN,
     HOST_TCP_LOCAL_PORT, HOST_TCP_READ_ASYNC, HOST_TCP_WRITE_ASYNC, JOB_DRAIN, PRINT_BOOL,
-    PRINT_I64, PRINT_STR, PROMISE_THEN, GC_INIT,
+    PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
 
 pub(crate) fn is_host_tcp_async_module(module: &Module) -> bool {
@@ -107,7 +107,8 @@ fn kind_from_expr(expr: &Expr, slot_of: &HashMap<LocalId, SlotKind>) -> Option<S
             ..
         } => Some(SlotKind::String),
         Expr::Binary {
-            op: BinaryOp::Gt
+            op:
+                BinaryOp::Gt
                 | BinaryOp::GtEq
                 | BinaryOp::Lt
                 | BinaryOp::LtEq
@@ -209,7 +210,9 @@ fn check_expr(
             check_callee_and_args(callee, args, uses, slot_of)
         }
         Expr::Member { object, .. } => check_expr(object, uses, slot_of),
-        Expr::Assign { target: _, value, .. } => check_expr(value, uses, slot_of),
+        Expr::Assign {
+            target: _, value, ..
+        } => check_expr(value, uses, slot_of),
         Expr::Binary { left, right, .. } => {
             check_expr(left, uses, slot_of)?;
             check_expr(right, uses, slot_of)
@@ -532,7 +535,9 @@ impl<'a> Emitter<'a> {
                 }
                 Err(diag("typeof only on host APIs in host_tcp_async"))
             }
-            Expr::Binary { op, left, right, .. } => {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
                 let l = self.emit_expr(left)?;
                 let r = self.emit_expr(right)?;
                 let t = self.fresh();
@@ -961,9 +966,7 @@ impl<'a> Emitter<'a> {
             "  {}",
             PROMISE_THEN.call_to(
                 &t,
-                &format!(
-                    "ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data}"
-                )
+                &format!("ptr {p}, ptr {on_ful}, ptr {ful_data}, ptr {on_rej}, ptr {rej_data}")
             )
         )
         .ok();
@@ -1116,21 +1119,18 @@ impl<'a> Emitter<'a> {
         }
 
         // Ensure return is ptr
-        let ret_ptr = if ret_val == "%value" || ret_val.starts_with('%') && self.looks_like_ptr(&ret_val) {
-            ret_val.clone()
-        } else {
-            let t = format!("%ret{}", self.tmp);
-            self.tmp += 1;
-            writeln!(self.body, "  {t} = inttoptr i64 {ret_val} to ptr").ok();
-            t
-        };
+        let ret_ptr =
+            if ret_val == "%value" || ret_val.starts_with('%') && self.looks_like_ptr(&ret_val) {
+                ret_val.clone()
+            } else {
+                let t = format!("%ret{}", self.tmp);
+                self.tmp += 1;
+                writeln!(self.body, "  {t} = inttoptr i64 {ret_val} to ptr").ok();
+                t
+            };
 
         let mut helper = String::new();
-        writeln!(
-            helper,
-            "define ptr @{fn_name}(ptr %data, ptr %value) {{"
-        )
-        .ok();
+        writeln!(helper, "define ptr @{fn_name}(ptr %data, ptr %value) {{").ok();
         writeln!(helper, "entry:").ok();
         helper.push_str(&self.body);
         writeln!(helper, "  ret ptr {ret_ptr}").ok();

@@ -72,18 +72,12 @@ fn load_program(entry: &Path) -> Result<(Program, bool), Diagnostic> {
     // Script-first detection. Export + top-level await fails Script parse once
     // `await` is IdentifierReference outside Module (E19.52) — retry Module.
     match parse(&source) {
-        Ok(program) if program_has_module_syntax(&program) => {
-            Ok((link_entry(entry)?, true))
-        }
+        Ok(program) if program_has_module_syntax(&program) => Ok((link_entry(entry)?, true)),
         Ok(program) => Ok((program, false)),
-        Err(script_err) => {
-            match parse_module(&source) {
-                Ok(program) if program_has_module_syntax(&program) => {
-                    Ok((link_entry(entry)?, true))
-                }
-                _ => Err(script_err),
-            }
-        }
+        Err(script_err) => match parse_module(&source) {
+            Ok(program) if program_has_module_syntax(&program) => Ok((link_entry(entry)?, true)),
+            _ => Err(script_err),
+        },
     }
 }
 
@@ -115,10 +109,8 @@ mod tests {
 
     #[test]
     fn compile_path_script_skips_link() {
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-frontend-script-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("draconic-frontend-script-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("main.drac");
@@ -130,10 +122,8 @@ mod tests {
 
     #[test]
     fn compile_path_module_links_import() {
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-frontend-mod-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("draconic-frontend-mod-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("dep.drac"), "export let v = 2;\n").unwrap();
@@ -171,10 +161,8 @@ mod tests {
 
     #[test]
     fn compile_path_module_allows_top_level_await_export() {
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-frontend-tla-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("draconic-frontend-tla-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("main.drac");

@@ -141,8 +141,8 @@ pub fn allowlist_path() -> PathBuf {
 
 /// Load relative test paths from allowlist (comments/blank lines ignored).
 pub fn load_allowlist(path: &Path) -> Result<Vec<String>, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("read allowlist {}: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("read allowlist {}: {e}", path.display()))?;
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let line = line.trim();
@@ -1735,15 +1735,13 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
         let Some(path) = test_path else {
             return Err("compile: module test with import/export needs suite path".into());
         };
-        let dir = path.parent().ok_or_else(|| "compile: test path has no parent".to_string())?;
+        let dir = path
+            .parent()
+            .ok_or_else(|| "compile: test path has no parent".to_string())?;
         // Unique per concurrent compile (pid alone races under DRACONIC_TEST262_JOBS>1).
         static ENTRY_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let seq = ENTRY_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp_name = format!(
-            ".draconic-test262-entry-{}-{}.js",
-            std::process::id(),
-            seq
-        );
+        let tmp_name = format!(".draconic-test262-entry-{}-{}.js", std::process::id(), seq);
         let tmp = dir.join(&tmp_name);
         // E19.71: Test262 often self-imports `./this-file.js`. Rewrite to the temp
         // entry so link does not load the on-disk original as a second module.
@@ -2024,7 +2022,9 @@ pub fn run_js_in_node_cwd_opts_file(
         }
         cmd.arg("-e").arg(js);
     }
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }
@@ -2134,8 +2134,7 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
     let file_module_self = as_module && self_import && !needs_static_link;
     let file_module_export_self = as_module && self_import && needs_static_link;
     let file_module_ns_identity = ns_identity && !file_module_self && !file_module_export_self;
-    let use_file_module =
-        file_module_self || file_module_export_self || file_module_ns_identity;
+    let use_file_module = file_module_self || file_module_export_self || file_module_ns_identity;
     static RUN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let file_module_name = if use_file_module {
         let seq = RUN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -2160,11 +2159,7 @@ fn run_case_inner(suite_root: &Path, rel: &str) -> CaseResult {
         js
     };
     // E19.26: async-flag tests need `$DONE` host (Node wrapper around emitted JS).
-    let js = if async_flag {
-        wrap_async_host(&js)
-    } else {
-        js
-    };
+    let js = if async_flag { wrap_async_host(&js) } else { js };
     // E19.61: `$262` host outside so ESM `import` stays first under module goal.
     // onlyStrict: host must not precede the effective `"use strict"` directive.
     // File-module self-import is always ESM (`.mjs`), so host uses module boot.
@@ -2263,12 +2258,7 @@ pub fn run_allowlist(suite_root: &Path, allowlist: &[String]) -> Report {
             .stack_size(8 * 1024 * 1024)
             .build()
             .expect("test262 rayon pool");
-        pool.install(|| {
-            allowlist
-                .par_iter()
-                .map(|p| run_case(&root, p))
-                .collect()
-        })
+        pool.install(|| allowlist.par_iter().map(|p| run_case(&root, p)).collect())
     };
     Report {
         suite_root: Some(suite_root.to_path_buf()),
@@ -2294,8 +2284,7 @@ pub fn write_baseline_report(report: &Report) -> Result<PathBuf, String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
-    fs::write(&path, report.to_markdown())
-        .map_err(|e| format!("write {}: {e}", path.display()))?;
+    fs::write(&path, report.to_markdown()).map_err(|e| format!("write {}: {e}", path.display()))?;
     // Also stamp under target/ when available (CI artifact friendly).
     let stamp = workspace_root()
         .join("target")
@@ -2380,7 +2369,9 @@ mod tests {
 
     #[test]
     fn missing_suite_skips_all() {
-        let root = workspace_root().join("third_party").join("test262-does-not-exist");
+        let root = workspace_root()
+            .join("third_party")
+            .join("test262-does-not-exist");
         let list = vec![
             "test/language/types/boolean/S8.3_A1_T1.js".to_string(),
             "test/language/types/null/S8.2_A1_T1.js".to_string(),
@@ -2677,8 +2668,7 @@ await f().next().then(
 );
 if (!done) throw new Error('async-gen catch path did not settle');
 "#;
-        run_js_in_node_cwd(js, Some(&cwd), true)
-            .expect("async-gen script-code-target SyntaxError");
+        run_js_in_node_cwd(js, Some(&cwd), true).expect("async-gen script-code-target SyntaxError");
     }
 
     #[test]
@@ -3581,7 +3571,17 @@ assert.throws(Test262Error, function () {
                 "test262 smoke (set DRACONIC_TEST262_FULL=1 for full allowlist): pass={pass} fail={fail} skip={skip} jobs={}",
                 test262_jobs()
             );
-            assert_eq!(fail, 0, "smoke allowlist must pass; failing: {:?}", report.cases.iter().filter(|c| c.status == Status::Fail).map(|c| &c.path).collect::<Vec<_>>());
+            assert_eq!(
+                fail,
+                0,
+                "smoke allowlist must pass; failing: {:?}",
+                report
+                    .cases
+                    .iter()
+                    .filter(|c| c.status == Status::Fail)
+                    .map(|c| &c.path)
+                    .collect::<Vec<_>>()
+            );
             assert_eq!(skip, 0);
             assert_eq!(pass, smoke.len());
             return;
@@ -3615,6 +3615,3 @@ assert.throws(Test262Error, function () {
         handle.join().expect("test262-default-run thread");
     }
 }
-
-
-

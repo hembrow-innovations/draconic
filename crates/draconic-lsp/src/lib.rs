@@ -293,7 +293,10 @@ mod tests {
         let use_off = offset_of_nth(src, "answer", 1);
 
         let def = a.goto_definition(use_off).expect("goto from use");
-        assert_eq!(def.span, Span::new(decl_off, decl_off + "answer".len() as u32));
+        assert_eq!(
+            def.span,
+            Span::new(decl_off, decl_off + "answer".len() as u32)
+        );
     }
 
     #[test]

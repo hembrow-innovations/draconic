@@ -1,6 +1,7 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
 mod base64;
+mod compression;
 mod debug_info;
 mod es_arrays;
 mod es_builtins;
@@ -28,7 +29,6 @@ mod es_private_methods;
 mod es_static_private_fields;
 mod es_static_private_methods;
 mod es_testing;
-mod compression;
 mod hex;
 mod sha256;
 

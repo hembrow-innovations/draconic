@@ -191,10 +191,7 @@ fn fresh_path_draconic_parse_hello() {
     )
     .expect("write hello.drac");
 
-    let (code, stdout, stderr) = fresh_path_draconic(
-        dest_s,
-        &["parse", hello.to_str().unwrap()],
-    );
+    let (code, stdout, stderr) = fresh_path_draconic(dest_s, &["parse", hello.to_str().unwrap()]);
     assert_eq!(
         code, 0,
         "fresh PATH draconic parse hello failed\nstdout={stdout}\nstderr={stderr}"

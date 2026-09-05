@@ -118,7 +118,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 },
             );
             env.insert(*local, JsVal::Fn(*local));
-            if by_id.get(local).is_some_and(|l| l.name == "__draconic_make_ns") {
+            if by_id
+                .get(local)
+                .is_some_and(|l| l.name == "__draconic_make_ns")
+            {
                 make_ns = Some(*local);
             }
         }
@@ -237,7 +240,10 @@ fn stmt_ok(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
             ..
         } => {
             // Namespace polyfill body is not CT-eval'd; pairs are interpreted at call.
-            if by_id.get(local).is_some_and(|l| l.name == "__draconic_make_ns") {
+            if by_id
+                .get(local)
+                .is_some_and(|l| l.name == "__draconic_make_ns")
+            {
                 return simple_param_ids(params).is_some();
             }
             simple_param_ids(params).is_some() && body_ok(body, by_id)
@@ -321,11 +327,7 @@ fn expr_ok(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> bool {
                     _ => false,
                 })
         }
-        Expr::New {
-            callee,
-            args,
-            ..
-        } => {
+        Expr::New { callee, args, .. } => {
             expr_ok(callee, by_id)
                 && args.iter().all(|a| match a {
                     Arg::Expr(e) => expr_ok(e, by_id),
@@ -490,7 +492,11 @@ fn eval_expr(expr: &Expr, ctx: &mut EvalCtx<'_>) -> Result<JsVal, ()> {
             match op {
                 BinaryOp::Add => {
                     if matches!((&l, &r), (JsVal::Str(_), _) | (_, JsVal::Str(_))) {
-                        Ok(JsVal::Str(format!("{}{}", to_string_val(&l), to_string_val(&r))))
+                        Ok(JsVal::Str(format!(
+                            "{}{}",
+                            to_string_val(&l),
+                            to_string_val(&r)
+                        )))
                     } else {
                         Ok(JsVal::Num(to_number(&l) + to_number(&r)))
                     }
@@ -592,7 +598,7 @@ fn eval_expr(expr: &Expr, ctx: &mut EvalCtx<'_>) -> Result<JsVal, ()> {
                 JsVal::Ns(map) => match map.get(&key).cloned() {
                     Some(getter) => call_value(getter, &[], None, ctx),
                     None => Ok(JsVal::Undef),
-                }
+                },
                 JsVal::Obj(oid) => {
                     let inst = ctx.heap.get(&oid).ok_or(())?.clone();
                     if let Some(v) = inst.props.get(&key) {
@@ -749,12 +755,7 @@ fn extract_class_iife(body: &[Stmt]) -> Result<JsVal, ()> {
                 pending_key = Some(value.to_string_lossy());
             }
             Stmt::Expr {
-                expr:
-                    Expr::Call {
-                        callee,
-                        args,
-                        ..
-                    },
+                expr: Expr::Call { callee, args, .. },
             } if is_object_define_property(callee) && args.len() == 3 => {
                 let Some(cl) = ctor_local else {
                     continue;
@@ -909,7 +910,11 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
             alternate,
         } => find_method_function(test)
             .or_else(|| find_method_function_in_stmt(consequent))
-            .or_else(|| alternate.as_ref().and_then(|a| find_method_function_in_stmt(a))),
+            .or_else(|| {
+                alternate
+                    .as_ref()
+                    .and_then(|a| find_method_function_in_stmt(a))
+            }),
         _ => None,
     }
 }
@@ -1088,11 +1093,7 @@ fn to_boolean(v: &JsVal) -> bool {
         JsVal::Num(n) => *n != 0.0 && !n.is_nan(),
         JsVal::Str(s) => !s.is_empty(),
         JsVal::Undef => false,
-        JsVal::Fn(_)
-        | JsVal::FnExpr(_)
-        | JsVal::Class(_)
-        | JsVal::Obj(_)
-        | JsVal::Ns(_) => true,
+        JsVal::Fn(_) | JsVal::FnExpr(_) | JsVal::Class(_) | JsVal::Obj(_) | JsVal::Ns(_) => true,
         JsVal::Arr(a) => !a.is_empty(),
     }
 }
@@ -1136,12 +1137,7 @@ impl Emitter {
         } else {
             format!("{n:?}")
         };
-        writeln!(
-            self.body,
-            "  {}",
-            PRINT_F64.call(&format!("double {lit}"))
-        )
-        .ok();
+        writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {lit}"))).ok();
     }
 
     fn emit_str(&mut self, s: &str) {
@@ -1208,5 +1204,3 @@ impl Emitter {
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
-
-

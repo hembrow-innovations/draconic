@@ -36,9 +36,7 @@ pub fn validate_regexp_flags(flags: &str) -> Result<(), String> {
         }
     }
     if has_u && has_v {
-        return Err(
-            "invalid regular expression flags: 'u' and 'v' are mutually exclusive".into(),
-        );
+        return Err("invalid regular expression flags: 'u' and 'v' are mutually exclusive".into());
     }
     Ok(())
 }
@@ -101,10 +99,7 @@ fn rewrite_script_unknown_inner(inner: &str) -> String {
     };
     let name = inner[..eq].trim();
     let value = inner[eq + 1..].trim();
-    let is_script = matches!(
-        name,
-        "Script" | "sc" | "Script_Extensions" | "scx"
-    );
+    let is_script = matches!(name, "Script" | "sc" | "Script_Extensions" | "scx");
     let is_unknown = matches!(value, "Unknown" | "Zzzz");
     if is_script && is_unknown {
         format!("{name}=Latin")

@@ -245,8 +245,7 @@ fn class_static_fields_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/classes/class_static_fields"),
+        ids.iter().any(|id| *id == "es/classes/class_static_fields"),
         "missing es/classes/class_static_fields fixture, got {ids:?}"
     );
 }
@@ -369,8 +368,7 @@ fn class_private_eval_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/classes/class_private_eval"),
+        ids.iter().any(|id| *id == "es/classes/class_private_eval"),
         "missing es/classes/class_private_eval fixture, got {ids:?}"
     );
 }
@@ -400,8 +398,7 @@ fn class_private_add_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/classes/class_private_add"),
+        ids.iter().any(|id| *id == "es/classes/class_private_add"),
         "missing es/classes/class_private_add fixture, got {ids:?}"
     );
 }
@@ -431,8 +428,7 @@ fn class_private_dstr_fixture_present() {
     let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
     let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
     assert!(
-        ids.iter()
-            .any(|id| *id == "es/classes/class_private_dstr"),
+        ids.iter().any(|id| *id == "es/classes/class_private_dstr"),
         "missing es/classes/class_private_dstr fixture, got {ids:?}"
     );
 }

@@ -162,10 +162,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             None
         }
         Expr::Binary {
-            op,
-            left,
-            right,
-            ..
+            op, left, right, ..
         } if matches!(
             op,
             BinaryOp::Gt
@@ -218,15 +215,12 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         Expr::Boolean { .. } => Some(SlotTy::Bool),
         Expr::Object { properties, .. } => classify_object_lit(properties, ctx),
         Expr::Member {
-            object,
-            property,
-            ..
+            object, property, ..
         } => classify_member(object, property, ctx),
         Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object, property, ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             op: AssignOp::Eq,
             value,
             ..
@@ -733,10 +727,9 @@ impl<'a> Emitter<'a> {
 
     fn emit_member_assign(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         let Expr::Assign {
-            target:
-                AssignTarget::Member {
-                    object, property, ..
-                },
+            target: AssignTarget::Member {
+                object, property, ..
+            },
             value,
             ..
         } = expr
@@ -782,22 +775,21 @@ impl<'a> Emitter<'a> {
                         return Err(diag("host_channels: only static object props"));
                     };
                     let key = self.emit_cstr_ptr(&k.to_string_lossy());
-                    let val_ptr = if self.expr_is_object(value)
-                        || matches!(value, Expr::Object { .. })
-                    {
-                        self.emit_object_expr(value)?
-                    } else if matches!(self.expr_slot(value), Some(SlotTy::String))
-                        || matches!(value, Expr::String { .. })
-                    {
-                        self.emit_string_expr(value)?
-                    } else {
-                        let n = self.emit_number_expr(value)?;
-                        let i = self.fresh();
-                        writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
-                        let p = self.fresh();
-                        writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
-                        p
-                    };
+                    let val_ptr =
+                        if self.expr_is_object(value) || matches!(value, Expr::Object { .. }) {
+                            self.emit_object_expr(value)?
+                        } else if matches!(self.expr_slot(value), Some(SlotTy::String))
+                            || matches!(value, Expr::String { .. })
+                        {
+                            self.emit_string_expr(value)?
+                        } else {
+                            let n = self.emit_number_expr(value)?;
+                            let i = self.fresh();
+                            writeln!(self.body, "  {i} = fptosi double {n} to i64").ok();
+                            let p = self.fresh();
+                            writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
+                            p
+                        };
                     writeln!(
                         self.body,
                         "  {}",
@@ -877,10 +869,7 @@ impl<'a> Emitter<'a> {
                 self.emit_recv_bool(args)
             }
             Expr::Binary {
-                op,
-                left,
-                right,
-                ..
+                op, left, right, ..
             } if matches!(
                 op,
                 BinaryOp::Gt

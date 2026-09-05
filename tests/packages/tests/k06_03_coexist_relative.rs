@@ -244,7 +244,10 @@ fn frontend_compile_mixed_relative_and_module_path() {
         &cache,
         module_path,
         oid,
-        &[("index.drac", "export function greet(name) { return name; }\n")],
+        &[(
+            "index.drac",
+            "export function greet(name) { return name; }\n",
+        )],
     );
     let entry = LockEntry::new(
         module_path,

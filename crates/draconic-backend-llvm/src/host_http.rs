@@ -1054,9 +1054,7 @@ impl<'a> Emitter<'a> {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
             {
-                self.emit_ws_handshake(
-                    arg_expr(&args[0]).ok_or_else(|| diag("host_http: ws key"))?,
-                )
+                self.emit_ws_handshake(arg_expr(&args[0]).ok_or_else(|| diag("host_http: ws key"))?)
             }
             Expr::Member {
                 object,

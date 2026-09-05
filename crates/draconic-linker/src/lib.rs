@@ -29,9 +29,9 @@ thread_local! {
 }
 
 use draconic_ast::{
-    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind,
-    BindingPattern, ClassElement, Expr, Ident, ImportPhase, NumberLit, ObjectKey,
-    ObjectPatternProp, ObjectProp, Param, Program, Stmt,
+    Arg, ArrayElement, ArrayPatternElement, ArrowBody, AssignOp, BindingKind, BindingPattern,
+    ClassElement, Expr, Ident, ImportPhase, NumberLit, ObjectKey, ObjectPatternProp, ObjectProp,
+    Param, Program, Stmt,
 };
 use draconic_diagnostics::{Diagnostic, Span};
 
@@ -291,7 +291,9 @@ impl Loader {
                                 || named_reexports
                                     .iter()
                                     .any(|r| r.exported == s.exported.name)
-                                || namespace_reexports.iter().any(|r| r.local == s.exported.name)
+                                || namespace_reexports
+                                    .iter()
+                                    .any(|r| r.local == s.exported.name)
                             {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
@@ -320,7 +322,9 @@ impl Loader {
                                 || named_reexports
                                     .iter()
                                     .any(|r| r.exported == s.exported.name)
-                                || namespace_reexports.iter().any(|r| r.local == s.exported.name)
+                                || namespace_reexports
+                                    .iter()
+                                    .any(|r| r.local == s.exported.name)
                             {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
@@ -332,9 +336,7 @@ impl Loader {
                     }
                 }
                 Stmt::ExportDefaultDeclaration {
-                    declaration,
-                    local,
-                    ..
+                    declaration, local, ..
                 } => {
                     if exports
                         .insert("default".into(), local.name.clone())
@@ -348,9 +350,7 @@ impl Loader {
                     body.push(*declaration);
                 }
                 Stmt::ExportAllDeclaration {
-                    exported,
-                    source,
-                    ..
+                    exported, source, ..
                 } => {
                     let spec = source.value.to_string_strict().ok_or_else(|| {
                         Diagnostic::new(
@@ -363,9 +363,7 @@ impl Loader {
                     push_module_request(&mut module_requests, dep.clone(), false);
                     eval_deps.push(dep.clone());
                     if let Some(ns) = exported {
-                        if exports
-                            .insert(ns.name.clone(), ns.name.clone())
-                            .is_some()
+                        if exports.insert(ns.name.clone(), ns.name.clone()).is_some()
                             || named_reexports.iter().any(|r| r.exported == ns.name)
                             || namespace_reexports.iter().any(|r| r.local == ns.name)
                         {
@@ -578,8 +576,7 @@ impl Loader {
             let mut names: Vec<_> = resolved.keys().cloned().collect();
             names.sort();
             for export_name in names {
-                let (def_id, local_in_exporter) =
-                    resolved.get(&export_name).expect("key from map");
+                let (def_id, local_in_exporter) = resolved.get(&export_name).expect("key from map");
                 let remote = final_binding_name(&mangled, *def_id, local_in_exporter)?;
                 pairs.push((export_name, remote));
             }
@@ -884,7 +881,11 @@ impl Loader {
             &mut order,
         );
         // Any eager module not reached from entry (should be rare) — append stably.
-        let mut rest: Vec<_> = eager.iter().copied().filter(|id| !done.contains(id)).collect();
+        let mut rest: Vec<_> = eager
+            .iter()
+            .copied()
+            .filter(|id| !done.contains(id))
+            .collect();
         rest.sort();
         for id in rest {
             self.inner_module_eval_order_rec(
@@ -1228,8 +1229,7 @@ impl Loader {
                         Span::dummy(),
                     )
                 })?;
-                let resolved =
-                    self.resolve_export(dep_id, &re.imported, &mut HashSet::new())?;
+                let resolved = self.resolve_export(dep_id, &re.imported, &mut HashSet::new())?;
                 if resolved.is_none() {
                     return Err(Diagnostic::new(
                         format!(
@@ -1276,7 +1276,10 @@ struct RewriteCtx<'a> {
     spans: &'a mut SyntheticSpans,
 }
 
-fn rewrite_stmt_dynamic_imports(stmt: &mut Stmt, ctx: &mut RewriteCtx<'_>) -> Result<(), Diagnostic> {
+fn rewrite_stmt_dynamic_imports(
+    stmt: &mut Stmt,
+    ctx: &mut RewriteCtx<'_>,
+) -> Result<(), Diagnostic> {
     match stmt {
         Stmt::Expression { expr, .. } => rewrite_expr_dynamic_imports(expr, ctx)?,
         Stmt::Let {
@@ -1415,9 +1418,12 @@ fn rewrite_class_elements_dynamic_imports(
 ) -> Result<(), Diagnostic> {
     for el in elements {
         match el {
-            ClassElement::Constructor { body, .. }
-            | ClassElement::StaticBlock { body, .. } => rewrite_stmt_dynamic_imports(body, ctx)?,
-            ClassElement::Method { key, params, body, .. }
+            ClassElement::Constructor { body, .. } | ClassElement::StaticBlock { body, .. } => {
+                rewrite_stmt_dynamic_imports(body, ctx)?
+            }
+            ClassElement::Method {
+                key, params, body, ..
+            }
             | ClassElement::Accessor {
                 key, params, body, ..
             } => {
@@ -1433,7 +1439,10 @@ fn rewrite_class_elements_dynamic_imports(
                 rewrite_stmt_dynamic_imports(body, ctx)?;
             }
             ClassElement::Field {
-                key, value, is_static, ..
+                key,
+                value,
+                is_static,
+                ..
             } => {
                 if *is_static {
                     if let ObjectKey::Computed(key) = key {
@@ -1459,7 +1468,9 @@ fn rewrite_binding_dynamic_imports(
             for el in elements {
                 match el {
                     ArrayPatternElement::Elision => {}
-                    ArrayPatternElement::Pattern { binding, default, .. } => {
+                    ArrayPatternElement::Pattern {
+                        binding, default, ..
+                    } => {
                         rewrite_binding_dynamic_imports(binding, ctx)?;
                         if let Some(default) = default {
                             rewrite_expr_dynamic_imports(default, ctx)?;
@@ -1498,7 +1509,10 @@ fn rewrite_binding_dynamic_imports(
     Ok(())
 }
 
-fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Result<(), Diagnostic> {
+fn rewrite_expr_dynamic_imports(
+    expr: &mut Expr,
+    ctx: &mut RewriteCtx<'_>,
+) -> Result<(), Diagnostic> {
     match expr {
         Expr::Ident(_)
         | Expr::Number(_)
@@ -1514,7 +1528,12 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
         Expr::Unary { arg, .. } | Expr::Update { arg, .. } => {
             rewrite_expr_dynamic_imports(arg, ctx)?
         }
-        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => {
             rewrite_expr_dynamic_imports(left, ctx)?;
             rewrite_expr_dynamic_imports(right, ctx)?;
         }
@@ -1543,9 +1562,9 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                     source,
                     span,
                     ..
-                } if *phase == ImportPhase::Defer => {
-                    ctx.deferred_ident_for_source(source)?.map(|name| (name, *span))
-                }
+                } if *phase == ImportPhase::Defer => ctx
+                    .deferred_ident_for_source(source)?
+                    .map(|name| (name, *span)),
                 _ => None,
             };
             if let Some((name, span)) = defer_replacement {
@@ -1571,10 +1590,7 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                         private: false,
                         span: sp_c,
                     }),
-                    args: vec![Arg::Expr(Expr::Ident(Ident {
-                        name,
-                        span: sp_n,
-                    }))],
+                    args: vec![Arg::Expr(Expr::Ident(Ident { name, span: sp_n }))],
                     optional: false,
                     span: sp_c,
                 };
@@ -1636,7 +1652,9 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                         }
                         rewrite_expr_dynamic_imports(value, ctx)?;
                     }
-                    ObjectProp::Accessor { key, params, body, .. } => {
+                    ObjectProp::Accessor {
+                        key, params, body, ..
+                    } => {
                         if let ObjectKey::Computed(key) = key {
                             rewrite_expr_dynamic_imports(key, ctx)?;
                         }
@@ -1648,14 +1666,11 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
                         }
                         rewrite_stmt_dynamic_imports(body, ctx)?;
                     }
-                    ObjectProp::Spread { expr, .. } => {
-                        rewrite_expr_dynamic_imports(expr, ctx)?
-                    }
+                    ObjectProp::Spread { expr, .. } => rewrite_expr_dynamic_imports(expr, ctx)?,
                 }
             }
         }
-        Expr::TemplateLiteral { expressions, .. }
-        | Expr::TaggedTemplate { expressions, .. } => {
+        Expr::TemplateLiteral { expressions, .. } | Expr::TaggedTemplate { expressions, .. } => {
             for e in expressions {
                 rewrite_expr_dynamic_imports(e, ctx)?;
             }
@@ -1663,11 +1678,7 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
         Expr::Paren { expr, .. } | Expr::As { expr, .. } => {
             rewrite_expr_dynamic_imports(expr, ctx)?
         }
-        Expr::FunctionExpression {
-            params,
-            body,
-            ..
-        } => {
+        Expr::FunctionExpression { params, body, .. } => {
             for p in params {
                 rewrite_binding_dynamic_imports(&mut p.binding, ctx)?;
                 if let Some(default) = &mut p.default {
@@ -1700,7 +1711,9 @@ fn rewrite_expr_dynamic_imports(expr: &mut Expr, ctx: &mut RewriteCtx<'_>) -> Re
             for el in elements {
                 match el {
                     ArrayPatternElement::Elision => {}
-                    ArrayPatternElement::Pattern { binding, default, .. } => {
+                    ArrayPatternElement::Pattern {
+                        binding, default, ..
+                    } => {
                         rewrite_binding_dynamic_imports(binding, ctx)?;
                         if let Some(default) = default {
                             rewrite_expr_dynamic_imports(default, ctx)?;
@@ -1853,9 +1866,7 @@ fn final_binding_name(
     }
     final_local_name(&mangled[def_id], local_in_exporter).ok_or_else(|| {
         Diagnostic::new(
-            format!(
-                "export local `{local_in_exporter}` missing in defining module {def_id}"
-            ),
+            format!("export local `{local_in_exporter}` missing in defining module {def_id}"),
             Span::dummy(),
         )
     })
@@ -1878,9 +1889,7 @@ struct SyntheticSpans {
 impl SyntheticSpans {
     fn new() -> Self {
         // High half of u32 avoids colliding with real UTF-8 source offsets in fixtures.
-        Self {
-            next: 0x8000_0000,
-        }
+        Self { next: 0x8000_0000 }
     }
 
     fn next(&mut self) -> Span {
@@ -2060,10 +2069,7 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Field {
-                        key,
-                        value,
-                        span,
-                        ..
+                        key, value, span, ..
                     } => {
                         *span = spans.next();
                         uniqueify_object_key_spans(key, spans);
@@ -2107,11 +2113,7 @@ fn uniqueify_stmt_spans(stmt: &mut Stmt, spans: &mut SyntheticSpans) {
                 uniqueify_stmt_spans(finalizer, spans);
             }
         }
-        Stmt::With {
-            object,
-            body,
-            span,
-        } => {
+        Stmt::With { object, body, span } => {
             *span = spans.next();
             uniqueify_expr_spans(object, spans);
             uniqueify_stmt_spans(body, spans);
@@ -2213,7 +2215,8 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
         | Expr::Null { span }
         | Expr::This { span }
         | Expr::Super { span }
-        | Expr::NewTarget { span } | Expr::ImportMeta { span } => *span = spans.next(),
+        | Expr::NewTarget { span }
+        | Expr::ImportMeta { span } => *span = spans.next(),
         Expr::ImportCall {
             source,
             options,
@@ -2254,7 +2257,9 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                 uniqueify_expr_spans(e, spans);
             }
         }
-        Expr::Unary { arg, span, .. } | Expr::Update { arg, span, .. } | Expr::Paren { expr: arg, span } => {
+        Expr::Unary { arg, span, .. }
+        | Expr::Update { arg, span, .. }
+        | Expr::Paren { expr: arg, span } => {
             *span = spans.next();
             uniqueify_expr_spans(arg, spans);
         }
@@ -2263,10 +2268,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             uniqueify_expr_spans(expr, spans);
         }
         Expr::Binary {
-            left,
-            right,
-            span,
-            ..
+            left, right, span, ..
         } => {
             *span = spans.next();
             uniqueify_expr_spans(left, spans);
@@ -2294,16 +2296,9 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             uniqueify_expr_spans(value, spans);
         }
         Expr::Call {
-            callee,
-            args,
-            span,
-            ..
+            callee, args, span, ..
         }
-        | Expr::New {
-            callee,
-            args,
-            span,
-        } => {
+        | Expr::New { callee, args, span } => {
             *span = spans.next();
             uniqueify_expr_spans(callee, spans);
             for a in args {
@@ -2371,10 +2366,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
                         uniqueify_stmt_spans(body, spans);
                     }
                     ClassElement::Field {
-                        key,
-                        value,
-                        span,
-                        ..
+                        key, value, span, ..
                     } => {
                         *span = spans.next();
                         uniqueify_object_key_spans(key, spans);
@@ -2390,10 +2382,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             }
         }
         Expr::ArrowFunction {
-            params,
-            body,
-            span,
-            ..
+            params, body, span, ..
         } => {
             *span = spans.next();
             uniqueify_params_spans(params, spans);
@@ -2504,11 +2493,7 @@ fn uniqueify_expr_spans(expr: &mut Expr, spans: &mut SyntheticSpans) {
             uniqueify_expr_spans(object, spans);
             uniqueify_expr_spans(property, spans);
         }
-        Expr::PrivateIn {
-            name,
-            object,
-            span,
-        } => {
+        Expr::PrivateIn { name, object, span } => {
             *span = spans.next();
             name.span = spans.next();
             uniqueify_expr_spans(object, spans);
@@ -2521,7 +2506,10 @@ fn deferred_eval_fn_name(mod_id: usize) -> String {
 }
 
 fn push_module_request(reqs: &mut Vec<ModuleRequest>, path: PathBuf, deferred: bool) {
-    if !reqs.iter().any(|r| r.path == path && r.deferred == deferred) {
+    if !reqs
+        .iter()
+        .any(|r| r.path == path && r.deferred == deferred)
+    {
         reqs.push(ModuleRequest { path, deferred });
     }
 }
@@ -2569,9 +2557,7 @@ fn wrap_async_eager_module_body(
         String::new()
     };
     let status_err = if track_status {
-        format!(
-            "__draconic_merror[{mod_id}] = e;\n__draconic_mstatus[{mod_id}] = 3;\n"
-        )
+        format!("__draconic_merror[{mod_id}] = e;\n__draconic_mstatus[{mod_id}] = 3;\n")
     } else {
         String::new()
     };
@@ -2597,9 +2583,8 @@ __draconic_mp[{mod_id}] = (async () => {{
             adeps.push_str(&format!("await __draconic_mp[{dep}];\n"));
         }
         // parse_module allows top-level await.
-        let dep_prog = parse_module(&adeps).map_err(|e| {
-            Diagnostic::new(format!("async dep await parse: {e}"), Span::dummy())
-        })?;
+        let dep_prog = parse_module(&adeps)
+            .map_err(|e| Diagnostic::new(format!("async dep await parse: {e}"), Span::dummy()))?;
         try_body.extend(dep_prog.body);
     }
     for stmt in body {
@@ -2620,9 +2605,8 @@ __draconic_mp[{mod_id}] = (async () => {{
     // Entry module evaluation must complete before subsequent host code; await it.
     if is_entry {
         let await_src = format!("await __draconic_mp[{mod_id}];\n");
-        let await_prog = parse_module(&await_src).map_err(|e| {
-            Diagnostic::new(format!("entry await parse: {e}"), Span::dummy())
-        })?;
+        let await_prog = parse_module(&await_src)
+            .map_err(|e| Diagnostic::new(format!("entry await parse: {e}"), Span::dummy()))?;
         for mut stmt in await_prog.body {
             uniqueify_stmt_spans(&mut stmt, spans);
             out.push(stmt);
@@ -2688,8 +2672,7 @@ fn stmt_has_top_level_await(stmt: &Stmt) -> bool {
             expr_has_top_level_await(expr)
         }
         Stmt::Let { kind, init, .. } => {
-            *kind == BindingKind::AwaitUsing
-                || init.as_ref().is_some_and(expr_has_top_level_await)
+            *kind == BindingKind::AwaitUsing || init.as_ref().is_some_and(expr_has_top_level_await)
         }
         Stmt::Return {
             argument: Some(expr),
@@ -2761,7 +2744,9 @@ fn stmt_has_top_level_await(stmt: &Stmt) -> bool {
             ..
         } => {
             stmt_has_top_level_await(block)
-                || handler.as_ref().is_some_and(|h| stmt_has_top_level_await(h))
+                || handler
+                    .as_ref()
+                    .is_some_and(|h| stmt_has_top_level_await(h))
                 || finalizer
                     .as_ref()
                     .is_some_and(|f| stmt_has_top_level_await(f))
@@ -2792,9 +2777,12 @@ fn expr_has_top_level_await(expr: &Expr) -> bool {
             ..
         } => true,
         Expr::Unary { arg, .. } | Expr::Update { arg, .. } => expr_has_top_level_await(arg),
-        Expr::Binary { left, right, .. } | Expr::Assign { target: left, value: right, .. } => {
-            expr_has_top_level_await(left) || expr_has_top_level_await(right)
-        }
+        Expr::Binary { left, right, .. }
+        | Expr::Assign {
+            target: left,
+            value: right,
+            ..
+        } => expr_has_top_level_await(left) || expr_has_top_level_await(right),
         Expr::Conditional {
             test,
             consequent,
@@ -2830,7 +2818,9 @@ fn expr_has_top_level_await(expr: &Expr) -> bool {
             source, options, ..
         } => {
             expr_has_top_level_await(source)
-                || options.as_ref().is_some_and(|o| expr_has_top_level_await(o))
+                || options
+                    .as_ref()
+                    .is_some_and(|o| expr_has_top_level_await(o))
         }
         Expr::TaggedTemplate {
             tag, expressions, ..
@@ -3261,9 +3251,9 @@ fn make_shared_namespace_binding(
         names_lit.join(", ")
     );
     let mut body = parse(&src)?.body;
-    let stmt = body.pop().ok_or_else(|| {
-        Diagnostic::new("shared namespace binding parse produced no stmt", span)
-    })?;
+    let stmt = body
+        .pop()
+        .ok_or_else(|| Diagnostic::new("shared namespace binding parse produced no stmt", span))?;
     Ok(stmt)
 }
 
@@ -3293,10 +3283,7 @@ fn parse_json_module(source: &str, path: &Path) -> Result<Program, Diagnostic> {
     let synthetic = format!("const {LOCAL} = JSON.parse({lit});\nexport {{ {LOCAL} as default }};");
     parse_module(&synthetic).map_err(|e| {
         Diagnostic::new(
-            format!(
-                "failed to synthesize JSON module {}: {e}",
-                path.display()
-            ),
+            format!("failed to synthesize JSON module {}: {e}", path.display()),
             Span::dummy(),
         )
     })
@@ -3410,11 +3397,7 @@ function {eval_name}() {{
     if let Some(Stmt::FunctionDeclaration { body: fn_body, .. }) = parsed.last_mut() {
         if let Stmt::Block { body: stmts, .. } = fn_body.as_mut() {
             for stmt in stmts.iter_mut() {
-                if let Stmt::Try {
-                    block,
-                    ..
-                } = stmt
-                {
+                if let Stmt::Try { block, .. } = stmt {
                     if let Stmt::Block {
                         body: try_stmts, ..
                     } = block.as_mut()
@@ -3494,13 +3477,7 @@ fn hoist_decl_to_assign(stmt: Stmt) -> Stmt {
 /// individual declarations (parser packs multi-declarators as `Stmt::Block`).
 fn expand_export_decl(decl: Stmt) -> Vec<Stmt> {
     match decl {
-        Stmt::Block { body, .. }
-            if body
-                .iter()
-                .all(|s| matches!(s, Stmt::Let { .. })) =>
-        {
-            body
-        }
+        Stmt::Block { body, .. } if body.iter().all(|s| matches!(s, Stmt::Let { .. })) => body,
         other => vec![other],
     }
 }
@@ -3540,11 +3517,7 @@ fn collect_decl_exports(
             }
             Ok(())
         }
-        Stmt::Block { body, .. }
-            if body
-                .iter()
-                .all(|s| matches!(s, Stmt::Let { .. })) =>
-        {
+        Stmt::Block { body, .. } if body.iter().all(|s| matches!(s, Stmt::Let { .. })) => {
             for s in body {
                 collect_decl_exports(s, exports)?;
             }
@@ -3917,7 +3890,8 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
         | Expr::Null { .. }
         | Expr::This { .. }
         | Expr::Super { .. }
-        | Expr::NewTarget { .. } | Expr::ImportMeta { .. } => {}
+        | Expr::NewTarget { .. }
+        | Expr::ImportMeta { .. } => {}
         Expr::ImportCall {
             source, options, ..
         } => {
@@ -4046,9 +4020,7 @@ fn rename_expr(expr: &mut Expr, renames: &HashMap<String, String>, scopes: &mut 
                     } => {
                         match key {
                             ObjectKey::Computed(e) => rename_expr(e, renames, scopes),
-                            ObjectKey::Ident(id) if *shorthand => {
-                                rename_ident(id, renames, scopes)
-                            }
+                            ObjectKey::Ident(id) if *shorthand => rename_ident(id, renames, scopes),
                             ObjectKey::Ident(_) | ObjectKey::String(_) => {}
                         }
                         rename_expr(value, renames, scopes);
@@ -4254,9 +4226,9 @@ fn collect_dynamic_import_phase_in_stmt(
         Stmt::Expression { expr, .. } => {
             collect_dynamic_import_phase_in_expr(expr, parent, out, phase_filter)?
         }
-        Stmt::Let { init: Some(init), .. } => {
-            collect_dynamic_import_phase_in_expr(init, parent, out, phase_filter)?
-        }
+        Stmt::Let {
+            init: Some(init), ..
+        } => collect_dynamic_import_phase_in_expr(init, parent, out, phase_filter)?,
         Stmt::Block { body, .. } => {
             for s in body {
                 collect_dynamic_import_phase_in_stmt(s, parent, out, phase_filter)?;
@@ -4349,9 +4321,7 @@ fn collect_dynamic_import_phase_in_stmt(
         | Stmt::Throw { argument: arg, .. } => {
             collect_dynamic_import_phase_in_expr(arg, parent, out, phase_filter)?
         }
-        Stmt::FunctionDeclaration {
-            body, params, ..
-        } => {
+        Stmt::FunctionDeclaration { body, params, .. } => {
             for p in params {
                 if let Some(default) = &p.default {
                     collect_dynamic_import_phase_in_expr(default, parent, out, phase_filter)?;
@@ -4529,9 +4499,7 @@ fn collect_dynamic_import_phase_in_expr(
                 collect_dynamic_import_phase_in_expr(e, parent, out, phase_filter)?;
             }
         }
-        Expr::FunctionExpression {
-            params, body, ..
-        } => {
+        Expr::FunctionExpression { params, body, .. } => {
             for p in params {
                 if let Some(default) = &p.default {
                     collect_dynamic_import_phase_in_expr(default, parent, out, phase_filter)?;
@@ -4603,7 +4571,9 @@ fn collect_dynamic_defer_in_stmt(
 ) -> Result<(), Diagnostic> {
     match stmt {
         Stmt::Expression { expr, .. } => collect_dynamic_defer_in_expr(expr, parent, out)?,
-        Stmt::Let { init: Some(init), .. } => collect_dynamic_defer_in_expr(init, parent, out)?,
+        Stmt::Let {
+            init: Some(init), ..
+        } => collect_dynamic_defer_in_expr(init, parent, out)?,
         Stmt::Block { body, .. } => {
             for s in body {
                 collect_dynamic_defer_in_stmt(s, parent, out)?;
@@ -4692,9 +4662,7 @@ fn collect_dynamic_defer_in_stmt(
             ..
         }
         | Stmt::Throw { argument: arg, .. } => collect_dynamic_defer_in_expr(arg, parent, out)?,
-        Stmt::FunctionDeclaration {
-            body, params, ..
-        } => {
+        Stmt::FunctionDeclaration { body, params, .. } => {
             for p in params {
                 if let Some(default) = &p.default {
                     collect_dynamic_defer_in_expr(default, parent, out)?;
@@ -4732,11 +4700,7 @@ fn collect_dynamic_defer_in_class_els(
                 }
                 collect_dynamic_defer_in_stmt(body, parent, out)?;
             }
-            ClassElement::Field {
-                key,
-                value,
-                ..
-            } => {
+            ClassElement::Field { key, value, .. } => {
                 if let ObjectKey::Computed(key) = key {
                     collect_dynamic_defer_in_expr(key, parent, out)?;
                 }
@@ -4779,7 +4743,10 @@ fn collect_dynamic_defer_in_expr(
                 collect_dynamic_defer_in_expr(options, parent, out)?;
             }
         }
-        Expr::Unary { arg, .. } | Expr::Update { arg, .. } | Expr::Paren { expr: arg, .. } | Expr::As { expr: arg, .. } => {
+        Expr::Unary { arg, .. }
+        | Expr::Update { arg, .. }
+        | Expr::Paren { expr: arg, .. }
+        | Expr::As { expr: arg, .. } => {
             collect_dynamic_defer_in_expr(arg, parent, out)?;
         }
         Expr::Binary { left, right, .. }
@@ -4867,9 +4834,7 @@ fn collect_dynamic_defer_in_expr(
                 collect_dynamic_defer_in_expr(e, parent, out)?;
             }
         }
-        Expr::FunctionExpression {
-            params, body, ..
-        } => {
+        Expr::FunctionExpression { params, body, .. } => {
             for p in params {
                 if let Some(default) = &p.default {
                     collect_dynamic_defer_in_expr(default, parent, out)?;
@@ -4919,10 +4884,7 @@ fn resolve_specifier(parent: &Path, spec: &str, span: Span) -> Result<PathBuf, D
         let joined = parent.join(spec);
         if joined.exists() {
             let resolved = fs::canonicalize(&joined).map_err(|e| {
-                Diagnostic::new(
-                    format!("canonicalize {}: {e}", joined.display()),
-                    span,
-                )
+                Diagnostic::new(format!("canonicalize {}: {e}", joined.display()), span)
             })?;
             // K06.02: if the importer lives in a package checkout, stay inside it.
             if let Some(package_root) = find_package_checkout_root(parent) {
@@ -4976,8 +4938,11 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let lib = dir.join("lib.drac");
         let main = dir.join("main.drac");
-        fs::write(&lib, "export let value = 41;\nexport function inc(x) { return x + 1; }\n")
-            .unwrap();
+        fs::write(
+            &lib,
+            "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+        )
+        .unwrap();
         fs::write(
             &main,
             "import { value, inc } from \"./lib.drac\";\nlet a = value;\nlet b = inc(value);\n",
@@ -5179,7 +5144,10 @@ mod tests {
         let program = link_entry(&main).expect("export {…} from link");
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("a"), "{dump}");
-        assert!(dump.contains("bump") || dump.contains("__m") || dump.contains("inc"), "{dump}");
+        assert!(
+            dump.contains("bump") || dump.contains("__m") || dump.contains("inc"),
+            "{dump}"
+        );
         assert!(dump.contains("extra") || dump.contains("__m"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -5203,8 +5171,11 @@ mod tests {
             "export let value = 41;\nexport function inc(x) { return x + 1; }\nexport default 99;\n",
         )
         .unwrap();
-        fs::write(&barrel, "export * as ns from \"./lib.drac\";\nexport let extra = 7;\n")
-            .unwrap();
+        fs::write(
+            &barrel,
+            "export * as ns from \"./lib.drac\";\nexport let extra = 7;\n",
+        )
+        .unwrap();
         fs::write(
             &main,
             "import { ns, extra } from \"./barrel.drac\";\nimport * as m from \"./barrel.drac\";\nlet a = ns.value;\nlet b = ns.inc(ns.value);\nlet c = ns.default;\nlet d = extra;\nlet e = m.ns.value;\nlet f = m.extra;\n",
@@ -5243,7 +5214,10 @@ mod tests {
         .unwrap();
         let program = link_entry(&main).expect("export class link");
         let dump = draconic_ast::dump_program(&program);
-        assert!(dump.contains("ClassDeclaration") || dump.contains("Point"), "{dump}");
+        assert!(
+            dump.contains("ClassDeclaration") || dump.contains("Point"),
+            "{dump}"
+        );
         assert!(dump.contains("Counter") || dump.contains("__m"), "{dump}");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -5426,7 +5400,11 @@ mod tests {
             "import \"./dep1a.drac\";\nglobalThis.evaluations.push(1);\n",
         )
         .unwrap();
-        fs::write(dir.join("dep1a.drac"), "globalThis.evaluations.push(1.1);\n").unwrap();
+        fs::write(
+            dir.join("dep1a.drac"),
+            "globalThis.evaluations.push(1.1);\n",
+        )
+        .unwrap();
         fs::write(dir.join("dep2.drac"), "globalThis.evaluations.push(2);\n").unwrap();
         let main = dir.join("main.drac");
         fs::write(
@@ -5458,7 +5436,11 @@ let order = globalThis.evaluations;
         // so TLA can interleave with later sync modules.
         let dir = temp_link_dir("defer-tla-flatten");
         fs::write(dir.join("setup.drac"), "globalThis.evaluations = [];\n").unwrap();
-        fs::write(dir.join("dep1.drac"), "globalThis.evaluations.push(\"1\");\n").unwrap();
+        fs::write(
+            dir.join("dep1.drac"),
+            "globalThis.evaluations.push(\"1\");\n",
+        )
+        .unwrap();
         fs::write(
             dir.join("tla.drac"),
             "globalThis.evaluations.push(\"tla start\");\nawait Promise.resolve(0);\nglobalThis.evaluations.push(\"tla end\");\n",
@@ -5469,7 +5451,11 @@ let order = globalThis.evaluations;
             "import \"./tla.drac\";\nglobalThis.evaluations.push(\"2\");\n",
         )
         .unwrap();
-        fs::write(dir.join("dep3.drac"), "globalThis.evaluations.push(\"3\");\n").unwrap();
+        fs::write(
+            dir.join("dep3.drac"),
+            "globalThis.evaluations.push(\"3\");\n",
+        )
+        .unwrap();
         let main = dir.join("main.drac");
         fs::write(
             &main,
@@ -5499,8 +5485,16 @@ let _ = ns;
     fn link_ambiguous_star_omitted_from_namespace() {
         // E19.71: ambiguous export * names are absent from namespace objects.
         let dir = temp_link_dir("ambig-ns");
-        fs::write(dir.join("a.drac"), "export let first = 1;\nexport let both = 2;\n").unwrap();
-        fs::write(dir.join("b.drac"), "export let second = 3;\nexport let both = 4;\n").unwrap();
+        fs::write(
+            dir.join("a.drac"),
+            "export let first = 1;\nexport let both = 2;\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("b.drac"),
+            "export let second = 3;\nexport let both = 4;\n",
+        )
+        .unwrap();
         fs::write(
             dir.join("barrel.drac"),
             "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
@@ -5628,7 +5622,10 @@ let _ = ns;
         .unwrap();
         let program = link_entry(&main).expect("export * as same module");
         let dump = draconic_ast::dump_program(&program);
-        assert!(dump.contains("__ns") || dump.contains("ObjectExpression"), "{dump}");
+        assert!(
+            dump.contains("__ns") || dump.contains("ObjectExpression"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5660,7 +5657,10 @@ let _ = ns;
         .unwrap();
         let program = link_entry(&main).expect("import * export same module");
         let dump = draconic_ast::dump_program(&program);
-        assert!(dump.contains("__ns") || dump.contains("ObjectExpression"), "{dump}");
+        assert!(
+            dump.contains("__ns") || dump.contains("ObjectExpression"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5761,7 +5761,10 @@ async function run() {
         let program = link_entry_with_packages(&main, Some(&ctx)).expect("link module path");
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("a"), "{dump}");
-        assert!(dump.contains("41") || dump.contains("inc") || dump.contains("__m"), "{dump}");
+        assert!(
+            dump.contains("41") || dump.contains("inc") || dump.contains("__m"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -5782,11 +5785,7 @@ async function run() {
         let cache = draconic_pkg::ModuleCache::new(root.join("cache"));
         let pkg_dir = cache.entry_dir(module_path, oid).unwrap();
         fs::create_dir_all(pkg_dir.join("util")).unwrap();
-        fs::write(
-            pkg_dir.join("util.drac"),
-            "export let helper = 7;\n",
-        )
-        .unwrap();
+        fs::write(pkg_dir.join("util.drac"), "export let helper = 7;\n").unwrap();
         let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
@@ -5816,7 +5815,10 @@ async function run() {
         let program = link_entry_with_packages(&main, Some(&ctx)).expect("link subpath");
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("h"), "{dump}");
-        assert!(dump.contains("7") || dump.contains("helper") || dump.contains("__m"), "{dump}");
+        assert!(
+            dump.contains("7") || dump.contains("helper") || dump.contains("__m"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 
@@ -5908,11 +5910,7 @@ async function run() {
             "export { helper } from \"./nested/util.drac\";\n",
         )
         .unwrap();
-        fs::write(
-            pkg_dir.join("nested/util.drac"),
-            "export let helper = 7;\n",
-        )
-        .unwrap();
+        fs::write(pkg_dir.join("nested/util.drac"), "export let helper = 7;\n").unwrap();
         let hash = draconic_pkg::content_hash_tree(&pkg_dir).unwrap();
         fs::write(pkg_dir.join(".draconic-checkout-oid"), format!("{oid}\n")).unwrap();
 
@@ -5997,7 +5995,10 @@ async function run() {
         let program = link_entry(&main).expect("discover lock");
         let dump = draconic_ast::dump_program(&program);
         assert!(dump.contains("a"), "{dump}");
-        assert!(dump.contains("42") || dump.contains("answer") || dump.contains("__m"), "{dump}");
+        assert!(
+            dump.contains("42") || dump.contains("answer") || dump.contains("__m"),
+            "{dump}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

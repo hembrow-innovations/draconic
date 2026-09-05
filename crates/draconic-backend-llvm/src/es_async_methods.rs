@@ -128,7 +128,9 @@ fn module_has_async_fn(body: &[Stmt]) -> bool {
                         Arg::Expr(e) | Arg::Spread(e) => walk_expr(e),
                     })
             }
-            Expr::Member { object, property, .. } => walk_expr(object) || walk_expr(property),
+            Expr::Member {
+                object, property, ..
+            } => walk_expr(object) || walk_expr(property),
             Expr::Assign { value, .. } => walk_expr(value),
             Expr::Binary { left, right, .. } => walk_expr(left) || walk_expr(right),
             Expr::Unary { arg, .. } => walk_expr(arg),
@@ -165,12 +167,7 @@ impl Emitter {
 
     fn emit_all(&mut self) -> Result<(), Diagnostic> {
         for n in OBS {
-            writeln!(
-                self.body,
-                "  {}",
-                PRINT_F64.call(&format!("double {n:?}"))
-            )
-            .ok();
+            writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {n:?}"))).ok();
         }
         writeln!(
             self.out,

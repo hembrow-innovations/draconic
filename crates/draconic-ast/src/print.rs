@@ -445,7 +445,9 @@ fn print_stmt(stmt: &Stmt, level: usize, out: &mut String) {
                     print_stmt(declaration, 0, &mut tmp);
                     out.push_str(tmp.trim_start());
                 }
-                Stmt::Let { init: Some(expr), .. } => {
+                Stmt::Let {
+                    init: Some(expr), ..
+                } => {
                     // Synthetic let for `export default expr`
                     print_expr(expr, 0, out);
                     out.push_str(";\n");
@@ -1084,7 +1086,9 @@ fn print_expr_inner(expr: &Expr, parent_prec: u8, out: &mut String) {
                 out.push(')');
             }
         }
-        Expr::Binary { left, op, right, .. } => {
+        Expr::Binary {
+            left, op, right, ..
+        } => {
             let p = binary_prec(*op);
             let wrap = p < parent_prec;
             if wrap {
@@ -1137,10 +1141,7 @@ fn print_expr_inner(expr: &Expr, parent_prec: u8, out: &mut String) {
             }
         }
         Expr::Update {
-            op,
-            arg,
-            prefix,
-            ..
+            op, arg, prefix, ..
         } => {
             let p = if *prefix { PREC_UNARY } else { PREC_UPDATE };
             let wrap = p < parent_prec;

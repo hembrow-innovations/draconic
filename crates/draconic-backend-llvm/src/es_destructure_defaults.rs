@@ -132,11 +132,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     }
 }
 
-fn classify_declare(
-    local: LocalId,
-    init: Option<&Expr>,
-    ctx: &mut ClassifyCtx<'_>,
-) -> Option<()> {
+fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     let Some(init) = init else {
         register_number(local, ctx);
         return Some(());
@@ -214,11 +210,7 @@ fn classify_object_pattern(
     Some(())
 }
 
-fn classify_pattern(
-    binding: &Pattern,
-    bind_ty: SlotTy,
-    ctx: &mut ClassifyCtx<'_>,
-) -> Option<()> {
+fn classify_pattern(binding: &Pattern, bind_ty: SlotTy, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     match binding {
         Pattern::Local(id) => {
             match bind_ty {
@@ -359,7 +351,11 @@ struct Emitter<'a> {
 
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module) -> Self {
-        let undef_id = module.locals.iter().find(|l| l.name == "undefined").map(|l| l.id);
+        let undef_id = module
+            .locals
+            .iter()
+            .find(|l| l.name == "undefined")
+            .map(|l| l.id);
         Self {
             module,
             out: String::new(),
@@ -771,9 +767,8 @@ impl<'a> Emitter<'a> {
                             writeln!(
                                 self.body,
                                 "  {}",
-                                OBJECT_SET.call(&format!(
-                                    "ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"
-                                ))
+                                OBJECT_SET
+                                    .call(&format!("ptr {obj}, ptr {key_ptr}, ptr {val_ptr}"))
                             )
                             .ok();
                         }

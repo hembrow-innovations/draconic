@@ -253,12 +253,7 @@ fn install_script_downloads_from_http() {
         panic!("http.server did not become ready at {url}");
     }
 
-    let (code, stdout, stderr) = run_install(&[
-        "--from",
-        &url,
-        "--dir",
-        dest.to_str().unwrap(),
-    ]);
+    let (code, stdout, stderr) = run_install(&["--from", &url, "--dir", dest.to_str().unwrap()]);
     let _ = server.kill();
     let _ = server.wait();
 

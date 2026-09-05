@@ -11,8 +11,8 @@ use std::fmt::Write as _;
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
-    Arg, ArrayElement, ArrayPatternEl, Expr, Local, LocalId, Module, ObjectPatternEl,
-    ObjectProp, ObjectPropKey, Param, Pattern, Stmt,
+    Arg, ArrayElement, ArrayPatternEl, Expr, Local, LocalId, Module, ObjectPatternEl, ObjectProp,
+    ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, OBJECT_GET,
@@ -155,13 +155,14 @@ fn collect_fns(
             }
             Stmt::Declare {
                 local,
-                init: Some(Expr::Function {
-                    params,
-                    body,
-                    is_async,
-                    is_generator,
-                    ..
-                }),
+                init:
+                    Some(Expr::Function {
+                        params,
+                        body,
+                        is_async,
+                        is_generator,
+                        ..
+                    }),
                 ..
             } => {
                 if *is_async || *is_generator {
@@ -241,7 +242,9 @@ fn register_pattern_slots(
         Pattern::Object(props) => {
             for el in props {
                 match el {
-                    ObjectPatternEl::Prop { binding, default, .. } => {
+                    ObjectPatternEl::Prop {
+                        binding, default, ..
+                    } => {
                         if let Some(d) = default {
                             if !matches!(d, Expr::Number { .. }) {
                                 return None;
@@ -365,7 +368,8 @@ fn value_expr_ok(
     match expr {
         Expr::Object { properties, .. } => properties.iter().all(|p| match p {
             ObjectProp::Property { key, value } => {
-                matches!(key, ObjectPropKey::Static(_)) && value_expr_ok(value, by_id, fn_binding, slot_of)
+                matches!(key, ObjectPropKey::Static(_))
+                    && value_expr_ok(value, by_id, fn_binding, slot_of)
             }
             _ => false,
         }),
@@ -390,9 +394,7 @@ fn number_expr_ok(
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
-        Expr::Local { id, .. } => {
-            slot_of.get(id) == Some(&SlotTy::Number) || is_undef(*id, by_id)
-        }
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Number) || is_undef(*id, by_id),
         Expr::Binary {
             left, op, right, ..
         } => {
@@ -415,14 +417,12 @@ fn number_expr_ok(
             let Expr::Local { id, .. } = object.as_ref() else {
                 return false;
             };
-            matches!(
-                slot_of.get(id),
-                Some(SlotTy::Object) | Some(SlotTy::Array)
-            ) && if *computed {
-                matches!(property.as_ref(), Expr::Number { .. })
-            } else {
-                matches!(property.as_ref(), Expr::String { .. })
-            }
+            matches!(slot_of.get(id), Some(SlotTy::Object) | Some(SlotTy::Array))
+                && if *computed {
+                    matches!(property.as_ref(), Expr::Number { .. })
+                } else {
+                    matches!(property.as_ref(), Expr::String { .. })
+                }
         }
         Expr::Call {
             callee,
@@ -606,10 +606,7 @@ impl<'a> Emitter<'a> {
             collect_bound_locals(&p.pattern, &mut bound);
         }
         for id in &bound {
-            let ty = *self
-                .slot_of
-                .get(id)
-                .unwrap_or(&SlotTy::Number);
+            let ty = *self.slot_of.get(id).unwrap_or(&SlotTy::Number);
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
             match ty {
@@ -659,21 +656,13 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  ret double {v}").ok();
                 }
                 Stmt::Return { value: None } => {
-                    writeln!(
-                        self.body,
-                        "  ret double 0.00000000000000000e+00"
-                    )
-                    .ok();
+                    writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
                 }
                 _ => return Err(diag("es_param_dstr: unsupported fn stmt")),
             }
         }
         if !self.body_ends_ret() {
-            writeln!(
-                self.body,
-                "  ret double 0.00000000000000000e+00"
-            )
-            .ok();
+            writeln!(self.body, "  ret double 0.00000000000000000e+00").ok();
         }
         write!(self.out, "{}", self.body).ok();
         writeln!(self.out, "}}").ok();
@@ -836,9 +825,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                 Ok(d)
             }
-            Expr::Call {
-                callee, args, ..
-            } => self.emit_call(callee, args),
+            Expr::Call { callee, args, .. } => self.emit_call(callee, args),
             _ => Err(diag("es_param_dstr: unsupported number expr")),
         }
     }
@@ -1036,11 +1023,7 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_object_rest(
-        &mut self,
-        src: &str,
-        excluded: &[String],
-    ) -> Result<String, Diagnostic> {
+    fn emit_object_rest(&mut self, src: &str, excluded: &[String]) -> Result<String, Diagnostic> {
         // @exN = global [k+1 x ptr] [ptr @str…, …, ptr null]
         let n = excluded.len() + 1;
         let gname = format!("ex{}", self.str_n);
@@ -1182,11 +1165,7 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn emit_default_if_null(
-        &mut self,
-        got: &str,
-        def: &Expr,
-    ) -> Result<String, Diagnostic> {
+    fn emit_default_if_null(&mut self, got: &str, def: &Expr) -> Result<String, Diagnostic> {
         let is_null = self.fresh();
         writeln!(self.body, "  {is_null} = icmp eq ptr {got}, null").ok();
         let then_l = self.fresh_label("dfl");
