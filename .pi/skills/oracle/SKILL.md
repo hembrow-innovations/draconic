@@ -44,6 +44,8 @@ node .pi/skills/oracle/scripts/oracle-check.mjs --reverify .heio/oracles.md
 
 A runnable oracle is met only when the process exits 0 and combined output contains the `EXPECT:` token as a literal substring. Evidence records exit, match, a short hash, and byte count. Raw output is not kept.
 
+Each `CHECK:` may run for **10 minutes** (`600_000` ms) before the checker records `exit=timeout`. That budget is for a full `cargo test --workspace` (or similar) that is still progressing, not a hang detector at two minutes. Override with `ORACLE_CHECK_TIMEOUT_MS` (positive milliseconds). `exit=timeout` with `match=yes` usually means the suite was green so far and got killed — raise the budget or wait; do not rewrite `CHECK:` to `--lib --bins` as a fake fix.
+
 Done when `--reverify` prints `ALL MET`.
 
 ## 3. Abandon instead of deleting

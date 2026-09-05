@@ -9,10 +9,26 @@ const USAGE =
 const START = /^- \[([ xX])\] (O[1-9][0-9]*): (.+)$/;
 const FIELD = /^ {2}(CHECK|EXPECT|EVIDENCE|ABANDON):(.*)$/;
 const KNOWN = new Set(["CHECK", "EXPECT", "EVIDENCE", "ABANDON"]);
+// 10 minutes. 120s killed healthy `cargo test --workspace` runs that were
+// still progressing (match=yes, tens of crates already ok). Override with
+// ORACLE_CHECK_TIMEOUT_MS (positive milliseconds).
+const DEFAULT_CHECK_TIMEOUT_MS = 600_000;
 
 function die(message, code = 2) {
   process.stderr.write(`error: ${message}\n`);
   process.exit(code);
+}
+
+function checkTimeoutMs() {
+  const raw = process.env.ORACLE_CHECK_TIMEOUT_MS;
+  if (raw == null || raw === "") return DEFAULT_CHECK_TIMEOUT_MS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    die(
+      `ORACLE_CHECK_TIMEOUT_MS must be a positive number of milliseconds, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return n;
 }
 
 function parseArgs(argv) {
@@ -105,7 +121,7 @@ function runCheck(oracle) {
     shell: true,
     cwd: process.cwd(),
     encoding: "utf8",
-    timeout: 120_000,
+    timeout: checkTimeoutMs(),
     env: process.env,
   });
   const timedOut = result.error?.code === "ETIMEDOUT";
