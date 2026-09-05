@@ -12,7 +12,7 @@ updated_at: "2026-09-05T05:08:49Z"
 
 ## Grouping
 
-Location: remaining platform-capability and leftover conformance after the language spine. Pump mints one ROADMAP todo at a time; Plan adds the slice here.
+Location: remaining platform-capability and leftover conformance after the language spine. Planner mints one ROADMAP todo at a time when WIP is under cap and seals the slice here. Builder and Reviewer run in parallel.
 
 ## Slices in
 

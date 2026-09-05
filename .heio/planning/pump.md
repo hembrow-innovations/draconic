@@ -2,7 +2,7 @@
 id: "pump"
 title: "Roadmap pump"
 kind: "pump"
-status: idle
+status: held
 tags: []
 created_at: "2026-09-02T12:00:00Z"
 updated_at: "2026-09-05T05:08:49Z"
@@ -10,6 +10,6 @@ updated_at: "2026-09-05T05:08:49Z"
 
 # Roadmap pump
 
-Hivemind pump lane. Status `idle` means mint the next ROADMAP.md todo as one ticket. Status `exhausted` means no todos left.
+Planner lock. Status `idle` means Planner may mint or plan one unit. Status `exhausted` means no ROADMAP.md todos left. Status `held` means WIP is at cap or Planner had nothing to do.
 
-Do not invent Roadmap rows. Occupancy: if a ticket or slice is already in flight, mint nothing.
+WIP cap is 3. Failed slices are not in-flight. Do not invent Roadmap rows.

@@ -45,7 +45,11 @@ const fixture = (name, { todos = 2, tickets = [], slices = [], pump } = {}) => {
 		write(root, `.heio/tickets/${t.id}.md`, note(t));
 	}
 	for (const s of slices) {
-		write(root, `.heio/planning/sprints/${s.id}.md`, note({ kind: "slice", ...s }));
+		write(
+			root,
+			`.heio/planning/sprints/${s.id}.md`,
+			note({ kind: "slice", ...s }),
+		);
 	}
 	if (pump) {
 		write(root, ".heio/planning/pump.md", note({ kind: "pump", ...pump }));
@@ -188,7 +192,10 @@ describe("the status CLI", () => {
 	});
 
 	test("does not require the real .heio tree", () => {
-		const root = fixture("no-real-heio", { todos: 0, pump: { id: "pump", status: "exhausted" } });
+		const root = fixture("no-real-heio", {
+			todos: 0,
+			pump: { id: "pump", status: "exhausted" },
+		});
 		const { status, stdout } = run(["--root", root]);
 		assert.equal(status, 0);
 		assert.match(stdout, /ROADMAP todos: 0/);

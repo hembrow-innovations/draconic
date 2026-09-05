@@ -30,7 +30,12 @@ const write = (root, rel, content) => {
 
 const fixture = (
 	name,
-	{ tickets = [], slices = [], pump, roadmap = "# Roadmap\n| X | todo | y |\n" } = {},
+	{
+		tickets = [],
+		slices = [],
+		pump,
+		roadmap = "# Roadmap\n| X | todo | y |\n",
+	} = {},
 ) => {
 	const root = join(tmp, name);
 	fs.mkdirSync(root, { recursive: true });
@@ -54,7 +59,8 @@ const fixture = (
 const run = (args) =>
 	spawnSync(process.execPath, [SCRIPT, ...args], { encoding: "utf8" });
 
-const frontOf = (root, rel) => parseFront(fs.readFileSync(join(root, rel), "utf8"));
+const frontOf = (root, rel) =>
+	parseFront(fs.readFileSync(join(root, rel), "utf8"));
 
 before(async () => {
 	tmp = await mkdtemp(join(tmpdir(), "heio-housekeep-"));
@@ -105,7 +111,9 @@ describe("planHousekeep", () => {
 		});
 		const { occupancy, changes } = planHousekeep(loadHeio(root));
 		assert.equal(occupancy, "occupied");
-		const ids = changes.filter((c) => c.action === "clear-claimed-by").map((c) => c.id);
+		const ids = changes
+			.filter((c) => c.action === "clear-claimed-by")
+			.map((c) => c.id);
 		assert.deepEqual(ids.sort(), [
 			"s-failed",
 			"s-met",
@@ -116,7 +124,10 @@ describe("planHousekeep", () => {
 			"ticket-promoted",
 		]);
 		assert.equal(
-			changes.some((c) => c.id === "ticket-active" || c.id === "s-active" || c.id === "s-reviewing"),
+			changes.some(
+				(c) =>
+					c.id === "ticket-active" || c.id === "s-active" || c.id === "s-reviewing",
+			),
 			false,
 		);
 	});
@@ -182,7 +193,9 @@ describe("planHousekeep", () => {
 			pump: { id: "pump", status: "held" },
 		});
 		assert.equal(
-			planHousekeep(loadHeio(occupiedHeld)).changes.some((c) => c.action === "set-status"),
+			planHousekeep(loadHeio(occupiedHeld)).changes.some(
+				(c) => c.action === "set-status",
+			),
 			false,
 		);
 
@@ -229,7 +242,10 @@ describe("the housekeep CLI", () => {
 		assert.equal(status, 0);
 		assert.match(stdout, /dry-run/);
 		assert.match(stdout, /pump: status idle -> held/);
-		assert.equal(fs.readFileSync(join(root, ".heio/planning/pump.md"), "utf8"), before);
+		assert.equal(
+			fs.readFileSync(join(root, ".heio/planning/pump.md"), "utf8"),
+			before,
+		);
 	});
 
 	test("--apply clears claims, holds occupied pump, and leaves statuses/oracles/roadmap", () => {
@@ -274,7 +290,10 @@ describe("the housekeep CLI", () => {
 			frontOf(root, ".heio/tickets/ticket-promoted.md")["claimed-by"],
 			undefined,
 		);
-		assert.equal(frontOf(root, ".heio/tickets/ticket-promoted.md").status, "promoted");
+		assert.equal(
+			frontOf(root, ".heio/tickets/ticket-promoted.md").status,
+			"promoted",
+		);
 		assert.equal(
 			frontOf(root, ".heio/tickets/ticket-active.md")["claimed-by"],
 			"keep-ticket",
@@ -283,7 +302,10 @@ describe("the housekeep CLI", () => {
 			frontOf(root, ".heio/planning/sprints/s-released.md")["claimed-by"],
 			undefined,
 		);
-		assert.equal(frontOf(root, ".heio/planning/sprints/s-released.md").status, "released");
+		assert.equal(
+			frontOf(root, ".heio/planning/sprints/s-released.md").status,
+			"released",
+		);
 		assert.equal(
 			frontOf(root, ".heio/planning/sprints/s-active.md")["claimed-by"],
 			"keep-slice",

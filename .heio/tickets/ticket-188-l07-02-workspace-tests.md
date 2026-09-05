@@ -12,7 +12,6 @@ slice: "s-l07-02-workspace-tests"
 caused-by: s-l07-02-workspace-timeout
 failed: true
 intent: fix
-claimed-by: 9186e9df-6fef-46a8-b5d3-00260a52cf53
 ---
 
 # L07.02 workspace tests did not pass (O1)

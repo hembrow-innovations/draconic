@@ -12,7 +12,6 @@ slice: "s-d04-workspace-tests"
 caused-by: s-d04-workspace-disabled-gha
 failed: true
 intent: fix
-claimed-by: f7198b72-564b-401c-9157-7cc609ff6a2f
 ---
 
 # D04 workspace tests did not pass (O4)

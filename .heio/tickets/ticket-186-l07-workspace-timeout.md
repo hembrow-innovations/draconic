@@ -12,7 +12,6 @@ slice: "s-l07-workspace-timeout"
 caused-by: s-l07
 failed: true
 intent: fix
-claimed-by: fb897254-cfee-4e51-ab2a-3b1f3de4cce9
 ---
 
 # L07 workspace tests did not finish (O2 timeout)
