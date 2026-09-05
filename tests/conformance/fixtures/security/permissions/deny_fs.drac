@@ -1,0 +1,11 @@
+// R02.02: explicit subset without fs-read — HostError EPERM diagnostic.
+let code = "";
+let name = "";
+let msg = "";
+try {
+  readFileText("/tmp/draconic_r0202_deny_fs.txt");
+} catch (e) {
+  code = e.code;
+  name = e.name;
+  msg = String(e.message);
+}

@@ -1,0 +1,5 @@
+id: security/permissions/deny_fs_native
+targets: native
+grants: fs-write
+native.exit: 1
+native.stderr: EPERM\n

@@ -1,0 +1,2 @@
+// R02.02 native: explicit subset without fs-read — stderr EPERM + exit 1.
+readFileText("/tmp/draconic_r0202_deny_fs.txt");

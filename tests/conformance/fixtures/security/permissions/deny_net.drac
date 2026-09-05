@@ -1,0 +1,11 @@
+// R02.02: explicit subset without net-listen — HostError EPERM diagnostic.
+let code = "";
+let name = "";
+let msg = "";
+try {
+  tcpListen(0);
+} catch (e) {
+  code = e.code;
+  name = e.name;
+  msg = String(e.message);
+}

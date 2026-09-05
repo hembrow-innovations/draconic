@@ -1,0 +1,5 @@
+id: security/permissions/deny_fs
+targets: js
+grants: fs-write
+js.exit: 0
+js.check: if (code !== "EPERM") process.exit(1); if (name !== "HostError") process.exit(2); if (msg.indexOf("permission denied") < 0) process.exit(3);

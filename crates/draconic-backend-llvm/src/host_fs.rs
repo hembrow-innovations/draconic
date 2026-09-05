@@ -12,6 +12,7 @@
 //! - `openFile(path, mode)` → handle; `fileWrite` / `fileRead` / `fileSeek` / `closeFile`
 //!
 //! Missing path (read/write/stat/dir): stderr `ENOENT` + exit 1 (typed HostError on js).
+//! Grant deny / ABI `HOST_E_PERM`: stderr `EPERM` + exit 1 (R02.02).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -825,22 +826,35 @@ impl<'a> Emitter<'a> {
         let fail = format!("fs_err_{}", self.next_tmp);
         let cont = format!("fs_ok_{}", self.next_tmp);
         self.next_tmp += 1;
-        // HOST_OK = 0, HOST_E_NOENT = 2
+        // HOST_OK = 0, HOST_E_NOENT = 2, HOST_E_PERM = 6
         writeln!(self.body, "  {ok} = icmp eq i32 {rc}, 0").ok();
         writeln!(self.body, "  br i1 {ok}, label %{cont}, label %{fail}").ok();
         writeln!(self.body, "{fail}:").ok();
         let is_noent = self.fresh();
         let noent_l = format!("fs_noent_{}", self.next_tmp);
-        let other_l = format!("fs_other_{}", self.next_tmp);
+        let not_noent_l = format!("fs_not_noent_{}", self.next_tmp);
         self.next_tmp += 1;
         writeln!(self.body, "  {is_noent} = icmp eq i32 {rc}, 2").ok();
         writeln!(
             self.body,
-            "  br i1 {is_noent}, label %{noent_l}, label %{other_l}"
+            "  br i1 {is_noent}, label %{noent_l}, label %{not_noent_l}"
         )
         .ok();
         writeln!(self.body, "{noent_l}:").ok();
         self.emit_host_err_exit("ENOENT")?;
+        writeln!(self.body, "{not_noent_l}:").ok();
+        let is_perm = self.fresh();
+        let perm_l = format!("fs_perm_{}", self.next_tmp);
+        let other_l = format!("fs_other_{}", self.next_tmp);
+        self.next_tmp += 1;
+        writeln!(self.body, "  {is_perm} = icmp eq i32 {rc}, 6").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_perm}, label %{perm_l}, label %{other_l}"
+        )
+        .ok();
+        writeln!(self.body, "{perm_l}:").ok();
+        self.emit_host_err_exit("EPERM")?;
         writeln!(self.body, "{other_l}:").ok();
         self.emit_host_err_exit("EIO")?;
         writeln!(self.body, "{cont}:").ok();

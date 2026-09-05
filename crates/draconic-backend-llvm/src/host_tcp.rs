@@ -16,6 +16,7 @@
 //!
 //! Host errors: `E_CONN` (refused/reset/timeout) → stderr `ECONN` + exit 1;
 //! `E_ADDR` (DNS resolve failure on connect-by-name) → stderr `EADDR` + exit 1;
+//! `E_PERM` (grant deny, R02.02) → stderr `EPERM` + exit 1;
 //! other non-OK → `EIO` + exit 1.
 
 use std::collections::HashMap;
@@ -506,6 +507,8 @@ impl<'a> Emitter<'a> {
         let conn_l = self.fresh_label("tcp_econn");
         let not_conn = self.fresh_label("tcp_not_econn");
         let addr_l = self.fresh_label("tcp_eaddr");
+        let not_addr = self.fresh_label("tcp_not_eaddr");
+        let perm_l = self.fresh_label("tcp_eperm");
         let other_l = self.fresh_label("tcp_eio");
         let cmp = self.fresh();
         writeln!(self.body, "  {cmp} = icmp eq i32 {rc}, 0").ok();
@@ -525,11 +528,21 @@ impl<'a> Emitter<'a> {
         writeln!(self.body, "  {is_addr} = icmp eq i32 {rc}, 11").ok();
         writeln!(
             self.body,
-            "  br i1 {is_addr}, label %{addr_l}, label %{other_l}"
+            "  br i1 {is_addr}, label %{addr_l}, label %{not_addr}"
         )
         .ok();
         writeln!(self.body, "{addr_l}:").ok();
         self.emit_host_err_exit("EADDR")?;
+        writeln!(self.body, "{not_addr}:").ok();
+        let is_perm = self.fresh();
+        writeln!(self.body, "  {is_perm} = icmp eq i32 {rc}, 6").ok();
+        writeln!(
+            self.body,
+            "  br i1 {is_perm}, label %{perm_l}, label %{other_l}"
+        )
+        .ok();
+        writeln!(self.body, "{perm_l}:").ok();
+        self.emit_host_err_exit("EPERM")?;
         writeln!(self.body, "{other_l}:").ok();
         self.emit_host_err_exit("EIO")?;
         writeln!(self.body, "{ok}:").ok();

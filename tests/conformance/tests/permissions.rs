@@ -1,6 +1,7 @@
 //! ROADMAP R02.04: default permission policy (permissive).
 //! A Program with no explicit grant subset may use host fs and TCP.
 //! ROADMAP R02.01: explicit grants for fs read/write and net listen/connect succeed.
+//! ROADMAP R02.02: host op without a grant fails with a clear diagnostic.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -133,4 +134,131 @@ fn grant_net_explicit_grant_subset() {
 #[test]
 fn grant_net_runs_both_targets() {
     assert_fixture_runs_both("security/permissions/grant_net");
+}
+
+fn assert_lacks_grant(id: &str, missing: &str) {
+    let fixture = load_named(id);
+    assert!(
+        !fixture.grants.iter().any(|g| g == missing),
+        "{id} must not grant {missing}, got {:?}",
+        fixture.grants
+    );
+}
+
+fn assert_deny_js(id: &str) {
+    let fixture = load_named(id);
+    assert!(
+        fixture.targets.contains(&Target::Js),
+        "{id} must target js, got {:?}",
+        fixture.targets
+    );
+    assert_eq!(fixture.expect_js.exit, 0, "{id} js catch path must exit 0");
+    let check = fixture
+        .expect_js
+        .check
+        .as_deref()
+        .expect("{id} must lock js.check");
+    assert!(
+        check.contains("EPERM")
+            && check.contains("HostError")
+            && check.contains("permission denied"),
+        "{id} js.check must lock HostError EPERM permission denied, got {check}"
+    );
+    for r in run_fixture(&fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+fn assert_deny_native(id: &str) {
+    let fixture = load_named(id);
+    assert!(
+        fixture.targets.contains(&Target::Native),
+        "{id} must target native, got {:?}",
+        fixture.targets
+    );
+    assert_eq!(fixture.expect_native.exit, 1, "{id} native deny must exit 1");
+    assert_eq!(
+        fixture.expect_native.stderr.as_deref(),
+        Some("EPERM\n"),
+        "{id} native stderr must be the EPERM diagnostic"
+    );
+    for r in run_fixture(&fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn deny_fs_fixture_present() {
+    assert_fixture_present("security/permissions/deny_fs");
+}
+
+#[test]
+fn deny_fs_lacks_fs_read_grant() {
+    assert_explicit_grant_subset("security/permissions/deny_fs", &["fs-write"]);
+    assert_lacks_grant("security/permissions/deny_fs", "fs-read");
+}
+
+#[test]
+fn deny_fs_clear_diagnostic_js() {
+    assert_deny_js("security/permissions/deny_fs");
+}
+
+#[test]
+fn deny_fs_native_fixture_present() {
+    assert_fixture_present("security/permissions/deny_fs_native");
+}
+
+#[test]
+fn deny_fs_native_lacks_fs_read_grant() {
+    assert_explicit_grant_subset("security/permissions/deny_fs_native", &["fs-write"]);
+    assert_lacks_grant("security/permissions/deny_fs_native", "fs-read");
+}
+
+#[test]
+fn deny_fs_native_clear_diagnostic() {
+    assert_deny_native("security/permissions/deny_fs_native");
+}
+
+#[test]
+fn deny_net_fixture_present() {
+    assert_fixture_present("security/permissions/deny_net");
+}
+
+#[test]
+fn deny_net_lacks_net_listen_grant() {
+    assert_explicit_grant_subset("security/permissions/deny_net", &["net-connect"]);
+    assert_lacks_grant("security/permissions/deny_net", "net-listen");
+}
+
+#[test]
+fn deny_net_clear_diagnostic_js() {
+    assert_deny_js("security/permissions/deny_net");
+}
+
+#[test]
+fn deny_net_native_fixture_present() {
+    assert_fixture_present("security/permissions/deny_net_native");
+}
+
+#[test]
+fn deny_net_native_lacks_net_listen_grant() {
+    assert_explicit_grant_subset("security/permissions/deny_net_native", &["net-connect"]);
+    assert_lacks_grant("security/permissions/deny_net_native", "net-listen");
+}
+
+#[test]
+fn deny_net_native_clear_diagnostic() {
+    assert_deny_native("security/permissions/deny_net_native");
 }

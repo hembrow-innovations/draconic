@@ -1,0 +1,5 @@
+id: security/permissions/deny_net_native
+targets: native
+grants: net-connect
+native.exit: 1
+native.stderr: EPERM\n

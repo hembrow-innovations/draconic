@@ -1,0 +1,2 @@
+// R02.02 native: explicit subset without net-listen — stderr EPERM + exit 1.
+let s = tcpListen(0);
