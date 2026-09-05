@@ -1047,7 +1047,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 
 | ID | Status | Targets | Item | Tests |
 | ---- | -------- | --------- | ------ | ------- |
-| R01 | todo | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
+| R01 | done | native | Embed/eval resource limits: max source size, alloc/time budget | `crates/draconic-embed`, `crates/draconic-runtime` |
 | R01.01 | done | native | Max source size for embed/eval; reject oversize | `crates/draconic-embed` |
 | R01.02 | done | native | Alloc budget: fail closed when exceeded | `crates/draconic-runtime`, `crates/draconic-embed` |
 | R01.03 | done | native | Time budget: interrupt/fail long-running eval | `crates/draconic-embed`, `crates/draconic-runtime` |

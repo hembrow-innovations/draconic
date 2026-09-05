@@ -149,7 +149,12 @@ pub fn eval_source_with_time_budget(
     eval_source_with_limits(source, DEFAULT_EVAL_ALLOC_BUDGET_BYTES, budget)
 }
 
-fn eval_source_with_limits(
+/// Combined embed eval limits (R01): max source size plus alloc and time budgets.
+///
+/// Oversize source is rejected before compile. `budget_bytes == 0` and
+/// `time_budget == Duration::ZERO` are unlimited. Exhaustion fails closed
+/// (diagnostic, not a catchable JS exception).
+pub fn eval_source_with_limits(
     source: &str,
     budget_bytes: usize,
     time_budget: Duration,
@@ -756,5 +761,52 @@ mod tests {
     fn eval_source_zero_time_budget_is_unlimited() {
         let v = eval_source_with_time_budget("'ab' + 'cd'", Duration::ZERO).unwrap();
         assert_eq!(v, EmbedValue::String("abcd".into()));
+    }
+
+    // --- R01: combined embed/eval resource limits (parent of R01.01–R01.03) ---
+
+    #[test]
+    fn r01_combined_eval_function_reject_oversize_alloc_and_time() {
+        // Within all three limits: eval succeeds.
+        let v = eval_source_with_limits("1 + 2", 64, Duration::from_secs(5)).unwrap();
+        assert_eq!(v, EmbedValue::Number(3.0));
+
+        // R01.01: oversize eval source is rejected even with unlimited alloc/time.
+        let oversize = "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES);
+        assert_eq!(oversize.len(), MAX_EVAL_SOURCE_BYTES + 1);
+        let err = eval_source_with_limits(&oversize, 0, Duration::ZERO).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum source size") || msg.contains("exceeds"),
+            "msg={msg}"
+        );
+
+        // R01.01: Function body oversize is rejected.
+        let body = format!(
+            "return {}",
+            "1".to_string() + &" ".repeat(MAX_EVAL_SOURCE_BYTES)
+        );
+        let err = eval_function_call(&[], &body, &[]).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("maximum source size") || msg.contains("exceeds"),
+            "msg={msg}"
+        );
+
+        // R01.02: alloc budget fail-closed (source under max size, generous time).
+        let err = eval_source_with_limits("'ab' + 'cd'", 3, Duration::from_secs(5)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("alloc budget") || msg.contains("exceeded"),
+            "msg={msg}"
+        );
+
+        // R01.03: time budget interrupt (source under max size, generous alloc).
+        let err = eval_source_with_limits("1 + 2", 64, Duration::from_nanos(1)).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("time budget") || msg.contains("exceeded"),
+            "msg={msg}"
+        );
     }
 }
