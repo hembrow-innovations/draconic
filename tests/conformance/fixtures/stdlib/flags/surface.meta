@@ -1,0 +1,6 @@
+id: stdlib/flags/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\ntrue\n
+js.check: if (gp !== true) process.exit(1); if (rawOk !== true) process.exit(2); if (typedOk !== true) process.exit(3); if (helpOk !== true) process.exit(4); if (termOk !== true) process.exit(5);

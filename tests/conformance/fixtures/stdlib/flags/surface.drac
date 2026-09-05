@@ -1,0 +1,19 @@
+// L07: one Program — argv → typed options and leftover positionals.
+let spec = {
+  verbose: { type: "boolean", short: "v", help: "verbose output" },
+  count: { type: "number", short: "c", help: "repeat count" },
+  name: { type: "string", help: "user name" }
+};
+let gp = typeof parseFlags === "function" && globalThis.parseFlags === parseFlags
+  && typeof flagHelp === "function" && globalThis.flagHelp === flagHelp;
+let raw = parseFlags(["-v", "--count=3", "--name=alice", "file.txt"]);
+let rawOk = raw.flags.v === true && raw.flags.count === "3" && raw.flags.name === "alice"
+  && raw.positionals[0] === "file.txt" && raw.positionals.length === 1;
+let typed = parseFlags(["-v", "--count=3", "--name=alice", "file.txt"], spec);
+let typedOk = typed.flags.verbose === true && typed.flags.count === 3 && typed.flags.name === "alice"
+  && typeof typed.flags.verbose === "boolean" && typeof typed.flags.count === "number"
+  && typeof typed.flags.name === "string"
+  && typed.positionals[0] === "file.txt";
+let helpOk = flagHelp(spec) === "  -v, --verbose  verbose output\n  -c, --count  repeat count\n      --name  user name\n";
+let term = parseFlags(["-c", "9", "--", "--still"], spec);
+let termOk = term.flags.count === 9 && term.flags.verbose === false && term.positionals[0] === "--still";

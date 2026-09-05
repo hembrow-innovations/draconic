@@ -995,7 +995,7 @@ Portable libraries beyond raw host syscalls and ECMA builtins already under **E1
 | L06 | done | both | Logging: leveled logger; stderr/stdout sink | `tests/conformance` fixtures `stdlib/logging` |
 | L06.01 | done | both | Leveled log (error/warn/info/debug); filter by level | `tests/conformance` fixtures `stdlib/logging` |
 | L06.02 | done | both | Sink to stderr/stdout (string format) | `tests/conformance` fixtures `stdlib/logging` |
-| L07 | todo | both | Flags/CLI parse: argv → typed options/positionals | `tests/conformance` fixtures `stdlib/flags` |
+| L07 | done | both | Flags/CLI parse: argv → typed options/positionals | `tests/conformance` fixtures `stdlib/flags` |
 | L07.01 | done | both | Parse long/short flags + positionals from string array | `tests/conformance` fixtures `stdlib/flags` |
 | L07.02 | done | both | Typed options (bool/string/number); help text as designed | `tests/conformance` fixtures `stdlib/flags` |
 | L08 | todo | both | URL / query parse + serialize | `tests/conformance` fixtures `stdlib/url` |

@@ -75,7 +75,7 @@ fn module_uses_compression(module: &Module) -> bool {
         || module_uses_named_local(module, "inflate")
 }
 
-/// L07.01 / L07.02: `parseFlags` / `flagHelp`.
+/// L07 / L07.01 / L07.02: `parseFlags` / `flagHelp`.
 fn module_uses_parse_flags(module: &Module) -> bool {
     module_uses_named_local(module, "parseFlags") || module_uses_named_local(module, "flagHelp")
 }
@@ -673,7 +673,7 @@ fn emit_js_full(
             out.push('\n');
         }
     }
-    // L07.01 / L07.02: portable `parseFlags` / `flagHelp` polyfill.
+    // L07 / L07.01 / L07.02: portable `parseFlags` / `flagHelp` polyfill.
     if module_uses_parse_flags(module) {
         out.push_str(draconic_runtime::parse_flags_js_polyfill());
         if !out.ends_with('\n') {

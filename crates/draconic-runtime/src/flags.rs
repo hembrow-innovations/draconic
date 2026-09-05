@@ -1,4 +1,4 @@
-//! L07.01 / L07.02: parse long/short flags, typed options, and designed help text.
+//! L07 / L07.01 / L07.02: parse argv into typed options and leftover positionals.
 
 use std::collections::HashMap;
 

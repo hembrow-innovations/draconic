@@ -5117,6 +5117,19 @@ mod tests {
     }
 
     #[test]
+    fn flags_surface_classifies_and_emits() {
+        let src = include_str!("../../../tests/conformance/fixtures/stdlib/flags/surface.drac");
+        let m = compile(src);
+        assert!(is_es_builtins_module(&m), "should classify as es_builtins");
+        let ir = emit_es_builtins(&m).expect("emit");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "must not use hello stub:\n{ir}"
+        );
+        assert!(ir.contains("true"), "missing printed true:\n{ir}");
+    }
+
+    #[test]
     fn parse_url_classifies_and_emits() {
         let src = include_str!("../../../tests/conformance/fixtures/stdlib/url/parse_basics.drac");
         let m = compile(src);
