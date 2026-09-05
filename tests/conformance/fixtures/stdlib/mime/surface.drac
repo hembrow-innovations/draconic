@@ -1,0 +1,25 @@
+// L09: one Program — parse + serialize round-trip and invalid-input errors.
+let gpParse = typeof parseMultipart === "function" && globalThis.parseMultipart === parseMultipart;
+let gpSer = typeof serializeMultipart === "function" && globalThis.serializeMultipart === serializeMultipart;
+let parts = parseMultipart("--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nhello\r\n--abc\r\nContent-Type: text/plain\r\n\r\nworld\r\n--abc--", "abc");
+let parseOk = parts.length === 2 && parts[0].body === "hello" && parts[1].body === "world"
+  && parts[0].headers["Content-Disposition"] === "form-data; name=\"a\""
+  && parts[1].headers["Content-Type"] === "text/plain";
+let back = parseMultipart(serializeMultipart(parts, "abc"), "abc");
+let roundOk = back.length === 2 && back[0].body === "hello" && back[1].body === "world"
+  && back[0].headers["Content-Disposition"] === "form-data; name=\"a\""
+  && back[1].headers["Content-Type"] === "text/plain";
+let truncBad = 0;
+try {
+  parseMultipart("--abc\r\n\r\nhello", "abc");
+  truncBad = -1;
+} catch (e) {
+  truncBad = e.name === "Error" ? 1 : -2;
+}
+let typeBad = 0;
+try {
+  parseMultipart(1, "abc");
+  typeBad = -1;
+} catch (e2) {
+  typeBad = e2.name === "TypeError" ? 1 : -2;
+}

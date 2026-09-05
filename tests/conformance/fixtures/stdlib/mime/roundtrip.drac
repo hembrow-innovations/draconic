@@ -1,0 +1,9 @@
+// L09: serialize parts back to multipart text; common-case round-trip.
+let ts = typeof serializeMultipart;
+let gs = globalThis.serializeMultipart === serializeMultipart;
+let back = parseMultipart(serializeMultipart([
+  { headers: { "Content-Type": "text/plain" }, body: "hello" }
+], "xyz"), "xyz");
+let again = parseMultipart(serializeMultipart(parseMultipart("--xyz\r\nContent-Type: text/plain\r\n\r\nhello\r\n--xyz--", "xyz"), "xyz"), "xyz");
+let builtOk = back.length === 1 && back[0].body === "hello" && back[0].headers["Content-Type"] === "text/plain";
+let roundOk = again.length === 1 && again[0].body === "hello" && again[0].headers["Content-Type"] === "text/plain";

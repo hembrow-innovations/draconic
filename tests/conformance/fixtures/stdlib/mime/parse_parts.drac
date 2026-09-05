@@ -1,0 +1,9 @@
+// L09: parse multipart body into parts with headers and bodies.
+let tp = typeof parseMultipart;
+let gp = globalThis.parseMultipart === parseMultipart;
+let parts = parseMultipart("--abc\r\nContent-Disposition: form-data; name=\"x\"\r\n\r\nhello\r\n--abc\r\nContent-Type: text/plain\r\n\r\nworld\r\n--abc--", "abc");
+let n = parts.length;
+let h0 = parts[0].headers["Content-Disposition"];
+let b0 = parts[0].body;
+let h1 = parts[1].headers["Content-Type"];
+let b1 = parts[1].body;

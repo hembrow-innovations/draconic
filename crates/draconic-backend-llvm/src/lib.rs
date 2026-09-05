@@ -20,6 +20,7 @@ mod es_generators;
 mod es_instanceof;
 mod es_legacy;
 mod es_logging;
+mod es_mime;
 mod es_modules;
 mod es_new_target;
 mod es_optional_chain;
@@ -106,6 +107,7 @@ use es_generators::{emit_es_generators, is_es_generators_module};
 use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
 use es_legacy::{emit_es_legacy, is_es_legacy_module};
 use es_logging::{emit_es_logging, is_es_logging_module};
+use es_mime::{emit_es_mime, is_es_mime_module};
 use es_modules::{emit_es_modules, is_es_modules_module};
 use es_new_target::{emit_es_new_target, is_es_new_target_module};
 use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
@@ -367,6 +369,9 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_es_logging_module(module) {
         return emit_es_logging(module);
+    }
+    if is_es_mime_module(module) {
+        return emit_es_mime(module);
     }
     if is_es_collections_module(module) {
         return emit_es_collections(module);

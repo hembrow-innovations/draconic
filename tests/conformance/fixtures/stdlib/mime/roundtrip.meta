@@ -1,0 +1,6 @@
+id: stdlib/mime/roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\ntrue\ntrue\n
+js.check: if (ts !== "function") process.exit(1); if (gs !== true) process.exit(2); if (builtOk !== true) process.exit(3); if (roundOk !== true) process.exit(4);

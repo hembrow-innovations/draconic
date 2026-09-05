@@ -1,0 +1,6 @@
+id: stdlib/mime/surface
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\ntrue\ntrue\n1\n1\n
+js.check: if (gpParse !== true) process.exit(1); if (gpSer !== true) process.exit(2); if (parseOk !== true) process.exit(3); if (roundOk !== true) process.exit(4); if (truncBad !== 1) process.exit(5); if (typeBad !== 1) process.exit(6);

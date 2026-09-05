@@ -1232,6 +1232,9 @@ impl Binder {
         // L08.02: query parse/serialize
         binder.install_builtin("parseQuery", BindingKind::Const);
         binder.install_builtin("serializeQuery", BindingKind::Const);
+        // L09: MIME multipart parse/serialize
+        binder.install_builtin("parseMultipart", BindingKind::Const);
+        binder.install_builtin("serializeMultipart", BindingKind::Const);
         // L03.01: SHA-256 digest over bytes
         binder.install_builtin("sha256", BindingKind::Const);
         // L03.02: OS CSPRNG bytes

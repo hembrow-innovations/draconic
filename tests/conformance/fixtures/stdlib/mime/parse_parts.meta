@@ -1,0 +1,6 @@
+id: stdlib/mime/parse_parts
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\ntrue\n2\nform-data; name="x"\nhello\ntext/plain\nworld\n
+js.check: if (tp !== "function") process.exit(1); if (gp !== true) process.exit(2); if (n !== 2) process.exit(3); if (h0 !== "form-data; name=\"x\"") process.exit(4); if (b0 !== "hello") process.exit(5); if (h1 !== "text/plain") process.exit(6); if (b1 !== "world") process.exit(7);

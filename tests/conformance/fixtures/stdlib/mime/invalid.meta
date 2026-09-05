@@ -1,0 +1,6 @@
+id: stdlib/mime/invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\n1\n1\n1\n
+js.check: if (typeBody !== 1) process.exit(1); if (typeBound !== 1) process.exit(2); if (emptyBound !== 1) process.exit(3); if (missing !== 1) process.exit(4); if (trunc !== 1) process.exit(5); if (serType !== 1) process.exit(6);

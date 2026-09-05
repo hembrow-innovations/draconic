@@ -1,0 +1,43 @@
+// L09: invalid or truncated multipart input errors rather than silently dropping parts.
+let typeBody = 0;
+try {
+  parseMultipart(1, "b");
+  typeBody = -1;
+} catch (e) {
+  typeBody = e.name === "TypeError" ? 1 : -2;
+}
+let typeBound = 0;
+try {
+  parseMultipart("--b--", 1);
+  typeBound = -1;
+} catch (e2) {
+  typeBound = e2.name === "TypeError" ? 1 : -2;
+}
+let emptyBound = 0;
+try {
+  parseMultipart("--\r\n\r\n--", "");
+  emptyBound = -1;
+} catch (e3) {
+  emptyBound = e3.name === "TypeError" ? 1 : -2;
+}
+let missing = 0;
+try {
+  parseMultipart("not a multipart body", "bound");
+  missing = -1;
+} catch (e4) {
+  missing = e4.name === "Error" ? 1 : -2;
+}
+let trunc = 0;
+try {
+  parseMultipart("--b\r\nContent-Type: text/plain\r\n\r\nhello", "b");
+  trunc = -1;
+} catch (e5) {
+  trunc = e5.name === "Error" ? 1 : -2;
+}
+let serType = 0;
+try {
+  serializeMultipart("nope", "b");
+  serType = -1;
+} catch (e6) {
+  serType = e6.name === "TypeError" ? 1 : -2;
+}

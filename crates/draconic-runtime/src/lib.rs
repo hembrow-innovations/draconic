@@ -7,6 +7,7 @@ pub mod compression;
 pub mod flags;
 pub mod host_js_bridge;
 pub mod logging;
+pub mod mime;
 pub use abi::*;
 pub use collections::collections_js_polyfill;
 pub use compression::compression_js_polyfill;
@@ -17,6 +18,9 @@ pub use flags::{
 };
 pub use host_js_bridge::{dns_js_polyfill, http_js_polyfill, tcp_js_polyfill};
 pub use logging::create_logger_js_polyfill;
+pub use mime::{
+    mime_js_polyfill, parse_multipart, serialize_multipart, MimeError, MimeErrorKind, MimePart,
+};
 pub use testing::describe_it_js_polyfill;
 pub use url::{
     parse_query, parse_url, parse_url_js_polyfill, query_js_polyfill, serialize_query, ParsedUrl,

@@ -99,6 +99,12 @@ fn module_uses_query(module: &Module) -> bool {
         || module_uses_named_local(module, "serializeQuery")
 }
 
+/// L09: `parseMultipart` / `serializeMultipart`.
+fn module_uses_mime(module: &Module) -> bool {
+    module_uses_named_local(module, "parseMultipart")
+        || module_uses_named_local(module, "serializeMultipart")
+}
+
 /// L06.01: `createLogger`.
 fn module_uses_create_logger(module: &Module) -> bool {
     module_uses_named_local(module, "createLogger")
@@ -702,6 +708,13 @@ fn emit_js_full(
     // L08.02: portable `parseQuery` / `serializeQuery` polyfill.
     if module_uses_query(module) {
         out.push_str(draconic_runtime::query_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L09: portable `parseMultipart` / `serializeMultipart` polyfill.
+    if module_uses_mime(module) {
+        out.push_str(draconic_runtime::mime_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
