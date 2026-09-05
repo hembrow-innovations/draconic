@@ -1,0 +1,16 @@
+// L10.02: AES-256-GCM AEAD; NIST SP 800-38D Appendix B cases 13–14.
+// Ciphertext is ciphertext || 16-byte tag. Empty AAD.
+let tpEnc = typeof aeadEncrypt;
+let tpDec = typeof aeadDecrypt;
+let gpEnc = globalThis.aeadEncrypt === aeadEncrypt;
+let gpDec = globalThis.aeadDecrypt === aeadDecrypt;
+let k = Uint8Array.fromHex("0000000000000000000000000000000000000000000000000000000000000000");
+let n = Uint8Array.fromHex("000000000000000000000000");
+let t13 = aeadEncrypt(k, n, new Uint8Array([])).toHex();
+let p13 = aeadDecrypt(k, n, Uint8Array.fromHex("530f8afbc74536b9a963b4f1c4cb738b")).length;
+let t14 = aeadEncrypt(k, n, Uint8Array.fromHex("00000000000000000000000000000000")).toHex();
+let p14 = aeadDecrypt(
+  k,
+  n,
+  Uint8Array.fromHex("cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919")
+).toHex();

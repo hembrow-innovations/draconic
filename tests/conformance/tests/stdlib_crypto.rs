@@ -1,6 +1,7 @@
-//! ROADMAP L03 / L03.01 / L03.02 / L10.01: SHA-256 digest, OS CSPRNG bytes,
-//! and HMAC-SHA256. L03 parent locks the combined digest+CSPRNG surface in one
-//! Program; L10.01 locks HMAC-SHA256 separately.
+//! ROADMAP L03 / L03.01 / L03.02 / L10.01 / L10.02: SHA-256 digest, OS CSPRNG
+//! bytes, HMAC-SHA256, and AES-256-GCM AEAD. L03 parent locks the combined
+//! digest+CSPRNG surface in one Program; L10.01 locks HMAC-SHA256; L10.02
+//! locks AEAD encrypt/decrypt separately.
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -240,6 +241,105 @@ fn hmac_sha256_invalid_runs_both_targets() {
         fixture.targets.len(),
         2,
         "L10.01 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn aead_vectors_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "stdlib/crypto/aead_vectors"),
+        "missing stdlib/crypto/aead_vectors fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn aead_vectors_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/crypto/aead_vectors")
+        .expect("stdlib/crypto/aead_vectors");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L10.02 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn aead_roundtrip_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "stdlib/crypto/aead_roundtrip"),
+        "missing stdlib/crypto/aead_roundtrip fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn aead_roundtrip_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/crypto/aead_roundtrip")
+        .expect("stdlib/crypto/aead_roundtrip");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L10.02 targets both js and native"
+    );
+    for r in run_fixture(fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn aead_invalid_fixture_present() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load fixtures");
+    let ids: Vec<_> = fixtures.iter().map(|f| f.id.as_str()).collect();
+    assert!(
+        ids.iter().any(|id| *id == "stdlib/crypto/aead_invalid"),
+        "missing stdlib/crypto/aead_invalid fixture, got {ids:?}"
+    );
+}
+
+#[test]
+fn aead_invalid_runs_both_targets() {
+    let fixtures = load_fixtures(&fixtures_dir()).expect("load");
+    let fixture = fixtures
+        .iter()
+        .find(|f| f.id == "stdlib/crypto/aead_invalid")
+        .expect("stdlib/crypto/aead_invalid");
+    assert_eq!(
+        fixture.targets.len(),
+        2,
+        "L10.02 targets both js and native"
     );
     for r in run_fixture(fixture) {
         assert!(

@@ -1,0 +1,8 @@
+// L10.02: AEAD encrypt then decrypt returns the original bytes.
+let key = Uint8Array.fromHex("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308");
+let nonce = Uint8Array.fromHex("cafebabefacedbaddecaf888");
+let pt = new TextEncoder().encode("hello");
+let ct = aeadEncrypt(key, nonce, pt);
+let back = aeadDecrypt(key, nonce, ct);
+let round = back.toHex() === pt.toHex();
+let tagged = ct.length === pt.length + 16;

@@ -92,7 +92,7 @@ pub struct RunResult {
 }
 
 /// Directory that contains `fixtures/` (the conformance package root).
-/// L10.01 HMAC-SHA256 fixtures live under `fixtures/stdlib/crypto/`.
+/// L10.01 HMAC-SHA256 and L10.02 AEAD fixtures live under `fixtures/stdlib/crypto/`.
 pub fn package_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }

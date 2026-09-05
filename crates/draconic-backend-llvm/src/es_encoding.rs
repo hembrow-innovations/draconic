@@ -1,7 +1,8 @@
-//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02 / L04 / L10.01: native observations for UTF-8
-//! TextEncoder / TextDecoder, Uint8Array Base64 (`toBase64` / `fromBase64`), hex
-//! (`toHex` / `fromHex`), SHA-256 (`sha256`), `randomBytes`, HMAC-SHA256 (`hmacSha256`),
-//! and gzip/deflate.
+//! L01 / L01.01 / L01.02 / L01.03 / L03.01 / L03.02 / L04 / L10.01 / L10.02: native
+//! observations for UTF-8 TextEncoder / TextDecoder, Uint8Array Base64
+//! (`toBase64` / `fromBase64`), hex (`toHex` / `fromHex`), SHA-256 (`sha256`),
+//! `randomBytes`, HMAC-SHA256 (`hmacSha256`), AES-256-GCM AEAD (`aeadEncrypt` /
+//! `aeadDecrypt`), and gzip/deflate.
 //!
 //! L01 parent: one Program combining UTF-8 bytes↔string, Base64, and hex,
 //! with invalid input as catchable errors rather than silent corruption.
@@ -22,6 +23,7 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
+use crate::aead;
 use crate::base64;
 use crate::compression;
 use crate::hex;
@@ -49,6 +51,8 @@ enum BuiltinId {
     Sha256,
     RandomBytes,
     HmacSha256,
+    AeadEncrypt,
+    AeadDecrypt,
     Gzip,
     Gunzip,
     Deflate,
@@ -136,6 +140,8 @@ fn builtin_for_name(name: &str) -> Option<BuiltinId> {
         "sha256" => Some(BuiltinId::Sha256),
         "randomBytes" => Some(BuiltinId::RandomBytes),
         "hmacSha256" => Some(BuiltinId::HmacSha256),
+        "aeadEncrypt" => Some(BuiltinId::AeadEncrypt),
+        "aeadDecrypt" => Some(BuiltinId::AeadDecrypt),
         "gzip" => Some(BuiltinId::Gzip),
         "gunzip" => Some(BuiltinId::Gunzip),
         "deflate" => Some(BuiltinId::Deflate),
@@ -185,6 +191,8 @@ fn expr_has_encoding_surface(expr: &Expr, by_id: &HashMap<LocalId, &Local>) -> b
                     | "sha256"
                     | "randomBytes"
                     | "hmacSha256"
+                    | "aeadEncrypt"
+                    | "aeadDecrypt"
                     | "gzip"
                     | "gunzip"
                     | "deflate"
@@ -724,10 +732,74 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
                 bytes: Rc::new(RefCell::new(hmac::hmac_sha256(&key, &message).to_vec())),
             })
         }
+        JsVal::Builtin(id @ (BuiltinId::AeadEncrypt | BuiltinId::AeadDecrypt)) => {
+            eval_aead(*id, args)
+        }
         JsVal::Builtin(
             id @ (BuiltinId::Gzip | BuiltinId::Gunzip | BuiltinId::Deflate | BuiltinId::Inflate),
         ) => eval_compression(*id, args),
         _ => Err(None),
+    }
+}
+
+fn eval_aead(id: BuiltinId, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+    let encrypt = matches!(id, BuiltinId::AeadEncrypt);
+    let name = if encrypt {
+        "aeadEncrypt"
+    } else {
+        "aeadDecrypt"
+    };
+    let type_msg = if encrypt {
+        "aeadEncrypt expects Uint8Array key, nonce, and plaintext"
+    } else {
+        "aeadDecrypt expects Uint8Array key, nonce, and ciphertext"
+    };
+    let key = match args.first() {
+        Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+        _ => {
+            return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                name: "TypeError".into(),
+                message: type_msg.into(),
+            })))
+        }
+    };
+    let nonce = match args.get(1) {
+        Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+        _ => {
+            return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                name: "TypeError".into(),
+                message: type_msg.into(),
+            })))
+        }
+    };
+    let data = match args.get(2) {
+        Some(JsVal::Uint8ArrayInst { bytes }) => bytes.borrow().clone(),
+        _ => {
+            return Err(Some(Flow::Throw(JsVal::ErrorInst {
+                name: "TypeError".into(),
+                message: type_msg.into(),
+            })))
+        }
+    };
+    let out = if encrypt {
+        aead::encrypt(&key, &nonce, &data)
+    } else {
+        aead::decrypt(&key, &nonce, &data)
+    };
+    match out {
+        Ok(buf) => Ok(JsVal::Uint8ArrayInst {
+            bytes: Rc::new(RefCell::new(buf)),
+        }),
+        Err(
+            aead::AeadError::KeyLen | aead::AeadError::NonceLen | aead::AeadError::CiphertextLen,
+        ) => Err(Some(Flow::Throw(JsVal::ErrorInst {
+            name: "RangeError".into(),
+            message: format!("{name}: invalid key, nonce, or ciphertext length"),
+        }))),
+        Err(aead::AeadError::Auth) => Err(Some(Flow::Throw(JsVal::ErrorInst {
+            name: "Error".into(),
+            message: format!("{name}: authentication failed"),
+        }))),
     }
 }
 
@@ -938,6 +1010,8 @@ fn member_get(obj: &JsVal, key: &str) -> Result<JsVal, ()> {
             "sha256" => Ok(JsVal::Builtin(BuiltinId::Sha256)),
             "randomBytes" => Ok(JsVal::Builtin(BuiltinId::RandomBytes)),
             "hmacSha256" => Ok(JsVal::Builtin(BuiltinId::HmacSha256)),
+            "aeadEncrypt" => Ok(JsVal::Builtin(BuiltinId::AeadEncrypt)),
+            "aeadDecrypt" => Ok(JsVal::Builtin(BuiltinId::AeadDecrypt)),
             "gzip" => Ok(JsVal::Builtin(BuiltinId::Gzip)),
             "gunzip" => Ok(JsVal::Builtin(BuiltinId::Gunzip)),
             "deflate" => Ok(JsVal::Builtin(BuiltinId::Deflate)),
@@ -989,6 +1063,8 @@ fn typeof_str(v: &JsVal) -> String {
             | BuiltinId::Sha256
             | BuiltinId::RandomBytes
             | BuiltinId::HmacSha256
+            | BuiltinId::AeadEncrypt
+            | BuiltinId::AeadDecrypt
             | BuiltinId::Gzip
             | BuiltinId::Gunzip
             | BuiltinId::Deflate
@@ -1418,6 +1494,40 @@ mod tests {
               trunc = -1;
             } catch (e) {
               trunc = e.name === "Error" ? 1 : -2;
+            }
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_aead_vectors() {
+        let m = compile_src(
+            r#"
+            let t13 = aeadEncrypt(
+              Uint8Array.fromHex("0000000000000000000000000000000000000000000000000000000000000000"),
+              Uint8Array.fromHex("000000000000000000000000"),
+              new Uint8Array([])
+            ).toHex();
+            "#,
+        );
+        assert!(is_es_encoding_module(&m));
+        let ir = emit_es_encoding(&m).expect("emit");
+        assert!(ir.contains("@main"));
+    }
+
+    #[test]
+    fn classifies_aead_invalid() {
+        let m = compile_src(
+            r#"
+            let ok = 0;
+            try {
+              aeadEncrypt("key", new Uint8Array(12), new Uint8Array([]));
+              ok = -1;
+            } catch (e) {
+              ok = e.name === "TypeError" ? 1 : -2;
             }
             "#,
         );

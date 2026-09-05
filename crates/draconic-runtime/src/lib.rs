@@ -11,7 +11,9 @@ pub mod mime;
 pub use abi::*;
 pub use collections::collections_js_polyfill;
 pub use compression::compression_js_polyfill;
-pub use crypto::{hmac_sha256_js_polyfill, random_bytes_js_polyfill, sha256_js_polyfill};
+pub use crypto::{
+    aead_js_polyfill, hmac_sha256_js_polyfill, random_bytes_js_polyfill, sha256_js_polyfill,
+};
 pub use flags::{
     flag_help, parse_flags, parse_flags_js_polyfill, parse_flags_typed, FlagSpec, FlagValue,
     OptionKind, ParsedFlags, ParsedTypedFlags, TypedValue,
@@ -49,7 +51,8 @@ mod host_worker_tests;
 #[cfg(test)]
 mod r01_resource_limits_tests;
 
-/// L03.01 / L03.02 / L10.01: SHA-256 digest, OS CSPRNG bytes, HMAC-SHA256.
+/// L03.01 / L03.02 / L10.01 / L10.02: SHA-256 digest, OS CSPRNG bytes,
+/// HMAC-SHA256, AES-256-GCM AEAD.
 pub mod crypto {
     pub fn sha256_js_polyfill() -> &'static str {
         r#"function sha256(bytes) {
@@ -111,6 +114,59 @@ if (typeof globalThis !== "undefined") globalThis.randomBytes = randomBytes;
   throw new TypeError("hmacSha256 unavailable");
 }
 if (typeof globalThis !== "undefined") globalThis.hmacSha256 = hmacSha256;
+"#
+    }
+
+    pub fn aead_js_polyfill() -> &'static str {
+        r#"function aeadEncrypt(key, nonce, plaintext) {
+  if (key instanceof ArrayBuffer) key = new Uint8Array(key);
+  if (nonce instanceof ArrayBuffer) nonce = new Uint8Array(nonce);
+  if (plaintext instanceof ArrayBuffer) plaintext = new Uint8Array(plaintext);
+  if (!(key instanceof Uint8Array) || !(nonce instanceof Uint8Array) || !(plaintext instanceof Uint8Array)) {
+    throw new TypeError("aeadEncrypt expects Uint8Array key, nonce, and plaintext");
+  }
+  if (key.length !== 32) throw new RangeError("aeadEncrypt key must be 32 bytes");
+  if (nonce.length !== 12) throw new RangeError("aeadEncrypt nonce must be 12 bytes");
+  var c = null;
+  try { c = require("crypto"); } catch (e) {}
+  if (c && typeof c.createCipheriv === "function") {
+    var cipher = c.createCipheriv("aes-256-gcm", Buffer.from(key), Buffer.from(nonce));
+    var ct = Buffer.concat([cipher.update(Buffer.from(plaintext)), cipher.final()]);
+    var tag = cipher.getAuthTag();
+    return new Uint8Array(Buffer.concat([ct, tag]));
+  }
+  throw new TypeError("aeadEncrypt unavailable");
+}
+function aeadDecrypt(key, nonce, ciphertext) {
+  if (key instanceof ArrayBuffer) key = new Uint8Array(key);
+  if (nonce instanceof ArrayBuffer) nonce = new Uint8Array(nonce);
+  if (ciphertext instanceof ArrayBuffer) ciphertext = new Uint8Array(ciphertext);
+  if (!(key instanceof Uint8Array) || !(nonce instanceof Uint8Array) || !(ciphertext instanceof Uint8Array)) {
+    throw new TypeError("aeadDecrypt expects Uint8Array key, nonce, and ciphertext");
+  }
+  if (key.length !== 32) throw new RangeError("aeadDecrypt key must be 32 bytes");
+  if (nonce.length !== 12) throw new RangeError("aeadDecrypt nonce must be 12 bytes");
+  if (ciphertext.length < 16) throw new RangeError("aeadDecrypt ciphertext too short");
+  var c = null;
+  try { c = require("crypto"); } catch (e) {}
+  if (c && typeof c.createDecipheriv === "function") {
+    var tag = ciphertext.subarray(ciphertext.length - 16);
+    var body = ciphertext.subarray(0, ciphertext.length - 16);
+    var decipher = c.createDecipheriv("aes-256-gcm", Buffer.from(key), Buffer.from(nonce));
+    decipher.setAuthTag(Buffer.from(tag));
+    try {
+      var pt = Buffer.concat([decipher.update(Buffer.from(body)), decipher.final()]);
+      return new Uint8Array(pt);
+    } catch (e) {
+      throw new Error("aeadDecrypt: authentication failed");
+    }
+  }
+  throw new TypeError("aeadDecrypt unavailable");
+}
+if (typeof globalThis !== "undefined") {
+  globalThis.aeadEncrypt = aeadEncrypt;
+  globalThis.aeadDecrypt = aeadDecrypt;
+}
 "#
     }
 

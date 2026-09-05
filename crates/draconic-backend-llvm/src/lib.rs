@@ -1,5 +1,6 @@
 //! LLVM backend: IR → native (one lowerer; private adapters for supported subsets).
 
+mod aead;
 mod base64;
 mod compression;
 mod debug_info;

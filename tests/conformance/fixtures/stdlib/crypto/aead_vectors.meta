@@ -1,0 +1,6 @@
+id: stdlib/crypto/aead_vectors
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: function\nfunction\ntrue\ntrue\n530f8afbc74536b9a963b4f1c4cb738b\n0\ncea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919\n00000000000000000000000000000000\n
+js.check: if (tpEnc !== "function") process.exit(1); if (tpDec !== "function") process.exit(2); if (gpEnc !== true) process.exit(3); if (gpDec !== true) process.exit(4); if (t13 !== "530f8afbc74536b9a963b4f1c4cb738b") process.exit(5); if (p13 !== 0) process.exit(6); if (t14 !== "cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919") process.exit(7); if (p14 !== "00000000000000000000000000000000") process.exit(8);

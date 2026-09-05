@@ -1,0 +1,6 @@
+id: stdlib/crypto/aead_invalid
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: 1\n1\n1\n1\n1\n1\n1\n1\n
+js.check: if (keyBad !== 1) process.exit(1); if (nonceBad !== 1) process.exit(2); if (ptBad !== 1) process.exit(3); if (missing !== 1) process.exit(4); if (keyLen !== 1) process.exit(5); if (nonceLen !== 1) process.exit(6); if (shortCt !== 1) process.exit(7); if (tamp !== 1) process.exit(8);

@@ -58,6 +58,11 @@ fn module_uses_hmac_sha256(module: &Module) -> bool {
     module_uses_named_local(module, "hmacSha256")
 }
 
+/// L10.02: true when the Program body references AEAD encrypt/decrypt.
+fn module_uses_aead(module: &Module) -> bool {
+    module_uses_named_local(module, "aeadEncrypt") || module_uses_named_local(module, "aeadDecrypt")
+}
+
 /// L03.02: true when the Program body references the stdlib `randomBytes` global.
 fn module_uses_random_bytes(module: &Module) -> bool {
     let ids: Vec<LocalId> = module
@@ -680,6 +685,13 @@ fn emit_js_full(
     // L10.01: portable `hmacSha256` polyfill when the Program references it.
     if module_uses_hmac_sha256(module) {
         out.push_str(draconic_runtime::hmac_sha256_js_polyfill());
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    // L10.02: portable AES-256-GCM AEAD polyfill when the Program references it.
+    if module_uses_aead(module) {
+        out.push_str(draconic_runtime::aead_js_polyfill());
         if !out.ends_with('\n') {
             out.push('\n');
         }
@@ -1410,6 +1422,17 @@ mod tests {
         let js = emit_src("let d = hmacSha256(new Uint8Array([]), new Uint8Array([]));");
         assert!(js.contains("function hmacSha256("), "{js}");
         assert!(js.contains("globalThis.hmacSha256 = hmacSha256"), "{js}");
+    }
+
+    #[test]
+    fn emit_aead_polyfill() {
+        let js = emit_src(
+            "let d = aeadEncrypt(new Uint8Array(32), new Uint8Array(12), new Uint8Array([]));",
+        );
+        assert!(js.contains("function aeadEncrypt("), "{js}");
+        assert!(js.contains("function aeadDecrypt("), "{js}");
+        assert!(js.contains("globalThis.aeadEncrypt = aeadEncrypt"), "{js}");
+        assert!(js.contains("globalThis.aeadDecrypt = aeadDecrypt"), "{js}");
     }
 
     #[test]

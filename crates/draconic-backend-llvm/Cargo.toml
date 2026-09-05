@@ -11,6 +11,7 @@ draconic-diagnostics.workspace = true
 draconic-runtime.workspace = true
 draconic-embed.workspace = true
 sha2.workspace = true
+aes-gcm.workspace = true
 flate2.workspace = true
 
 [dev-dependencies]

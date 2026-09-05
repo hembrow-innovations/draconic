@@ -1,0 +1,61 @@
+// L10.02: invalid key, nonce, or ciphertext errors rather than silently succeeding.
+let keyBad = 0;
+try {
+  aeadEncrypt("key", new Uint8Array(12), new Uint8Array([]));
+  keyBad = -1;
+} catch (e) {
+  keyBad = e.name === "TypeError" ? 1 : -2;
+}
+let nonceBad = 0;
+try {
+  aeadEncrypt(new Uint8Array(32), "nonce", new Uint8Array([]));
+  nonceBad = -1;
+} catch (e) {
+  nonceBad = e.name === "TypeError" ? 1 : -2;
+}
+let ptBad = 0;
+try {
+  aeadEncrypt(new Uint8Array(32), new Uint8Array(12), "pt");
+  ptBad = -1;
+} catch (e) {
+  ptBad = e.name === "TypeError" ? 1 : -2;
+}
+let missing = 0;
+try {
+  aeadEncrypt();
+  missing = -1;
+} catch (e) {
+  missing = e.name === "TypeError" ? 1 : -2;
+}
+let keyLen = 0;
+try {
+  aeadEncrypt(new Uint8Array(16), new Uint8Array(12), new Uint8Array([]));
+  keyLen = -1;
+} catch (e) {
+  keyLen = e.name === "RangeError" ? 1 : -2;
+}
+let nonceLen = 0;
+try {
+  aeadEncrypt(new Uint8Array(32), new Uint8Array(8), new Uint8Array([]));
+  nonceLen = -1;
+} catch (e) {
+  nonceLen = e.name === "RangeError" ? 1 : -2;
+}
+let shortCt = 0;
+try {
+  aeadDecrypt(new Uint8Array(32), new Uint8Array(12), new Uint8Array(8));
+  shortCt = -1;
+} catch (e) {
+  shortCt = e.name === "RangeError" ? 1 : -2;
+}
+let tamp = 0;
+try {
+  aeadDecrypt(
+    Uint8Array.fromHex("0000000000000000000000000000000000000000000000000000000000000000"),
+    Uint8Array.fromHex("000000000000000000000000"),
+    Uint8Array.fromHex("00000000000000000000000000000000")
+  );
+  tamp = -1;
+} catch (e) {
+  tamp = e.name === "Error" ? 1 : -2;
+}

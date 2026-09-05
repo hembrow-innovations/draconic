@@ -1,0 +1,6 @@
+id: stdlib/crypto/aead_roundtrip
+targets: js,native
+js.exit: 0
+native.exit: 0
+native.stdout: true\ntrue\n
+js.check: if (round !== true) process.exit(1); if (tagged !== true) process.exit(2);
