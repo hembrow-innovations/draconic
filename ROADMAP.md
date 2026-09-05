@@ -1056,7 +1056,7 @@ Embed/runtime safety, optional permissions, supply-chain (with **K**), native fa
 | R02.02 | done | both | Deny path: clear diagnostic when host op lacks grant | `tests/conformance` fixtures `security/permissions` |
 | R02.03 | done | both | CLI/runtime flags to grant subset (opt-in permissions) | `crates/draconic-cli`, `tests/conformance` fixtures `security/permissions` |
 | R02.04 | done | both | Default policy documented (permissive vs locked-down as designed) | `tests/conformance` fixtures `security/permissions` |
-| R03 | todo | compiler | Supply-chain policy tests once **K08** lands (lock verify refuse tamper) | `tests/integration`, **K08** |
+| R03 | done | compiler | Supply-chain policy tests once **K08** lands (lock verify refuse tamper) | `tests/integration`, **K08** |
 | R03.01 | done | compiler | Integration: tampered cache refused (depends **K08**) | `tests/integration`, **K08** |
 | R03.02 | done | compiler | Integration: lock hash mismatch hard-fails build | `tests/integration`, **K08** |
 | R04 | done | native | Panic/abort vs catchable exception policy; fixtures per class | `crates/draconic-runtime`, `tests/conformance` fixtures `security/panic_policy` |
