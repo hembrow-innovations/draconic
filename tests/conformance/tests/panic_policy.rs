@@ -1,4 +1,4 @@
-//! ROADMAP R04.01 / R04.02: catchable exceptions vs process abort.
+//! ROADMAP R04: catchable exceptions vs process abort (per class).
 //! User `throw` is handled by `try`/`catch` on native (process continues).
 //! Runtime abort-class faults kill the process (not catchable).
 
