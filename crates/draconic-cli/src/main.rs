@@ -563,7 +563,7 @@ fn cmd_run(args: &[String]) -> ExitCode {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
-            eprintln!("usage: draconic run [--target js|native] <file> [args...]");
+            eprintln!("usage: draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]");
             return ExitCode::from(2);
         }
     };
@@ -591,7 +591,12 @@ fn cmd_run(args: &[String]) -> ExitCode {
         return ExitCode::from(1);
     }
 
-    let status = execute_artifact(parsed.target, &artifact, &parsed.program_args);
+    let status = execute_artifact(
+        parsed.target,
+        &artifact,
+        &parsed.program_args,
+        &parsed.grants,
+    );
     let _ = fs::remove_dir_all(&work);
 
     match status {
@@ -608,12 +613,15 @@ struct RunArgs {
     target: Target,
     input: PathBuf,
     program_args: Vec<String>,
+    /// R02.03 opt-in grant subset from `--allow-*` flags.
+    grants: Vec<String>,
 }
 
 fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
     let mut target = Target::Js; // default for shebang / quick scripts
     let mut input: Option<PathBuf> = None;
     let mut program_args: Vec<String> = Vec::new();
+    let mut grants: Vec<String> = Vec::new();
     let mut i = 0;
     let mut saw_separator = false;
 
@@ -638,8 +646,12 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
             t if let Some(rest) = t.strip_prefix("--target=") => {
                 target = parse_target(rest)?;
             }
+            "--allow-fs-read" => grants.push("fs-read".into()),
+            "--allow-fs-write" => grants.push("fs-write".into()),
+            "--allow-net-listen" => grants.push("net-listen".into()),
+            "--allow-net-connect" => grants.push("net-connect".into()),
             "-h" | "--help" => {
-                return Err("usage: draconic run [--target js|native] <file> [args...]".into());
+                return Err("usage: draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]".into());
             }
             other if other.starts_with('-') && input.is_none() => {
                 return Err(format!("unknown option: {other}"));
@@ -661,6 +673,7 @@ fn parse_run_args(args: &[String]) -> Result<RunArgs, String> {
         target,
         input,
         program_args,
+        grants,
     })
 }
 
@@ -685,6 +698,7 @@ fn execute_artifact(
     target: Target,
     artifact: &Path,
     program_args: &[String],
+    grants: &[String],
 ) -> Result<i32, String> {
     let mut cmd = match target {
         Target::Js => {
@@ -695,6 +709,9 @@ fn execute_artifact(
         Target::Native => Command::new(artifact),
     };
     cmd.args(program_args);
+    if !grants.is_empty() {
+        cmd.env("DRACONIC_PERMISSIONS", grants.join(","));
+    }
     // Inherit stdio so run feels like a real process (shebang-friendly).
     cmd.stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -1547,7 +1564,8 @@ Usage:
                                                  Extract /** doc comments */ to markdown or HTML
   draconic build --target js|native [--watch] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]
                                                   Compile a Program to JS or a native binary
-  draconic run [--target js|native] <file> [args...]
+  draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write]
+               [--allow-net-listen] [--allow-net-connect] <file> [args...]
                                                   Build and execute a Program (default target: js)
   draconic repl [--target js|embed]              Interactive read-eval-print (multi-line; last value)
   draconic test [--coverage] [--jobs <n>] <path> Run conformance fixtures (dir or .drac file)
@@ -1659,6 +1677,29 @@ mod tests {
         assert_eq!(p.target, Target::Native);
         assert_eq!(p.input, PathBuf::from("a.drac"));
         assert!(p.program_args.is_empty());
+        assert!(p.grants.is_empty());
+    }
+
+    #[test]
+    fn parse_run_args_allow_grant_flags() {
+        let args = vec![
+            "--allow-fs-read".into(),
+            "--allow-fs-write".into(),
+            "--allow-net-listen".into(),
+            "--allow-net-connect".into(),
+            "a.drac".into(),
+        ];
+        let p = parse_run_args(&args).unwrap();
+        assert_eq!(
+            p.grants,
+            vec![
+                "fs-read".to_string(),
+                "fs-write".to_string(),
+                "net-listen".to_string(),
+                "net-connect".to_string(),
+            ]
+        );
+        assert_eq!(p.input, PathBuf::from("a.drac"));
     }
 
     #[test]

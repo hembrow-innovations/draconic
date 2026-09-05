@@ -8,4 +8,4 @@ Rejected: Deno-only `serve` without a socket layer; npm-registry-first networkin
 
 **Default permission policy (R02.04):** permissive. A Program with no explicit grant subset may read/write the filesystem and listen/connect TCP on the targets that already expose those host APIs (H04 / H06; JS TCP via the H17.04 bridge). There is no locked-down deny-by-default until opt-in grants land (R02.01–R02.03). Rejected: treating the designed default as Deno-style locked-down while host surfaces already succeed without grants.
 
-**Permission grants (R02.01):** an explicit grant subset (`fs-read`, `fs-write`, `net-listen`, `net-connect`) is forwarded as `DRACONIC_PERMISSIONS` and those host ops succeed. CLI flags that install the subset are R02.03; deny diagnostics when a grant is missing are R02.02.
+**Permission grants (R02.01):** an explicit grant subset (`fs-read`, `fs-write`, `net-listen`, `net-connect`) is forwarded as `DRACONIC_PERMISSIONS` and those host ops succeed. CLI flags that install the subset are R02.03 (`--allow-fs-read`, `--allow-fs-write`, `--allow-net-listen`, `--allow-net-connect` on `draconic run`); deny diagnostics when a grant is missing are R02.02.

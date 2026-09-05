@@ -1,0 +1,7 @@
+id: security/permissions/allow_fs
+targets: js,native
+grants: fs-read,fs-write
+js.exit: 0
+js.check: if (t !== "r0203-fs") process.exit(1);
+native.exit: 0
+native.stdout: r0203-fs\n

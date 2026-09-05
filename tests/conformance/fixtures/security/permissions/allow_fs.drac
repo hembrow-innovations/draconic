@@ -1,0 +1,3 @@
+// R02.03: CLI flags `--allow-fs-read --allow-fs-write` grant the fs subset.
+writeFileText("/tmp/draconic_r0203_allow_fs.txt", "r0203-fs");
+let t = readFileText("/tmp/draconic_r0203_allow_fs.txt");

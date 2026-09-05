@@ -71,7 +71,7 @@ A JS-value failure a Program can handle with `try`/`catch` (user `throw`, ECMA E
 _Avoid_: panic, abort (those are process abort, **R04.02**)
 
 **Default permission policy**:
-Host filesystem and TCP succeed when a Program is run with no explicit grant subset (permissive). Opt-in grant/deny is Roadmap **R02.01**–**R02.03**. See ADR-0008 / Roadmap **R02.04**.
+Host filesystem and TCP succeed when a Program is run with no explicit grant subset (permissive). Opt-in grant/deny is Roadmap **R02.01**–**R02.03**. CLI `--allow-fs-read` / `--allow-fs-write` / `--allow-net-listen` / `--allow-net-connect` on `draconic run` install the subset (R02.03). See ADR-0008 / Roadmap **R02.04**.
 _Avoid_: Deno locked-down default (not the designed v1 default)
 
 **Embed**:

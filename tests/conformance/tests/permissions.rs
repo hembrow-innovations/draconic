@@ -2,6 +2,7 @@
 //! A Program with no explicit grant subset may use host fs and TCP.
 //! ROADMAP R02.01: explicit grants for fs read/write and net listen/connect succeed.
 //! ROADMAP R02.02: host op without a grant fails with a clear diagnostic.
+//! ROADMAP R02.03: CLI `--allow-*` flags grant a subset (opt-in).
 
 use draconic_conformance::{fixtures_dir, load_fixtures, run_fixture, Target};
 
@@ -182,7 +183,10 @@ fn assert_deny_native(id: &str) {
         "{id} must target native, got {:?}",
         fixture.targets
     );
-    assert_eq!(fixture.expect_native.exit, 1, "{id} native deny must exit 1");
+    assert_eq!(
+        fixture.expect_native.exit, 1,
+        "{id} native deny must exit 1"
+    );
     assert_eq!(
         fixture.expect_native.stderr.as_deref(),
         Some("EPERM\n"),
@@ -261,4 +265,55 @@ fn deny_net_native_lacks_net_listen_grant() {
 #[test]
 fn deny_net_native_clear_diagnostic() {
     assert_deny_native("security/permissions/deny_net_native");
+}
+
+fn assert_names_allow_flags(id: &str, flags: &[&str]) {
+    let fixture = load_named(id);
+    for flag in flags {
+        assert!(
+            fixture.source.contains(flag),
+            "{id} must name CLI flag {flag}"
+        );
+    }
+}
+
+#[test]
+fn allow_fs_fixture_present() {
+    assert_fixture_present("security/permissions/allow_fs");
+}
+
+#[test]
+fn allow_fs_names_cli_flags() {
+    assert_names_allow_flags(
+        "security/permissions/allow_fs",
+        &["--allow-fs-read", "--allow-fs-write"],
+    );
+    assert_explicit_grant_subset("security/permissions/allow_fs", &["fs-read", "fs-write"]);
+}
+
+#[test]
+fn allow_fs_runs_both_targets() {
+    assert_fixture_runs_both("security/permissions/allow_fs");
+}
+
+#[test]
+fn allow_net_fixture_present() {
+    assert_fixture_present("security/permissions/allow_net");
+}
+
+#[test]
+fn allow_net_names_cli_flags() {
+    assert_names_allow_flags(
+        "security/permissions/allow_net",
+        &["--allow-net-listen", "--allow-net-connect"],
+    );
+    assert_explicit_grant_subset(
+        "security/permissions/allow_net",
+        &["net-listen", "net-connect"],
+    );
+}
+
+#[test]
+fn allow_net_runs_both_targets() {
+    assert_fixture_runs_both("security/permissions/allow_net");
 }
