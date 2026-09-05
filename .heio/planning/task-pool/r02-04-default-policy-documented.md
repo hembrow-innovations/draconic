@@ -2,10 +2,10 @@
 id: "r02-04-default-policy-documented"
 title: "R02.04 Default policy documented (permissive vs locked-down as designed)"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T13:57:40Z"
-updated_at: "2026-09-02T13:57:40Z"
+updated_at: "2026-09-05T08:50:00Z"
 ---
 
 # R02.04 Default policy documented (permissive vs locked-down as designed)

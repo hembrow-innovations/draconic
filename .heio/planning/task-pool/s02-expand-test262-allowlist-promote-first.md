@@ -2,7 +2,7 @@
 id: "s02-expand-test262-allowlist-promote-first"
 title: "S02 Expand Test262 allowlist / promote first failure cluster (see **E19.02**)"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T14:03:49Z"
 updated_at: "2026-09-02T14:03:49Z"

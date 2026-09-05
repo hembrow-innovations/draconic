@@ -2,10 +2,10 @@
 id: "l10-01-hmac-sha256-after-l03"
 title: "L10.01 HMAC-SHA256 (after L03)"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T13:51:45Z"
-updated_at: "2026-09-02T13:51:45Z"
+updated_at: "2026-09-05T08:50:00Z"
 ---
 
 # L10.01 HMAC-SHA256 (after L03)

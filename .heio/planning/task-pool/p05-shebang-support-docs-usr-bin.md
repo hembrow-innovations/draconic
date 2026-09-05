@@ -2,10 +2,10 @@
 id: "p05-shebang-support-docs-usr-bin"
 title: "P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T22:30:20Z"
-updated_at: "2026-09-02T22:30:20Z"
+updated_at: "2026-09-05T08:50:00Z"
 ---
 
 # P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)

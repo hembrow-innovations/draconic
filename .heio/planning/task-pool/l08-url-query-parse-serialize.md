@@ -2,10 +2,10 @@
 id: "l08-url-query-parse-serialize"
 title: "L08 URL / query parse + serialize"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T13:49:03Z"
-updated_at: "2026-09-02T13:49:03Z"
+updated_at: "2026-09-05T08:50:00Z"
 ---
 
 # L08 URL / query parse + serialize

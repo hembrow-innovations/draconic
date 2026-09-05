@@ -2,12 +2,12 @@
 id: "r01-embed-eval-resource-limits-max"
 title: "R01 Embed/eval resource limits: max source size, alloc/time budget"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked-by: []
 tags: []
 created_at: "2026-09-04T13:30:00Z"
-updated_at: "2026-09-04T13:30:00Z"
+updated_at: "2026-09-05T08:50:00Z"
 ---
 
 # R01 Embed/eval resource limits: max source size, alloc/time budget
