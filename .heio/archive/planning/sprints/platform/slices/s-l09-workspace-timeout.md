@@ -2,11 +2,11 @@
 id: "s-l09-workspace-timeout"
 title: "L09 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # L09 workspace tests finish
@@ -30,15 +30,16 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: L09 MIME fixtures stay locked
+- [x] O1: L09 MIME fixtures stay locked
   CHECK: cargo test -p draconic-conformance --test stdlib_mime
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes
 
 - [ ] O2: workspace tests finish after the L09 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=timeout match=yes
+  ABANDON: leftover after --reverify; CHECK timed out at 600s (exit=timeout match=yes); home [[ticket-206-l09-workspace-timeout]]
 
 ## Pool
 

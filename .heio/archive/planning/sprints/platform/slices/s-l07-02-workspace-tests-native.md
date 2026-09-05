@@ -2,11 +2,11 @@
 id: "s-l07-02-workspace-tests-native"
 title: "L07.02 workspace tests pass (native runtime C)"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # L07.02 workspace tests pass (native runtime C)
@@ -35,12 +35,13 @@ None.
 - [ ] O1: workspace tests pass after the native runtime C fix
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=yes bytes=132849
+  ABANDON: leftover after --reverify; CHECK failed (exit=101 match=yes bytes=132849); cargo test --workspace exited 101 → [[ticket-205-l07-02-workspace-tests]]
 
-- [ ] O2: L07.02 typed-options fixtures stay locked by stdlib flags on both targets
+- [x] O2: L07.02 typed-options fixtures stay locked by stdlib flags on both targets
   CHECK: cargo test -p draconic-conformance --test stdlib_flags
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes bytes=2697
 
 ## Pool
 

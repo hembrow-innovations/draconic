@@ -2,11 +2,11 @@
 id: "s-r05-workspace-timeout"
 title: "R05 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # R05 workspace tests finish
@@ -30,15 +30,16 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: R05 parser fuzz stays locked
+- [x] O1: R05 parser fuzz stays locked
   CHECK: cargo test -p draconic-parser --lib fuzz
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes
 
 - [ ] O2: workspace tests finish after the R05 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=yes bytes=132848
+  ABANDON: leftover after --reverify; first CHECK timed out at 600s (exit=timeout match=yes); 20m reverify failed (exit=101 match=yes bytes=132848); home [[ticket-214-r05-workspace-timeout]]
 
 ## Pool
 

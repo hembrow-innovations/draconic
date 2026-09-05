@@ -2,11 +2,11 @@
 id: "s-l10-workspace-timeout"
 title: "L10 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # L10 workspace tests finish
@@ -30,20 +30,21 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: L10 hmac_sha256 fixtures stay locked
+- [x] O1: L10 hmac_sha256 fixtures stay locked
   CHECK: cargo test -p draconic-conformance --test stdlib_crypto hmac_sha256
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=6a4171520250f871 bytes=2698
 
-- [ ] O2: L10 aead fixtures stay locked
+- [x] O2: L10 aead fixtures stay locked
   CHECK: cargo test -p draconic-conformance --test stdlib_crypto aead
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=bdfbc29e925002c2 bytes=2837
 
 - [ ] O3: workspace tests finish after the L10 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=timeout match=yes bytes=76525
+  ABANDON: leftover after --reverify; CHECK timed out at 600s (exit=timeout match=yes bytes=76525); home [[ticket-208-l10-workspace-timeout]]
 
 ## Pool
 

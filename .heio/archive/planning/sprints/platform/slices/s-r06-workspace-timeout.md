@@ -2,11 +2,11 @@
 id: "s-r06-workspace-timeout"
 title: "R06 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # R06 workspace tests finish
@@ -30,20 +30,21 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: R06 backtrace lib tests stay locked
+- [x] O1: R06 backtrace lib tests stay locked
   CHECK: cargo test -p draconic-runtime --lib backtrace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=fab86a60f32e97af bytes=405
 
-- [ ] O2: R06 panic backtrace integration stays locked
+- [x] O2: R06 panic backtrace integration stays locked
   CHECK: cargo test -p draconic-integration-tests --test panic_backtrace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=2ef5bf887471be30 bytes=2908
 
 - [ ] O3: workspace tests finish after the R06 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=timeout match=yes bytes=82684
+  ABANDON: leftover after --reverify; CHECK timed out at 600s (exit=timeout match=yes bytes=82684); home [[ticket-215-r06-workspace-timeout]]
 
 ## Pool
 

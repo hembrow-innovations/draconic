@@ -2,11 +2,11 @@
 id: "s-d04-workspace-tests-timeout"
 title: "D04 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # D04 workspace tests finish
@@ -34,22 +34,24 @@ None.
 - [ ] O1: workspace tests finish after the D04 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=timeout match=yes bytes=90371
+  ABANDON: leftover after --reverify; CHECK timed out at 600s (exit=timeout match=yes bytes=90371); home [[ticket-204-d04-workspace-tests-timeout]]
 
-- [ ] O2: D04 combined matrix sitting stays green
+- [x] O2: D04 combined matrix sitting stays green
   CHECK: cargo test -p draconic-integration-tests --test cross_compile
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=308a79ecfe0cdbae bytes=2994
 
-- [ ] O3: D04.02 matrix docs + CI jobs fixtures stay locked
+- [x] O3: D04.02 matrix docs + CI jobs fixtures stay locked
   CHECK: cargo test -p draconic-integration-tests --test cross_compile_matrix
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=4aa60b6834231799 bytes=2739
 
 - [ ] O4: D01.01 release-artifact workflow reader stays locked
   CHECK: cargo test -p draconic-integration-tests --test release_artifact
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=no bytes=3329
+  ABANDON: leftover after --reverify; CHECK failed (exit=101 match=no bytes=3329); home [[ticket-204-d04-workspace-tests-timeout]]
 
 ## Pool
 

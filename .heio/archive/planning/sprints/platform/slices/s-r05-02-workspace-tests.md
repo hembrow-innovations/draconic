@@ -2,11 +2,11 @@
 id: "s-r05-02-workspace-tests"
 title: "R05.02 workspace tests pass"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # R05.02 workspace tests pass
@@ -30,20 +30,21 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: R05.02 runtime fuzz stays locked
+- [x] O1: R05.02 runtime fuzz stays locked
   CHECK: cargo test -p draconic-runtime --lib fuzz
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes
 
-- [ ] O2: R05.02 embed fuzz stays locked
+- [x] O2: R05.02 embed fuzz stays locked
   CHECK: cargo test -p draconic-embed --lib fuzz
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes
 
 - [ ] O3: workspace tests pass after the R05.02 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=yes bytes=132795
+  ABANDON: leftover after --reverify; CHECK failed (exit=101 match=yes bytes=132795); cargo test --workspace exited 101 → [[ticket-213-r05-02-workspace-tests]]
 
 ## Pool
 

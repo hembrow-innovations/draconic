@@ -2,11 +2,11 @@
 id: "s-l10-02-workspace-timeout"
 title: "L10.02 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # L10.02 workspace tests finish
@@ -30,15 +30,16 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: L10.02 AEAD fixtures stay locked
+- [x] O1: L10.02 AEAD fixtures stay locked
   CHECK: cargo test -p draconic-conformance --test stdlib_crypto
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=5045b7fe533348f2 bytes=3470
 
 - [ ] O2: workspace tests finish after the L10.02 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=yes bytes=42064
+  ABANDON: leftover after --reverify; CHECK failed (exit=101 match=yes bytes=42064); cargo test --workspace exited 101 → [[ticket-207-l10-02-workspace-tests]]
 
 ## Pool
 

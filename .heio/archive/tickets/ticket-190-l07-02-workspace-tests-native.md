@@ -2,12 +2,12 @@
 id: "ticket-190-l07-02-workspace-tests-native"
 title: "L07.02 workspace tests did not pass (O1 O2 native runtime C)"
 kind: ticket
-status: promoted
+status: closed
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T12:44:16Z"
-updated_at: "2026-09-05T20:10:00Z"
+updated_at: "2026-09-05T22:20:00Z"
 caused-by: s-l07-02-workspace-tests
 failed: true
 intent: fix

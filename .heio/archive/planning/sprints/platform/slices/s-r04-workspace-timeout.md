@@ -2,11 +2,11 @@
 id: "s-r04-workspace-timeout"
 title: "R04 workspace tests finish"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # R04 workspace tests finish
@@ -30,20 +30,21 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: R04 abort policy lib tests stay locked
+- [x] O1: R04 abort policy lib tests stay locked
   CHECK: cargo test -p draconic-runtime --lib abort_policy
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=29cdca8711407a6f bytes=582
 
-- [ ] O2: R04 panic policy conformance stays locked
+- [x] O2: R04 panic policy conformance stays locked
   CHECK: cargo test -p draconic-conformance --test panic_policy
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=8afe1e2e121a0c43 bytes=2675
 
 - [ ] O3: workspace tests finish after the R04 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=timeout match=yes bytes=80084
+  ABANDON: leftover after --reverify; CHECK timed out at 600s (exit=timeout match=yes bytes=80084); home [[ticket-212-r04-workspace-timeout]]
 
 ## Pool
 

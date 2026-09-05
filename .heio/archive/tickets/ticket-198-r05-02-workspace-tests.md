@@ -2,12 +2,12 @@
 id: "ticket-198-r05-02-workspace-tests"
 title: "R05.02 workspace tests did not pass (O3)"
 kind: ticket
-status: promoted
+status: closed
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T17:31:38Z"
-updated_at: "2026-09-05T20:10:00Z"
+updated_at: "2026-09-05T22:20:00Z"
 caused-by: s-r05-02
 failed: true
 intent: fix

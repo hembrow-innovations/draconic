@@ -2,11 +2,11 @@
 id: "s-r03-02-workspace-tests"
 title: "R03.02 workspace tests pass"
 kind: slice
-status: released
+status: failed
 sprint: "platform"
 tags: []
 created_at: "2026-09-05T20:10:00Z"
-updated_at: "2026-09-05T20:29:12Z"
+updated_at: "2026-09-05T21:15:00Z"
 ---
 
 # R03.02 workspace tests pass
@@ -30,15 +30,16 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: R03.02 lock hash mismatch integration stays locked
+- [x] O1: R03.02 lock hash mismatch integration stays locked
   CHECK: cargo test -p draconic-integration-tests --test supply_chain_lock_hash_mismatch
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes sha256=dfa02ab97a5fa901 bytes=2928
 
 - [ ] O2: workspace tests pass after the R03.02 Loop
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: unmet exit=101 match=yes bytes=132849
+  ABANDON: leftover after --reverify; CHECK failed (exit=101 match=yes bytes=132849); cargo test --workspace exited 101 → [[ticket-210-r03-02-workspace-tests]]
 
 ## Pool
 

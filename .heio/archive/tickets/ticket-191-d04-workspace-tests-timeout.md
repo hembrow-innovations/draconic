@@ -2,12 +2,12 @@
 id: "ticket-191-d04-workspace-tests-timeout"
 title: "D04 workspace tests did not finish (O1 workspace-timeout)"
 kind: ticket
-status: promoted
+status: closed
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T13:09:50Z"
-updated_at: "2026-09-05T20:10:00Z"
+updated_at: "2026-09-05T22:20:00Z"
 caused-by: s-d04-workspace-tests
 failed: true
 intent: fix

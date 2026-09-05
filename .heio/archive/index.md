@@ -2,6 +2,19 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **housekeeping** — archived 12 failed slices, 12 closed tickets; 14 ready-for-agent tickets remain; pump stays held at WIP cap
+- **ticket-190-l07-02-workspace-tests-native** — L07.02 workspace tests did not pass (O1 O2 native runtime C)
+- **ticket-191-d04-workspace-tests-timeout** — D04 workspace tests did not finish (O1 workspace-timeout)
+- **ticket-192-l09-workspace-timeout** — L09 workspace tests did not finish (O2 workspace-timeout)
+- **ticket-193-l10-02-workspace-timeout** — L10.02 workspace tests did not finish (O2 workspace-timeout)
+- **ticket-194-p04-workspace-tests** — P04 workspace tests did not pass (O2)
+- **ticket-195-r03-02-workspace-tests** — R03.02 workspace tests did not pass (O2)
+- **ticket-196-r04-workspace-timeout** — R04 workspace tests did not finish (O3 workspace-timeout)
+- **ticket-197-r05-workspace-timeout** — R05 workspace tests did not finish (O2 workspace-timeout)
+- **ticket-198-r05-02-workspace-tests** — R05.02 workspace tests did not pass (O3)
+- **ticket-199-r06-workspace-timeout** — R06 workspace tests did not finish (O3 workspace-timeout)
+- **ticket-200-l10-workspace-timeout** — L10 workspace tests did not finish (O3 workspace-timeout)
+- **ticket-201-r03-workspace-timeout** — R03 workspace tests did not finish (O2 workspace-timeout)
 - **housekeeping** — archived 12 completed tasks; 12 released slices remain for Reviewer; 12 promoted tickets stay live; pump stays held at WIP cap
 - **d04-workspace-tests-timeout** — D04 workspace tests finish
 - **l07-02-workspace-tests-native** — L07.02 workspace tests pass (native runtime C)
