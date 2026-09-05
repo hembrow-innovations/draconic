@@ -1,8 +1,8 @@
 ---
-description: Plan a slice (oracles on the file) or triage a ticket
-argument-hint: "[slice or ticket]"
+description: Grill, then publish frozen slices and a ready task-pool. Or triage a ticket
+argument-hint: "[sprint, slice, or ticket]"
 ---
 
-Load **heio-planning**. The argument is the slice or ticket.
+Load **heio-planning**. The argument is the sprint, slice, or ticket.
 
 $ARGUMENTS

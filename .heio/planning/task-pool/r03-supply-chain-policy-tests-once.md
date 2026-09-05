@@ -3,12 +3,17 @@ id: "r03-supply-chain-policy-tests-once"
 title: "R03 Supply-chain policy tests once K08 lands (lock verify refuse tamper)"
 kind: task
 status: ready
+blocked-by: ["r03-01-integration-tampered-cache-refused", "r03-02-integration-lock-hash-mismatch-hard"]
 tags: []
 created_at: "2026-09-02T22:35:46Z"
-updated_at: "2026-09-02T22:35:46Z"
+updated_at: "2026-09-05T05:46:30Z"
 ---
 
 # R03 Supply-chain policy tests once K08 lands (lock verify refuse tamper)
+
+## Blocked by
+
+[[r03-01-integration-tampered-cache-refused]] and [[r03-02-integration-lock-hash-mismatch-hard]]. K08 already landed. Parent remainder waits until those child atoms land so Build does not duplicate those Loops.
 
 ## Done
 

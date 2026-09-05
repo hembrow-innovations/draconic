@@ -2,7 +2,7 @@
 id: "l07-02-typed-options-bool-string-number"
 title: "L07.02 Typed options (bool/string/number); help text as designed"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T22:27:40Z"
 updated_at: "2026-09-02T22:27:40Z"

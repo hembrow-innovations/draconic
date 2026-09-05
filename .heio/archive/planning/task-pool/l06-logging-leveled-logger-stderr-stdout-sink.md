@@ -2,10 +2,10 @@
 id: "l06-logging-leveled-logger-stderr-stdout-sink"
 title: "L06 Logging: leveled logger; stderr/stdout sink"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T13:47:19Z"
-updated_at: "2026-09-02T13:47:19Z"
+updated_at: "2026-09-04T20:55:53Z"
 ---
 
 # L06 Logging: leveled logger; stderr/stdout sink

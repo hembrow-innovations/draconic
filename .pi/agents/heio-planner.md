@@ -6,7 +6,7 @@ thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-skills: heio-stack, heio-planning
+skills: heio-stack
 acceptanceRole: writer
 ---
 

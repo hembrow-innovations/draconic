@@ -2,10 +2,10 @@
 id: "l07-01-parse-long-short-flags-positionals"
 title: "L07.01 Parse long/short flags + positionals from string array"
 kind: task
-status: ready
+status: completed
 tags: []
 created_at: "2026-09-02T13:48:03Z"
-updated_at: "2026-09-02T13:48:03Z"
+updated_at: "2026-09-04T23:18:15Z"
 ---
 
 # L07.01 Parse long/short flags + positionals from string array

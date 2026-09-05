@@ -24,7 +24,7 @@ Read intent, roadmap, current sprint `shape.md`, unblocked active slice files, a
 
 Same rule every time:
 
-- Fits an unblocked active slice or the pool → **TASK**. Status `promoted`. Write (or name) a task-pool file from `templates/pool-task.md` and add a durable `[[id]]` on the slice.
+- Fits an unblocked active slice or the pool → **TASK**. Status `promoted`. Write (or name) a task-pool file from `templates/pool-task.md` (`ready`, `mode: afk` unless HITL, `blocked-by`) and add a durable `[[id]]` on the slice.
 - Fits the project, not this slice → **TICKET**. Status `parked`. File stays in `.heio/tickets/`.
 - Would rewrite a location destination → **ESCALATE**. Leave status `open`. Stop. The human and **heio-wayfinder** rewrite the map.
 

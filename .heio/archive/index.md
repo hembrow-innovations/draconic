@@ -2,6 +2,23 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **housekeeping** — archived 8 finished slices (3 met, 5 failed), 8 completed tasks, 8 closed tickets; pump reset idle; platform sprint still holds 24 in-flight slices
+- **ticket-187-workspace-disabled-gha-workflow** — Workspace tests fail: release-artifact.yml renamed .disabled
+- **ticket-185-l07-02-workspace-timeout** — L07.02 workspace tests did not finish (O2 timeout)
+- **ticket-184-l06-workspace-timeout** — L06 workspace tests did not finish (O2 timeout)
+- **ticket-183-l05-workspace-timeout** — L05 workspace tests did not finish (O3 timeout)
+- **ticket-87-l07-02-typed-options-bool-string-number** — L07.02 Typed options (bool/string/number); help text as designed
+- **ticket-86-l07-01-parse-long-short-flags-positionals** — L07.01 Parse long/short flags + positionals from string array
+- **ticket-85-l07-flags-cli-parse-argv-typed** — L07 Flags/CLI parse: argv → typed options/positionals
+- **ticket-84-l06-logging-leveled-logger-stderr-stdout** — L06 Logging: leveled logger; stderr/stdout sink
+- **d04-workspace-disabled-gha** — D04 workspace tests vs disabled GHA workflow
+- **l07-02-workspace-timeout** — L07.02 workspace tests finish
+- **l07-02-typed-options-bool-string-number** — L07.02 Typed options (bool/string/number); help text as designed
+- **l07-01-parse-long-short-flags-positionals** — L07.01 Parse long/short flags + positionals from string array
+- **l07-flags-cli-parse-argv-typed** — L07 Flags/CLI parse: argv → typed options/positionals
+- **l06-workspace-timeout** — L06 workspace tests finish
+- **l06-logging-leveled-logger-stderr-stdout-sink** — L06 Logging: leveled logger; stderr/stdout sink
+- **l05-workspace-timeout** — L05 workspace tests finish
 - **housekeeping** — archived 131 finished slices (66 met, 65 failed), 72 completed tasks, 73 closed tickets; pump reset idle; platform sprint still holds 26 in-flight slices
 - **ticket-120-c01-workspace-timeout** — C01 workspace tests did not finish (O2 timeout)
 - **ticket-121-c02-workspace-timeout** — C02 workspace tests did not finish (O2 timeout)

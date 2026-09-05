@@ -3,12 +3,17 @@ id: "l10-crypto-later-hmac-aead-after"
 title: "L10 Crypto later: HMAC + AEAD (after L03)"
 kind: task
 status: ready
+blocked-by: ["l10-01-hmac-sha256-after-l03", "l10-02-aead-encrypt-decrypt-after-l03"]
 tags: []
 created_at: "2026-09-02T22:29:53Z"
-updated_at: "2026-09-02T22:29:53Z"
+updated_at: "2026-09-05T05:46:30Z"
 ---
 
 # L10 Crypto later: HMAC + AEAD (after L03)
+
+## Blocked by
+
+[[l10-01-hmac-sha256-after-l03]] and [[l10-02-aead-encrypt-decrypt-after-l03]]. L03 already landed. Parent remainder waits until HMAC-SHA256 and AEAD child atoms land so Build does not duplicate those Loops.
 
 ## Done
 

@@ -1,5 +1,5 @@
 ---
-description: Execute a frozen slice with railed subagents
+description: Drain a frozen slice. Claim ready AFK task-pool files
 argument-hint: "[slice]"
 ---
 

@@ -3,12 +3,17 @@ id: "r02-permission-model-optional-deno-like"
 title: "R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics"
 kind: task
 status: ready
+blocked-by: ["r02-01-permission-grants-fs-read-write", "r02-02-deny-path-clear-diagnostic", "r02-03-cli-runtime-flags-to-grant", "r02-04-default-policy-documented"]
 tags: []
 created_at: "2026-09-02T22:32:35Z"
-updated_at: "2026-09-02T22:32:35Z"
+updated_at: "2026-09-05T05:46:30Z"
 ---
 
 # R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
+
+## Blocked by
+
+[[r02-01-permission-grants-fs-read-write]], [[r02-02-deny-path-clear-diagnostic]], [[r02-03-cli-runtime-flags-to-grant]], and [[r02-04-default-policy-documented]]. Parent remainder waits until those child atoms land so Build does not duplicate those Loops.
 
 ## Done
 
