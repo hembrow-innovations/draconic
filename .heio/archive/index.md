@@ -2,6 +2,55 @@
 
 One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 
+- **housekeeping** — archived 24 finished slices (12 met, 12 failed), 24 completed tasks, 24 closed tickets; 12 ready-for-agent tickets remain; pump stays held at WIP cap
+- **ticket-104-r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
+- **ticket-105-r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
+- **ticket-106-r02-01-permission-grants-fs-read-write** — R02.01 Permission grants: fs read/write, net listen/connect (as designed)
+- **ticket-107-r02-02-deny-path-clear-diagnostic-when** — R02.02 Deny path: clear diagnostic when host op lacks grant
+- **ticket-108-r02-03-cli-runtime-flags-to-grant** — R02.03 CLI/runtime flags to grant subset (opt-in permissions)
+- **ticket-109-r02-04-default-policy-documented-permissive-vs** — R02.04 Default policy documented (permissive vs locked-down as designed)
+- **ticket-110-r03-supply-chain-policy-tests-once** — R03 Supply-chain policy tests once **K08** lands (lock verify refuse tamper)
+- **ticket-111-r03-01-integration-tampered-cache-refused-depends** — R03.01 Integration: tampered cache refused (depends **K08**)
+- **ticket-112-r03-02-integration-lock-hash-mismatch-hard** — R03.02 Integration: lock hash mismatch hard-fails build
+- **ticket-113-r04-panic-abort-vs-catchable-exception** — R04 Panic/abort vs catchable exception policy; fixtures per class
+- **ticket-114-r05-fuzz-stress-hooks-parser-embed** — R05 Fuzz/stress hooks: parser/embed/runtime entry points
+- **ticket-115-r05-02-embed-runtime-fuzz-or-stress** — R05.02 Embed/runtime fuzz or stress hooks
+- **ticket-116-r06-panic-backtraces-with-source-locations** — R06 Panic backtraces with source locations (ties **U07** DWARF)
+- **ticket-117-p04-flagship-service-example-typed-http** — P04 Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09)
+- **ticket-118-p05-shebang-support-docs-usr-bin** — P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)
+- **ticket-119-s02-expand-test262-allowlist-promote-first** — S02 Expand Test262 allowlist / promote first failure cluster (see **E19.02**)
+- **ticket-186-l07-workspace-timeout** — L07 workspace tests did not finish (O2 timeout)
+- **ticket-188-l07-02-workspace-tests** — L07.02 workspace tests did not pass (O1)
+- **ticket-189-d04-workspace-tests** — D04 workspace tests did not pass (O4)
+- **ticket-88-l08-url-query-parse-serialize** — L08 URL / query parse + serialize
+- **ticket-89-l09-mime-multipart-later-http-shaped** — L09 MIME multipart later (HTTP-shaped programs; after H10)
+- **ticket-90-l10-crypto-later-hmac-aead-after** — L10 Crypto later: HMAC + AEAD (after L03)
+- **ticket-91-l10-01-hmac-sha256-after-l03** — L10.01 HMAC-SHA256 (after L03)
+- **ticket-92-l10-02-aead-encrypt-decrypt-after-l03** — L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
+- **d04-workspace-tests** — D04 workspace tests pass
+- **l07-02-workspace-tests** — L07.02 workspace tests pass
+- **l07-workspace-timeout** — L07 workspace tests finish
+- **l08-url-query-parse-serialize** — L08 URL / query parse + serialize
+- **l09-mime-multipart-later** — L09 MIME multipart later (HTTP-shaped programs; after H10)
+- **l10-01-hmac-sha256-after-l03** — L10.01 HMAC-SHA256 (after L03)
+- **l10-02-aead-encrypt-decrypt-after-l03** — L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
+- **l10-crypto-later-hmac-aead-after** — L10 Crypto later: HMAC + AEAD (after L03)
+- **p04-flagship-service-example-typed-http** — P04 Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09)
+- **p05-shebang-support-docs-usr-bin** — P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)
+- **r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
+- **r02-01-permission-grants-fs-read-write** — R02.01 Permission grants: fs read/write, net listen/connect (as designed)
+- **r02-02-deny-path-clear-diagnostic** — R02.02 Deny path: clear diagnostic when host op lacks grant
+- **r02-03-cli-runtime-flags-to-grant** — R02.03 CLI/runtime flags to grant subset (opt-in permissions)
+- **r02-04-default-policy-documented** — R02.04 Default policy documented (permissive vs locked-down as designed)
+- **r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
+- **r03-01-integration-tampered-cache-refused** — R03.01 Integration: tampered cache refused (depends K08)
+- **r03-02-integration-lock-hash-mismatch-hard** — R03.02 Integration: lock hash mismatch hard-fails build
+- **r03-supply-chain-policy-tests-once** — R03 Supply-chain policy tests once K08 lands (lock verify refuse tamper)
+- **r04-panic-abort-vs-catchable-exception** — R04 Panic/abort vs catchable exception policy; fixtures per class
+- **r05-02-embed-runtime-fuzz-or-stress** — R05.02 Embed/runtime fuzz or stress hooks
+- **r05-fuzz-stress-hooks-parser-embed** — R05 Fuzz/stress hooks: parser/embed/runtime entry points
+- **r06-panic-backtraces-with-source-locations** — R06 Panic backtraces with source locations
+- **s02-expand-test262-allowlist-promote-first** — S02 Expand Test262 allowlist / promote first failure cluster (see **E19.02**)
 - **housekeeping** — archived 8 finished slices (3 met, 5 failed), 8 completed tasks, 8 closed tickets; pump reset idle; platform sprint still holds 24 in-flight slices
 - **ticket-187-workspace-disabled-gha-workflow** — Workspace tests fail: release-artifact.yml renamed .disabled
 - **ticket-185-l07-02-workspace-timeout** — L07.02 workspace tests did not finish (O2 timeout)
