@@ -1,0 +1,13 @@
+// R02: one Program — granted fs succeeds; ungranted net is HostError EPERM.
+writeFileText("/tmp/draconic_r02_surface.txt", "r02-fs");
+let t = readFileText("/tmp/draconic_r02_surface.txt");
+let code = "";
+let name = "";
+let msg = "";
+try {
+  tcpListen(0);
+} catch (e) {
+  code = e.code;
+  name = e.name;
+  msg = String(e.message);
+}

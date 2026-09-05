@@ -1,0 +1,5 @@
+id: security/permissions/surface
+targets: js
+grants: fs-read,fs-write
+js.exit: 0
+js.check: if (t !== "r02-fs") process.exit(1); if (code !== "EPERM") process.exit(2); if (name !== "HostError") process.exit(3); if (msg.indexOf("permission denied") < 0) process.exit(4);

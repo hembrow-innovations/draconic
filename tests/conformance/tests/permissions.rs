@@ -1,4 +1,5 @@
-//! ROADMAP R02.04: default permission policy (permissive).
+//! ROADMAP R02 / R02.01 / R02.02 / R02.03 / R02.04: permission model.
+//! R02 parent locks the combined grant/deny fs+net policy in one Program.
 //! A Program with no explicit grant subset may use host fs and TCP.
 //! ROADMAP R02.01: explicit grants for fs read/write and net listen/connect succeed.
 //! ROADMAP R02.02: host op without a grant fails with a clear diagnostic.
@@ -316,4 +317,63 @@ fn allow_net_names_cli_flags() {
 #[test]
 fn allow_net_runs_both_targets() {
     assert_fixture_runs_both("security/permissions/allow_net");
+}
+
+#[test]
+fn surface_fixture_present() {
+    assert_fixture_present("security/permissions/surface");
+}
+
+#[test]
+fn surface_mixed_grant_deny_js() {
+    let fixture = load_named("security/permissions/surface");
+    assert!(
+        fixture.targets.contains(&Target::Js),
+        "security/permissions/surface must target js, got {:?}",
+        fixture.targets
+    );
+    assert_explicit_grant_subset("security/permissions/surface", &["fs-read", "fs-write"]);
+    assert_lacks_grant("security/permissions/surface", "net-listen");
+    assert_lacks_grant("security/permissions/surface", "net-connect");
+    for name in ["writeFileText", "readFileText", "tcpListen"] {
+        assert!(
+            fixture.source.contains(name),
+            "R02 surface must use {name} in one Program"
+        );
+    }
+    assert_eq!(
+        fixture.expect_js.exit, 0,
+        "R02 surface js catch path must exit 0"
+    );
+    let check = fixture
+        .expect_js
+        .check
+        .as_deref()
+        .expect("security/permissions/surface must lock js.check");
+    assert!(
+        check.contains("r02-fs")
+            && check.contains("EPERM")
+            && check.contains("HostError")
+            && check.contains("permission denied"),
+        "R02 surface js.check must lock granted fs and HostError EPERM permission denied, got {check}"
+    );
+    for r in run_fixture(&fixture) {
+        assert!(
+            r.ok,
+            "{} @ {}: {}",
+            r.fixture_id,
+            r.target.as_str(),
+            r.message
+        );
+    }
+}
+
+#[test]
+fn surface_native_grant_deny_fixtures() {
+    // Native LLVM lowering is per host-API family: fs and TCP cannot share one
+    // Program. The parent native policy is the grant + deny fixtures together.
+    assert_fixture_runs_both("security/permissions/grant_fs");
+    assert_fixture_runs_both("security/permissions/grant_net");
+    assert_deny_native("security/permissions/deny_fs_native");
+    assert_deny_native("security/permissions/deny_net_native");
 }
