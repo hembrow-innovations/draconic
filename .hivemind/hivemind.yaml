@@ -137,9 +137,9 @@ lanes:
     mint-status: ready-for-agent
     backoff: 15s
   # Pump: idle pump + empty in-flight queue → one ROADMAP todo ticket at
-  # ready-for-agent (mint-status), then pump returns to idle. Occupied board
-  # → mint nothing and leave pump held (not idle). Empty board + idle → mint.
-  # exhausted → watch can exit.
+  # ready-for-agent (mint-status), then pump is held (ticket occupies).
+  # Occupied board → mint nothing and leave pump held (not idle).
+  # Empty board + idle → mint. exhausted → watch can exit.
   # Listed last so plan/tasker/build/review win while work is in flight.
   # Backoff throttles the idle-empty mint loop only; occupied is held so the
   # idle trigger does not match.

@@ -42,11 +42,11 @@ Grain (first matching `todo`; skip the row and continue):
 - Skip a row whose Tests/item text is GitHub Actions / GHA / docs-pages / release-artifact CI while any `.github/workflows/*.disabled` exists.
 - **R03** / **R03.01** / **R03.02**: K08 is already done. Do not treat K08 as an unsatisfied blocker.
 
-If no row matches after grain skips, mint nothing and set pump `status: idle` (skip conditions may lift). Do not set `exhausted` unless there is no `| todo |` row.
+If no row matches after grain skips, mint nothing and set pump `status: held` (skip conditions may lift; do not rematch idle). Do not set `exhausted` unless there is no `| todo |` row.
 
 Do not set the Roadmap row `in_progress`. Build does that.
 
-After a successful mint, set pump `status: idle` (board now has a ready-for-agent ticket). Do not mint a second ticket.
+After a successful mint, set pump `status: held` (board now has a ready-for-agent ticket). Do not mint a second ticket.
 
 ## Hand back
 
