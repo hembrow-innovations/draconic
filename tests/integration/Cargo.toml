@@ -16,3 +16,4 @@ draconic-lsp.workspace = true
 draconic-diagnostics.workspace = true
 draconic-conformance.workspace = true
 draconic-cli.workspace = true
+draconic-pkg.workspace = true

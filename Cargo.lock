@@ -262,6 +262,7 @@ dependencies = [
  "draconic-ir",
  "draconic-lsp",
  "draconic-parser",
+ "draconic-pkg",
 ]
 
 [[package]]

@@ -10,19 +10,23 @@
 //! `tlsWrite` / `closeTls` instead of plain TCP I/O (dual-process loopback).
 //!
 //! H12.01: `wsHandshakeResponse(key)` → RFC 6455 101 upgrade response bytes.
+//!
+//! P04: `readFileText` + string `+` + linked one-arg string functions (`greet`)
+//! so a native HTTP server can read fs config and a git module export.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
+use draconic_ir::{Arg, Expr, Local, LocalId, Module, Pattern, Stmt};
 use draconic_runtime::abi::{
-    llvm_declares, GC_INIT, HOST_HANDLE_CLOSE, HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE,
-    HOST_HTTP_RESPONSE_HEADER, HOST_HTTP_SERVE_STATIC, HOST_HTTP_WRITE_REQUEST,
-    HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_STDOUT_WRITE,
-    HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ,
-    HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP, HOST_TLS_READ, HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE,
-    HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
+    llvm_declares, CSTR_CONCAT, GC_INIT, HOST_FS_READ_TEXT, HOST_HANDLE_CLOSE,
+    HOST_HTTP_PARSE_REQUEST, HOST_HTTP_PARSE_RESPONSE, HOST_HTTP_RESPONSE_HEADER,
+    HOST_HTTP_SERVE_STATIC, HOST_HTTP_WRITE_REQUEST, HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT,
+    HOST_STDERR_WRITE, HOST_STDOUT_WRITE, HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN,
+    HOST_TCP_LOCAL_PORT, HOST_TCP_READ, HOST_TCP_WRITE, HOST_TLS_CLIENT_WRAP, HOST_TLS_READ,
+    HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
 };
 
 pub(crate) fn is_host_http_server_module(module: &Module) -> bool {
@@ -51,6 +55,9 @@ struct ModuleInfo {
     print_locals: Vec<(LocalId, SlotTy)>,
     /// H10.05 client observations: auto-print string/number locals at end.
     client_print: bool,
+    /// P04: one-arg string functions (linked `greet`) → (param, return expr).
+    string_fns: HashMap<LocalId, (LocalId, Expr)>,
+    fn_names: HashMap<String, LocalId>,
 }
 
 struct ClassifyCtx {
@@ -60,9 +67,16 @@ struct ClassifyCtx {
     has_tcp: bool,
     has_http: bool,
     has_client: bool,
+    string_fns: HashMap<LocalId, (LocalId, Expr)>,
+    fn_names: HashMap<String, LocalId>,
+    local_name: HashMap<LocalId, String>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
+    let mut local_name = HashMap::new();
+    for Local { id, name, .. } in &module.locals {
+        local_name.insert(*id, name.clone());
+    }
     let mut ctx = ClassifyCtx {
         slots: Vec::new(),
         slot_of: HashMap::new(),
@@ -70,6 +84,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         has_tcp: false,
         has_http: false,
         has_client: false,
+        string_fns: HashMap::new(),
+        fn_names: HashMap::new(),
+        local_name,
     };
     for stmt in &module.body {
         classify_stmt(stmt, &mut ctx)?;
@@ -81,6 +98,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         slots: ctx.slots,
         print_locals: ctx.print_locals,
         client_print: ctx.has_client,
+        string_fns: ctx.string_fns,
+        fn_names: ctx.fn_names,
     })
 }
 
@@ -109,7 +128,53 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             classify_while_test(test)?;
             classify_stmt(body, ctx)
         }
+        // P04: linked package function (`greet`) — record simple string returns.
+        Stmt::Function {
+            local,
+            params,
+            body,
+            is_async: false,
+            is_generator: false,
+        } => {
+            if params.len() == 1 && !params[0].rest && params[0].default.is_none() {
+                if let Pattern::Local(pid) = &params[0].pattern {
+                    if let Some(ret) = simple_string_return(body) {
+                        ctx.string_fns.insert(*local, (*pid, ret));
+                        if let Some(name) = ctx.local_name.get(local) {
+                            ctx.fn_names.insert(name.clone(), *local);
+                        }
+                    }
+                }
+            }
+            Some(())
+        }
         _ => None,
+    }
+}
+
+fn simple_string_return(body: &[Stmt]) -> Option<Expr> {
+    match body {
+        [Stmt::Return { value: Some(e) }] => Some(e.clone()),
+        [Stmt::Block { body, .. }] => simple_string_return(body),
+        _ => None,
+    }
+}
+
+fn subst_local(expr: &Expr, from: LocalId, to: &Expr) -> Expr {
+    match expr {
+        Expr::Local { id, .. } if *id == from => to.clone(),
+        Expr::Binary {
+            left,
+            op,
+            right,
+            ty,
+        } => Expr::Binary {
+            left: Box::new(subst_local(left, from, to)),
+            op: *op,
+            right: Box::new(subst_local(right, from, to)),
+            ty: *ty,
+        },
+        other => other.clone(),
     }
 }
 
@@ -359,10 +424,38 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 _ => None,
             }
         }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "readFileText") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::String)
+        }
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_string_fn_callee(callee, ctx) => {
+            classify_string_arg(arg_expr(&args[0])?, ctx)?;
+            Some(SlotTy::String)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Add,
+            right,
+            ..
+        } => {
+            classify_string_arg(left, ctx)?;
+            classify_string_arg(right, ctx)?;
+            Some(SlotTy::String)
+        }
         Expr::String { .. } => Some(SlotTy::String),
         Expr::Number { .. } => Some(SlotTy::Number),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
+    }
+}
+
+fn is_string_fn_callee(callee: &Expr, ctx: &ClassifyCtx) -> bool {
+    match callee {
+        Expr::Local { id, .. } => ctx.string_fns.contains_key(id),
+        Expr::IdentName { name, .. } => ctx.fn_names.contains_key(name),
+        _ => false,
     }
 }
 
@@ -454,6 +547,23 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         {
             ctx.has_http = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)
+        }
+        Expr::Call { callee, args, .. }
+            if args.len() == 1 && is_named_callee(callee, "readFileText") =>
+        {
+            classify_string_arg(arg_expr(&args[0])?, ctx)
+        }
+        Expr::Call { callee, args, .. } if args.len() == 1 && is_string_fn_callee(callee, ctx) => {
+            classify_string_arg(arg_expr(&args[0])?, ctx)
+        }
+        Expr::Binary {
+            left,
+            op: BinaryOp::Add,
+            right,
+            ..
+        } => {
+            classify_string_arg(left, ctx)?;
+            classify_string_arg(right, ctx)
         }
         _ => None,
     }
@@ -723,6 +833,8 @@ impl<'a> Emitter<'a> {
             HOST_STDOUT_WRITE,
             HOST_STDERR_WRITE,
             HOST_PROCESS_EXIT,
+            HOST_FS_READ_TEXT,
+            CSTR_CONCAT,
         ]));
         writeln!(self.out, "declare i64 @strlen(ptr)").ok();
         writeln!(self.out).ok();
@@ -878,6 +990,7 @@ impl<'a> Emitter<'a> {
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
+            Stmt::Function { .. } => Ok(()),
             _ => Err(diag("host_http_server: unsupported stmt")),
         }
     }
@@ -1514,6 +1627,43 @@ impl<'a> Emitter<'a> {
         Ok(v)
     }
 
+    fn string_fn_id(&self, callee: &Expr) -> Option<LocalId> {
+        match callee {
+            Expr::Local { id, .. } if self.info.string_fns.contains_key(id) => Some(*id),
+            Expr::IdentName { name, .. } => self.info.fn_names.get(name).copied(),
+            _ => None,
+        }
+    }
+
+    fn emit_read_file_text(&mut self, path: &Expr) -> Result<String, Diagnostic> {
+        let p = self.emit_string_expr(path)?;
+        let out = self.fresh();
+        let rc = self.fresh();
+        writeln!(self.body, "  {out} = alloca ptr, align 8").ok();
+        writeln!(self.body, "  store ptr null, ptr {out}").ok();
+        writeln!(
+            self.body,
+            "  {rc} = call i32 @{}(ptr {p}, ptr {out})",
+            HOST_FS_READ_TEXT.symbol
+        )
+        .ok();
+        self.emit_check_rc(&rc)?;
+        let v = self.fresh();
+        writeln!(self.body, "  {v} = load ptr, ptr {out}").ok();
+        Ok(v)
+    }
+
+    fn emit_string_fn_call(&mut self, fn_id: LocalId, arg: &Expr) -> Result<String, Diagnostic> {
+        let (param, ret) = self
+            .info
+            .string_fns
+            .get(&fn_id)
+            .cloned()
+            .ok_or_else(|| diag("host_http_server: unknown string fn"))?;
+        let subst = subst_local(&ret, param, arg);
+        self.emit_string_expr(&subst)
+    }
+
     fn emit_string_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
@@ -1560,6 +1710,40 @@ impl<'a> Emitter<'a> {
                 self.emit_ws_handshake(
                     arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: ws key"))?,
                 )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && is_named_callee(callee, "readFileText") =>
+            {
+                self.emit_read_file_text(
+                    arg_expr(&args[0])
+                        .ok_or_else(|| diag("host_http_server: readFileText path"))?,
+                )
+            }
+            Expr::Call { callee, args, .. }
+                if args.len() == 1 && self.string_fn_id(callee).is_some() =>
+            {
+                let fid = self.string_fn_id(callee).expect("string fn");
+                self.emit_string_fn_call(
+                    fid,
+                    arg_expr(&args[0]).ok_or_else(|| diag("host_http_server: string fn arg"))?,
+                )
+            }
+            Expr::Binary {
+                left,
+                op: BinaryOp::Add,
+                right,
+                ..
+            } => {
+                let l = self.emit_string_expr(left)?;
+                let r = self.emit_string_expr(right)?;
+                let t = self.fresh();
+                writeln!(
+                    self.body,
+                    "  {}",
+                    CSTR_CONCAT.call_to(&t, &format!("ptr {l}, ptr {r}"))
+                )
+                .ok();
+                Ok(t)
             }
             Expr::Member {
                 object,
@@ -1732,5 +1916,37 @@ mod tests {
         assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
         assert!(ir.contains("hs_while_head"), "{ir}");
         assert!(ir.contains("hs_while_body"), "{ir}");
+    }
+
+    #[test]
+    fn emit_flagship_http_fs_git_shape_ir() {
+        // P04 shape: greet + readFileText + string concat + accept loop.
+        let m = lower_src(
+            r#"
+            function greet(name) { return "hello, " + name; }
+            let name = readFileText("config.txt");
+            let banner = greet(name) + " " + "0.1.0";
+            let s = tcpListen(18084);
+            stdoutWrite("flagship-service listening on 18084\n");
+            while (true) {
+              let a = tcpAccept(s);
+              let raw = tcpRead(a, 65536);
+              let req = httpParseRequest(raw);
+              let path = req.path;
+              let body = banner + " " + path;
+              let resp = httpWriteResponse(200, "OK", "Content-Type: text/plain\r\n", body);
+              tcpWrite(a, resp);
+              closeTcp(a);
+            }
+            "#,
+        );
+        assert!(is_host_http_server_module(&m), "P04 shape should classify");
+        let ir = emit_host_http_server(&m).expect("emit");
+        assert!(ir.contains("draconic_rt_host_fs_read_text"), "{ir}");
+        assert!(ir.contains("draconic_rt_cstr_concat"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_tcp_listen"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_parse_request"), "{ir}");
+        assert!(ir.contains("draconic_rt_host_http_write_response"), "{ir}");
+        assert!(ir.contains("hello, "), "{ir}");
     }
 }

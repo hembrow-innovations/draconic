@@ -1,0 +1,4 @@
+module = "github.com/draconic-lang/flagship-service"
+
+[dependencies]
+"github.com/draconic-lang/pkg-lib" = "0.1.0"

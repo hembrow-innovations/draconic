@@ -1,0 +1,8 @@
+// P04 portable path: fs config + git module dep (no HTTP listen).
+// JS target builds and runs this; native HTTP listen lives in server.drac.
+
+import { greet, VERSION } from "github.com/draconic-lang/pkg-lib";
+
+let name = readFileText("config.txt");
+let banner = greet(name) + " " + VERSION;
+stdoutWrite(banner + "\n");

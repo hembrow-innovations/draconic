@@ -317,7 +317,7 @@ Each cluster expands into finer rows as the Loop reaches it. Until then the clus
 | E17.02.22 | done | js | Mapped `arguments` residual (non-strict simple params): `Reflect.set`/`Reflect.deleteProperty` keep/break alias; `Object.preventExtensions` blocks new indices (silent); Array iteration/read (`map`/`filter`/`forEach`/`reduce`/`some`/`every`/`find`/`includes`/`join`); `Object.values`/`entries`/`assign`; function-decl reassignment; named FE + method | `tests/conformance` fixtures `es/legacy` |
 | E17.02.21 | done | js | Array.prototype residual mutators + freeze/seal on mapped `arguments` (non-strict simple params): `shift`/`fill`/`copyWithin` keep formal↔index alias; `Object.freeze`/`Object.seal` exotic residual | `tests/conformance` fixtures `es/legacy` |
 | E17.02.20 | done | js | Array.prototype mutators on mapped `arguments` (non-strict simple params): `reverse`/`sort`/`push`/`pop`/`splice`/`unshift` keep formal↔index alias; `slice` non-mutating; named FE + method | `tests/conformance` fixtures `es/legacy` |
-| E17.02.19 | done | js | `arguments` exotic residual (non-strict): `[[object Arguments]]` tag; not Array; for-of/spread; missing-formal write unmapped; `callee`/`length` descriptors; strict `arguments.callee` TypeError; `arguments =` reassignment; `Array.prototype` call on args | `tests/conformance` fixtures `es/legacy` |
+| E17.02.19 | done | js | `arguments` exotic residual (non-strict): `[object Arguments]` tag; not Array; for-of/spread; missing-formal write unmapped; `callee`/`length` descriptors; strict `arguments.callee` TypeError; `arguments =` reassignment; `Array.prototype` call on args | `tests/conformance` fixtures `es/legacy` |
 | E17.02.18 | done | js | Mapped `arguments` + `Object.defineProperty` residual (non-strict simple params): redefine index as data/accessor breaks/keeps alias per ES; non-writable index assign silent; multi-param partial redefine | `tests/conformance` fixtures `es/legacy` |
 | E17.02.17 | done | js | Unmapped `arguments` with non-simple params (non-strict): default/rest/destructure formals → no `args[i]`↔formal alias; `arguments` still present; simple-params still mapped | `tests/conformance` fixtures `es/legacy` |
 | E17.02.16 | done | js | Non-strict PutValue on immutable globals: assign `undefined`/`NaN`/`Infinity` silent (value unchanged; expr is RHS); compound/update same; `"use strict"` counterparts → TypeError | `tests/conformance` fixtures `es/legacy` |
@@ -1084,7 +1084,7 @@ Native depth stays under **N**; host/net under **H**; packages under **K**.
 | P01 | done | js | Flagship example Program (fizzbuzz): in-repo `examples/fizzbuzz/`, builds via `draconic` js, clone→build→run | `examples/fizzbuzz` |
 | P02 | done | compiler | README status + onboarding path match reality (parse / build js\|native; no stale “bootstrap only”) | `README.md` |
 | P03 | done | compiler | Language book / docs site skeleton: modules, dual-worlds, native types, host I/O, packages | `tests/integration/tests/website_pipeline.rs`, README |
-| P04 | todo | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
+| P04 | done | both | Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09) | `examples/` |
 | P05 | done | compiler | Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**) | `crates/draconic-cli`, `examples/` |
 
 **P note:** no ordered bar beyond P04 after H17+K09; claim any todo.
