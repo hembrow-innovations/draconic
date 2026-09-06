@@ -2,6 +2,9 @@
 
 One-liners of what landed. Newest first.
 
+- **task-610-nested-src-root-route** — nested website/src with root file route
+- **task-609-scaffold-start-app** — TanStack Start app scaffold under website/ typechecks
+- **task-586-e17-02-172-implicit-global-compound** — E17.02.172 unresolvable compound/update does not create a global
 - **task-584-e17-02-171-eval-let-const** — E17.02.171 direct eval of let/const without caller inject
 - **task-582-e17-02-170-arguments-iterator** — E17.02.170 arguments @@iterator residual without with
 - **task-578-e18-44-02-incomplete-unicode-escape** — E18.44.02 Annex B.1.4 incomplete UnicodeEscape IdentityEscape
