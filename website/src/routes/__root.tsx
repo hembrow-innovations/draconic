@@ -5,6 +5,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { SiteHeader } from "../components/SiteHeader";
 import "../styles/theme.css";
 
 export const Route = createRootRoute({
@@ -28,6 +29,7 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
+      <SiteHeader />
       <Outlet />
     </RootDocument>
   );
