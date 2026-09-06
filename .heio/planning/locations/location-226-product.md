@@ -20,4 +20,4 @@ None.
 
 ## See also
 
-P04, P05. Public site is committed docs, not this tracker. CONTEXT.md, ROADMAP.md.
+P04, P05. Public site is committed docs, not this tracker. CONTEXT.md, ROADMAP.md. [[location-589-public-site]]

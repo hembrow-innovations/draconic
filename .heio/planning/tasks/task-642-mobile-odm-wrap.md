@@ -7,9 +7,10 @@ mode: afk
 blocked_by: [ "task-637-site-shell" ]
 sprint: "website-odm-match"
 slice: "slice-635-mobile-odm-wrap"
+area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T19:30:00Z"
 ---
 
 # Wrap the side nav on small viewports
@@ -28,7 +29,7 @@ ODM at max-width 860px makes the shell one column; the side nav is relative with
 
 ## Verify
 
-`pnpm --dir website exec vitest run mobile-a11y` passes. Typecheck holds.
+`pnpm --dir website exec vitest run mobile-a11y` passes. `pnpm --dir website exec tsc --noEmit` exits 0.
 
 scope: site shell / header variants, `website/src/tests/mobile-a11y.test.ts`, `website/src/routes/__root.tsx`
 
@@ -41,13 +42,19 @@ scope: site shell / header variants, `website/src/tests/mobile-a11y.test.ts`, `w
 **Category:** enhancement
 **Summary:** Match ODM small-viewport wrap without losing keyboard access.
 
-If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
+**Drain:** `/afk-task`. If [[task-637-site-shell]] is not `completed`, stop. Do not claim.
+
+**Skills:** load **frontend-development**, **tdd**, **gauntlet-loop**, **docs**, **spec**. Public site is `website/` TanStack Start. Do not use `ui-components-web`. No changelog.
+
+**Vault pack:** no `pnpm vault:pack`. Must-read: public-site purpose, contract, test; [[slice-635-mobile-odm-wrap]].
+
+**TDD:** rewrite mobile-a11y first so it requires stacked wrap, skip first, keyboard-reachable nav, token focus; drop Menu-button requirement. Then implement. Then typecheck.
 
 **Intent (required when product behaviour changes):**
 - Promise ids: `public-site.a11y:keyboard-small`
 - Purpose: [[docs/specs/draconic/public-site/purpose]]
 - Contract: [[docs/specs/draconic/public-site/contract]]
-- Edit the locked test if it still requires a header Menu button; keep the promise (keyboard + small viewport).
+- Keep the promise. Edit the locked test if it still requires a header Menu button.
 
 **Current behavior:**
 Header Menu button, `aria-expanded`, panel, Escape. Tests require that disclosure.
@@ -55,11 +62,20 @@ Header Menu button, `aria-expanded`, panel, Escape. Tests require that disclosur
 **Desired behavior:**
 CSS wrap like ODM. No hamburger required. Skip link first. Side nav links keyboard-reachable. Focus rings use tokens.
 
+**Key interfaces:**
+- Site shell variants at small viewport
+- mobile-a11y vitest
+
 **Acceptance criteria:**
 - [ ] Small viewport is one column, side nav above main
 - [ ] No requirement for a Menu button in the updated test
 - [ ] Skip link first; focus-visible token ring
 - [ ] `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed
+- [ ] Typecheck exits 0
 
 **Out of scope:**
 - Changing IA; dropping search; playground
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y` — win. `Test Files  1 passed`. Typecheck holds.

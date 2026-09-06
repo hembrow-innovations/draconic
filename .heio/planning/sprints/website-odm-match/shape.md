@@ -23,6 +23,7 @@ Location [[location-589-public-site]]. Vertical cuts to restyle the existing Tan
 - [[slice-633-docs-nav-groups]]: side nav lists Learn and Reference pages in groups with aria-current. blocked_by: [[slice-630-site-shell]]
 - [[slice-634-hub-cards]]: Learn and Reference hubs use a card grid. blocked_by: [[slice-632-docs-article-odm]]
 - [[slice-635-mobile-odm-wrap]]: small viewport stacks the side nav and wraps links. blocked_by: [[slice-630-site-shell]]
+- [[slice-644-ui-audit]]: walk the restyled site and file tickets. blocked_by: [[slice-631-home-odm-layout]] [[slice-632-docs-article-odm]] [[slice-633-docs-nav-groups]] [[slice-634-hub-cards]] [[slice-635-mobile-odm-wrap]]
 
 ## Slices out
 
@@ -35,3 +36,7 @@ Location [[location-589-public-site]]. Vertical cuts to restyle the existing Tan
 - copying ODM product copy
 - language ROADMAP atoms
 - rewriting CONTEXT.md Learn/Reference terms
+
+## Drain
+
+`/afk-slice` from [[slice-629-odm-tokens]]. First runnable task is [[task-636-odm-tokens]] (`status: ready`, `mode: afk`, empty `blocked_by`). Later tasks stay `ready` but drain must honor `blocked_by`. Public site is `website/` TanStack Start, not `ui-components-web`.
