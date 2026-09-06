@@ -8,7 +8,7 @@ domain: draconic
 area: public-site
 tags: [contract]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-07"
 ---
 
 # Public site — Contract
@@ -32,6 +32,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.home:landing`: `/` is a language homepage with pitch and Get-started CTA, not the Learn chapter dump.
 - `public-site.chrome:primary-nav`: Every page has wordmark plus Learn, Reference, and GitHub.
 - `public-site.chrome:docs-sidebar`: Learn and Reference article pages have a section sidebar and a shipped or not-yet badge from frontmatter.
+  test: website/src/tests/docs-shell.test.ts
 - `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title or heading text.
 - `public-site.a11y:keyboard-small`: Primary nav and article reading work with keyboard and at a small viewport.
   test: website/src/tests/mobile-a11y.test.ts
