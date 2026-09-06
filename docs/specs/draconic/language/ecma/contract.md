@@ -25,6 +25,8 @@ These promises are the shipped clusters, not the whole of ECMA-262.
   test: es/expressions/comparison
   test: es/expressions/logical
   test: es/expressions/nullish_logical_assign
+  test: es/legacy/implicit_global_compound
+  test: implicit_global_compound_runs
 - `language.ecma:statements`: A Program runs `if`/`else`, loops (`while`, `do`/`while`, `for`, `for-in`/`for-of`), `break`/`continue`, `switch`, labels, and `const` with ECMA control-flow meaning on declared targets.
   test: es/statements/if_else
   test: if_else_runs

@@ -1758,3 +1758,13 @@ fn eval_let_const_fixture_present() {
 fn eval_let_const_runs() {
     assert_fixture_runs_declared_targets("es/legacy/eval_let_const");
 }
+
+#[test]
+fn implicit_global_compound_fixture_present() {
+    assert_fixture_present("es/legacy/implicit_global_compound");
+}
+
+#[test]
+fn implicit_global_compound_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/implicit_global_compound");
+}

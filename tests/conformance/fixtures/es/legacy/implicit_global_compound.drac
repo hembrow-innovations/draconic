@@ -1,0 +1,103 @@
+// E17.02.172: unresolvable compound/update does not create a global.
+// GetValue-first: += / ++ / -- throw ReferenceError, do not create
+// globalThis properties, and do not evaluate compound RHS. Already-created
+// implicit globals still update. Strict-mode unresolvable stays ReferenceError.
+// Locks language.ecma:expressions.
+
+// Unresolvable += throws ReferenceError, does not create a global, skips RHS.
+function plusEqualsMissing() {
+  let n = 0;
+  try {
+    igc_pe_miss_e1702172 += (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.igc_pe_miss_e1702172 === "undefined"
+    );
+  }
+}
+let a = plusEqualsMissing();
+
+// Unresolvable prefix ++ throws and does not create a global.
+function prefixIncMissing() {
+  try {
+    ++igc_pinc_miss_e1702172;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igc_pinc_miss_e1702172 === "undefined"
+    );
+  }
+}
+let b = prefixIncMissing();
+
+// Unresolvable postfix ++ throws and does not create a global.
+function postfixIncMissing() {
+  try {
+    igc_poinc_miss_e1702172++;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igc_poinc_miss_e1702172 === "undefined"
+    );
+  }
+}
+let c = postfixIncMissing();
+
+// Unresolvable prefix -- throws and does not create a global.
+function prefixDecMissing() {
+  try {
+    --igc_pdec_miss_e1702172;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igc_pdec_miss_e1702172 === "undefined"
+    );
+  }
+}
+let d = prefixDecMissing();
+
+// Already-created implicit global still updates under +=.
+igc_exist_e1702172 = 10;
+igc_exist_e1702172 += 3;
+let e = igc_exist_e1702172 === 13 && globalThis.igc_exist_e1702172 === 13;
+
+// Already-created implicit global still updates under ++.
+igc_exist_inc_e1702172 = 5;
+++igc_exist_inc_e1702172;
+let f = igc_exist_inc_e1702172 === 6 && globalThis.igc_exist_inc_e1702172 === 6;
+
+// Strict-mode unresolvable += stays ReferenceError.
+function strictPlusEquals() {
+  "use strict";
+  try {
+    igc_strict_pe_e1702172 += 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igc_strict_pe_e1702172 === "undefined"
+    );
+  }
+}
+let g = strictPlusEquals();
+
+// Strict-mode unresolvable ++ stays ReferenceError.
+function strictInc() {
+  "use strict";
+  try {
+    ++igc_strict_inc_e1702172;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igc_strict_inc_e1702172 === "undefined"
+    );
+  }
+}
+let h = strictInc();

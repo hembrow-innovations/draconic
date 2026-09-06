@@ -26,6 +26,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/expressions.rs** — `arithmetic_runs` (fixture `es/expressions/arithmetic`)
   - **How:** Load the arithmetic fixture and run it on every declared target; assert `ok`.
   - **Why:** Locks `language.ecma:expressions` for numeric operators. Neighbor fixtures lock comparison, logical, bitwise, assignment, and the rest of E01.
+- **tests/conformance/tests/legacy.rs** — `implicit_global_compound_runs` (fixture `es/legacy/implicit_global_compound`)
+  - **How:** Run unresolvable `+=` / `++` / `--` and already-created implicit-global update on declared js (no `with`).
+  - **Why:** Locks `language.ecma:expressions` GetValue-first compound/update (E17.02.172) so missing identifiers throw ReferenceError and do not create `globalThis` properties.
 - **tests/conformance/tests/statements.rs** — `if_else_runs` (fixture `es/statements/if_else`)
   - **How:** Run the if/else fixture on declared targets.
   - **Why:** Locks `language.ecma:statements`. Neighbor `*_runs` functions cover loops, switch, labels, const.
