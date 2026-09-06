@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-612-typography-badge** — website display/body/mono type roles and status Badge
 - **task-611-semantic-tokens** — website Tailwind v4 @theme semantic color roles
 - **task-610-nested-src-root-route** — nested website/src with root file route
 - **task-609-scaffold-start-app** — TanStack Start app scaffold under website/ typechecks

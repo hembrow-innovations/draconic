@@ -7,4 +7,13 @@
   --color-accent-foreground: #f8fbff;
   --color-muted: #5b6f86;
   --color-line: #d7e0ea;
+  --font-display: ui-serif, Georgia, "Times New Roman", serif;
+  --font-body: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --text-display: 3rem;
+  --text-display--line-height: 1.2;
+  --text-body: 1rem;
+  --text-body--line-height: 1.625;
+  --text-mono: 0.875rem;
+  --text-mono--line-height: 1.7;
 }
