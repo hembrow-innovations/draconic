@@ -1,0 +1,48 @@
+// E17.02.169: Annex B.1.3 HTML-like comments without with.
+// `<!--` single-line open; line-start `-->` single-line close after newline
+// or whitespace; `ident-->0` is postfix decrement; commented-out statements
+// are not evaluated. `"use strict"` still allows these comments (lexical).
+
+<!-- open at bof
+let a = 1; <!-- mid-line after semi
+let b = 2;
+-->
+let c = a + b;
+
+let ident = 10;
+let e = ident-->0;
+
+let skipped = 0;
+<!-- skipped = 99; throw 1;
+let f = skipped === 0;
+
+let closeSkip = 0;
+--> closeSkip = 99; throw 1;
+let g = closeSkip === 0;
+
+let wsSkip = 0;
+  --> wsSkip = 99;
+let h = wsSkip === 0;
+
+function strictAllowsHtmlComments() {
+  "use strict";
+  let x = 1; <!-- x = 99;
+  return x === 1;
+}
+let i = strictAllowsHtmlComments();
+
+function strictCloseComment() {
+  "use strict";
+  let x = 1;
+--> x = 99;
+  return x === 1;
+}
+let j = strictCloseComment();
+
+function strictPostfix() {
+  "use strict";
+  let ident = 10;
+  let t = ident-->0;
+  return ident === 9 && t === true;
+}
+let k = strictPostfix();

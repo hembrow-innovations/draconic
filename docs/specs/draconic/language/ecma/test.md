@@ -71,6 +71,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/legacy.rs** — `with_basic_runs`
   - **How:** Run `es/legacy/with_basic` on declared targets.
   - **Why:** Locks `language.ecma:legacy-with`. Filed E17.02 children have more `with_*` fixtures; untracked remainder is out of scope.
+- **tests/conformance/tests/legacy.rs** — `html_comments_runs`
+  - **How:** Run `es/legacy/html_comments` on declared js (no `with`).
+  - **Why:** Locks `language.ecma:annex-b` HTML-like comments (E17.02.169) without wrapping the program in `with`.
 - **tests/conformance/tests/annex_b.rs** — `escape_unescape_runs`
   - **How:** Run `es/annex-b/escape_unescape`.
   - **Why:** Locks `language.ecma:annex-b` at cluster grain.

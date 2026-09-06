@@ -97,5 +97,7 @@ These promises are the shipped clusters, not the whole of ECMA-262.
 - `language.ecma:annex-b`: A Program evaluates shipped Annex B and related residual syntax (legacy octal, HTML comments, `__proto__`, `var` hoist, `escape`/`unescape`, and filed E18 fixtures) on declared targets.
   test: es/annex-b/escape_unescape
   test: escape_unescape_runs
+  test: es/legacy/html_comments
+  test: html_comments_runs
 - `language.ecma:test262-staged-allowlist`: Official Test262 is a staged js-only curated allowlist plus harness, not a day-one full-suite bar. Failures stay report-only until promoted.
   test: allowlist_loads_and_has_entries
