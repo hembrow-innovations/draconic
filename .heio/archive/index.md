@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-617-markdown-loader** — website markdown content loader from website/*.md frontmatter
 - **task-626-mobile-a11y** — website small-viewport primary nav disclosure with keyboard and visible focus
 - **task-625-theme-toggle** — website light/dark theme toggle by swapping semantic token sets
 - **task-616-home-features** — website home feature grid with three CONTEXT facts
