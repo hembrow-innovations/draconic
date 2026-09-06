@@ -2,13 +2,13 @@
 id: "slice-631-home-odm-layout"
 title: "ODM home layout"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-630-site-shell
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T23:50:00Z"
 ---
 
 # ODM home layout
@@ -33,10 +33,10 @@ ODM home sits in the same two-column shell and uses kicker, lead, CTA row, numbe
 
 ## Oracle checklist
 
-- [ ] O1: home keeps locked pitch and CTAs and uses kicker, CTA row, path steps, and cards inside the shell
+- [x] O1: home keeps locked pitch and CTAs and uses kicker, CTA row, path steps, and cards inside the shell
   CHECK: pnpm --dir website exec vitest run home-hero-and-cta home-features
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run home-hero-and-cta home-features` → Test Files  2 passed (2); task-638 completed in archive
 
 ## Pool
 
