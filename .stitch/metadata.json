@@ -1,0 +1,22 @@
+{
+  "projectId": "2818161481079012082",
+  "projectTitle": "Draconic",
+  "screens": [
+    {
+      "id": "a70061e91d2e484cb2084321528d2d10",
+      "projectId": "2818161481079012082",
+      "slug": "learn-landing",
+      "title": "Draconic Learn Landing Page",
+      "html": "/Users/jaredhembrow/workbench/draconic/.stitch/designs/learn-landing/code.html",
+      "image": "/Users/jaredhembrow/workbench/draconic/.stitch/designs/learn-landing/screen.png"
+    },
+    {
+      "id": "d21cf9ed412c4ca19b604e4594239b4a",
+      "projectId": "2818161481079012082",
+      "slug": "learn-from-javascript",
+      "title": "From JavaScript — Draconic Documentation",
+      "html": "/Users/jaredhembrow/workbench/draconic/.stitch/designs/learn-from-javascript/code.html",
+      "image": "/Users/jaredhembrow/workbench/draconic/.stitch/designs/learn-from-javascript/screen.png"
+    }
+  ]
+}

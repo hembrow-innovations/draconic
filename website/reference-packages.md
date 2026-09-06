@@ -6,7 +6,7 @@ status: not-yet
 
 # packages
 
-Packages are git-backed. v1 does not require a central registry.
+Packages are git-backed. v1 does not require a central registry. This page is lookup, not the Learn chapter. See [packages](packages.html) for the flow and [CLI](cli.html) for command names.
 
 - Imports use a Go-like module path such as github.com/org/pkg
 - draconic.toml may map that path to a git URL
@@ -15,5 +15,3 @@ Packages are git-backed. v1 does not require a central registry.
 - draconic get and draconic mod tidy are the CLI
 - draconic build fetches missing locked deps unless --offline
 - Resolve lands on ESM files inside the package
-
-This is lookup, not the Learn chapter. See [CLI](cli.html) for the command names.
