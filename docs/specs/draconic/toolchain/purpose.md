@@ -26,7 +26,7 @@ Give a developer one product that turns a Program into checked IR, JS or native 
 
 ## Out of scope
 
-- **Public Learn and Reference site content**: sources live under `website/`; this vault is not that site ([[0010-public-docs-draconic-ssg]]).
+- **Public Learn and Reference site content**: sources live under `website/`; this vault is not that site ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]]).
 - **Language semantics**: ECMA-262 meaning, Dual worlds, and Checker rules belong to the language spec slice, not this folder.
 - **Package fetch and lock identity**: `get` / `mod tidy` / lock pins live under [[Packages purpose]].
 - **Conformance fixture meaning**: `draconic test` and the harness live under [[Conformance purpose]].
@@ -44,7 +44,7 @@ Give a developer one product that turns a Program into checked IR, JS or native 
 - Behaviour: [[Toolchain — Contract]]
 - Tests: [[Toolchain tests]]
 - Glossary: [[CONTEXT]]
-- Decisions: [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0004-full-ecma-262-and-embed]], [[0010-public-docs-draconic-ssg]]
+- Decisions: [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0004-full-ecma-262-and-embed]], [[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]]
 - Shape: [[architecture-cli]], [[architecture-frontend]], [[architecture-embed]], [[architecture-lsp]]
 
 ## Open product questions

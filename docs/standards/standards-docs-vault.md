@@ -30,7 +30,7 @@ The docs skill default tree puts a glossary under `docs/overview/` and ADRs unde
 - **Specs**: folders under `docs/specs/<domain>/<area>/` (optional `<feature>/`) holding purpose, contract, and test notes. Specs are not flat files.
 - **Ignore scribble**: `docs/99_scribble/` is scratch. Never a source of truth. Never cite it.
 - **No tickets in docs/**: tickets, slices, tasks, rounds, and working reports live under `.heio/` (management skill). Do not copy them into `docs/` as a plan. Promote a finished outcome as an ADR, spec, architecture note, standard, or guide, then close the working file.
-- **Public site is not the vault**: Learn and Reference sources live in `website/` ([[0010-public-docs-draconic-ssg]], [[guides-public-docs]]). Agent and toolchain notes stay here.
+- **Public site is not the vault**: Learn and Reference sources live in `website/` ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]], [[guides-public-docs]]). Agent and toolchain notes stay here.
 - **Leftover tree**: `docs/reference/guides/` is leftover (for example [[issue-tracker]] and [[triage-labels]]). Do not move it. Do not treat it as this standard or as [[guides-toolchain]].
 - **Links**: `[[wikilinks]]` only. See [[standards-markdown]].
 - **Markdown**: never tables. See [[standards-markdown]] and [[AGENTS]].

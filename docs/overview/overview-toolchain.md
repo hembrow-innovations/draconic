@@ -22,7 +22,7 @@ Find the rest of the hub in [[overview-vault]] and [[overview-completeness]]. Do
 
 The product a developer runs is the Toolchain, not a typed-JavaScript-only compiler and not a separate FFI language. JS values and native types coexist as Dual worlds. Native binaries link a Runtime with tracing GC. On the native target, Embed ships enough Compiler to compile `eval` and `new Function` at run time.
 
-Locked host and pipeline choices live in [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0003-gc-runtime-and-dual-worlds]], [[0004-full-ecma-262-and-embed]], and [[0005-ts-inspired-not-tsc]]. Language job and fences are in [[purpose]]. How to operate the Toolchain is [[guides-toolchain]]. Public Learn and Reference are not this vault; see [[guides-public-docs]] and [[0010-public-docs-draconic-ssg]].
+Locked host and pipeline choices live in [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0003-gc-runtime-and-dual-worlds]], [[0004-full-ecma-262-and-embed]], and [[0005-ts-inspired-not-tsc]]. Language job and fences are in [[purpose]]. How to operate the Toolchain is [[guides-toolchain]]. Public Learn and Reference are not this vault; see [[guides-public-docs]], [[0010-public-docs-draconic-ssg]], and [[0013-public-site-tanstack-start]].
 
 ## Design
 
@@ -84,7 +84,7 @@ Prefer `cargo test --workspace` and the `draconic` CLI. A Roadmap item is done o
 
 ### Public site versus this vault
 
-Public Learn and Reference sources live in `website/`. They are generated as a static site ([[0010-public-docs-draconic-ssg]], [[guides-public-docs]]). This `docs/` vault is agent and toolchain knowledge. Do not treat the vault as the public site.
+Public Learn and Reference sources live in `website/`. Presentation is a TanStack Start app ([[0013-public-site-tanstack-start]], [[guides-public-docs]]). The vault-versus-site split stays ([[0010-public-docs-draconic-ssg]]). This `docs/` vault is agent and toolchain knowledge. Do not treat the vault as the public site.
 
 ## Trade-offs
 

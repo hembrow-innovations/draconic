@@ -99,7 +99,7 @@ test("reference hub pages", () => {
     expect(statSync(join(pageDir, name)).isFile()).toBe(true);
   }
   expect(statSync(referenceRoute).isFile()).toBe(true);
-  expect(statSync(join(websiteDir, "generate.drac")).isFile()).toBe(true);
+  expect(existsSync(join(websiteDir, "generate.drac"))).toBe(false);
 
   const route = readFileSync(referenceRoute, "utf8");
   const nav = readFileSync(join(navDir, "ReferenceNav.tsx"), "utf8");

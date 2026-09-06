@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { listMarkdownPages, loadMarkdownPage } from "../lib/content";
+import { listMarkdownPagesFromDir } from "../lib/content/loadMarkdown.fs";
 
 const websiteDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -39,7 +40,7 @@ test("markdown loader catalog from files not generate.drac", () => {
       "---\ntitle: Extra\nsection: learn\nstatus: not-yet\n---\n\n# Extra\n",
     );
     expect(
-      listMarkdownPages(root)
+      listMarkdownPagesFromDir(root)
         .map((page) => page.slug)
         .sort(),
     ).toEqual(["extra-chapter", "install"]);

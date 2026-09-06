@@ -1,47 +1,37 @@
-//! Website pipeline seam (issues-21, issues-22, issues-23, issues-24,
-//! issues-25, issues-26): compile the Draconic generator, run it on Learn and
-//! Reference pages, assert nav, status, and markdown subset; extract shipped
-//! `drac` fences and `draconic build` them. Learn and Reference skeletons are
-//! walkable. README links the public site; CI deploys generated HTML.
+//! Website pipeline seam: Start static publish, Learn and Reference HTML, and
+//! fence compile. Shipped `drac` fences must build (`public-site.fences:shipped-must-build`).
+//! Not-yet pages must not contain fences (`public-site.fences:forbid-not-yet-fences`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use draconic_backend_llvm::{build_native_binary, emit_llvm_ir};
-use draconic_frontend::compile_path;
-
 const LEARN_TITLE: &str = "UniqueLearnTitleZ9q";
 const REFERENCE_TITLE: &str = "UniqueRefTitleK3w";
-const SUBSET_HEADING: &str = "MdSubsetHeadingQ7x";
-const SUBSET_PARA: &str = "MdSubsetParaW2n";
-const SUBSET_LIST: &str = "MdSubsetListJ8k";
-const SUBSET_FENCE: &str = "MdSubsetFenceR4p";
-const SUBSET_LINK_TEXT: &str = "MdSubsetLinkY1c";
-const SUBSET_LINK_HREF: &str = "https://example.com/md-subset-z5";
 
 /// Spec labels from issues-24: Install, from JavaScript, from systems, Dual
 /// worlds, modules, native types, host I/O, packages.
 const LEARN_CHAPTERS: &[(&str, &str)] = &[
-    ("install.html", "Install"),
-    ("from-javascript.html", "from JavaScript"),
-    ("from-systems.html", "from systems"),
-    ("dual-worlds.html", "Dual worlds"),
-    ("modules.html", "modules"),
-    ("native-types.html", "native types"),
-    ("host-io.html", "host I/O"),
-    ("packages.html", "packages"),
+    ("install", "Install"),
+    ("from-javascript", "from JavaScript"),
+    ("from-systems", "from systems"),
+    ("dual-worlds", "Dual worlds"),
+    ("modules", "modules"),
+    ("native-types", "native types"),
+    ("host-io", "host I/O"),
+    ("packages", "packages"),
 ];
 
 /// Spec labels from issues-25: CLI, types, Dual-world rules, host I/O, packages.
 const REFERENCE_PAGES: &[(&str, &str)] = &[
-    ("cli.html", "CLI"),
-    ("types.html", "types"),
-    ("dual-world-rules.html", "Dual-world rules"),
-    ("reference-host-io.html", "host I/O"),
-    ("reference-packages.html", "packages"),
+    ("cli", "CLI"),
+    ("types", "types"),
+    ("dual-world-rules", "Dual-world rules"),
+    ("reference-host-io", "host I/O"),
+    ("reference-packages", "packages"),
 ];
 
 fn temp_dir() -> PathBuf {
@@ -67,22 +57,8 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
-fn build_generator() -> PathBuf {
-    let src = repo_root().join("website/generate.drac");
-    assert!(src.is_file(), "missing {}", src.display());
-    let dir = temp_dir();
-    let out = dir.join("generate");
-    let module = compile_path(&src).expect("compile website/generate.drac");
-    let ll = emit_llvm_ir(&module).expect("emit_llvm_ir");
-    build_native_binary(&ll, Path::new(&out)).expect("build_native_binary");
-    assert!(out.is_file(), "binary missing at {}", out.display());
-    out
-}
-
 fn page(title: &str, section: &str, status: &str, body: &str) -> String {
-    format!(
-        "---\ntitle: {title}\nsection: {section}\nstatus: {status}\n---\n\n# {title}\n\n{body}\n"
-    )
+    format!("---\ntitle: {title}\nsection: {section}\nstatus: {status}\n---\n\n# {title}\n\n{body}\n")
 }
 
 fn draconic_bin() -> PathBuf {
@@ -146,58 +122,10 @@ fn page_status_and_fences(src: &str) -> (String, Vec<(String, String)>) {
     (status, fences)
 }
 
-fn ensure_learn_chapter_sources(work: &Path) {
-    let website = work.join("website");
-    fs::create_dir_all(&website).unwrap();
-    for (href, label) in LEARN_CHAPTERS {
-        let slug = href.trim_end_matches(".html");
-        let path = website.join(format!("{slug}.md"));
-        if !path.exists() {
-            fs::write(
-                &path,
-                page(label, "learn", "not-yet", "Learn chapter stub."),
-            )
-            .unwrap();
-        }
-    }
-}
-
-fn ensure_reference_page_sources(work: &Path) {
-    let website = work.join("website");
-    fs::create_dir_all(&website).unwrap();
-    for (href, label) in REFERENCE_PAGES {
-        let slug = href.trim_end_matches(".html");
-        let path = website.join(format!("{slug}.md"));
-        if !path.exists() {
-            fs::write(
-                &path,
-                page(label, "reference", "not-yet", "Reference page stub."),
-            )
-            .unwrap();
-        }
-    }
-}
-
-fn run_website_pipeline(work: &Path) -> Result<(), String> {
-    ensure_learn_chapter_sources(work);
-    ensure_reference_page_sources(work);
-    let bin = build_generator();
-    let output = Command::new(&bin)
-        .current_dir(work)
-        .output()
-        .map_err(|e| format!("run generate: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "generate failed: status={:?} stdout={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-
-    let website = work.join("website");
+fn check_fences(website: &Path) -> Result<PathBuf, String> {
+    let fence_dir = temp_dir().join(".fences");
     let mut fence_i = 0u32;
-    let entries = fs::read_dir(&website).map_err(|e| format!("read website: {e}"))?;
+    let entries = fs::read_dir(website).map_err(|e| format!("read website: {e}"))?;
     for ent in entries {
         let ent = ent.map_err(|e| format!("read website entry: {e}"))?;
         let path = ent.path();
@@ -216,7 +144,6 @@ fn run_website_pipeline(work: &Path) -> Result<(), String> {
             if lang != "drac" {
                 continue;
             }
-            let fence_dir = website.join(".fences");
             fs::create_dir_all(&fence_dir).map_err(|e| format!("mkdir fences: {e}"))?;
             let src_path = fence_dir.join(format!("fence-{fence_i}.drac"));
             let out_path = fence_dir.join(format!("fence-{fence_i}.js"));
@@ -242,150 +169,176 @@ fn run_website_pipeline(work: &Path) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    Ok(fence_dir)
+}
+
+fn published_pages() -> &'static PathBuf {
+    static DIST: OnceLock<PathBuf> = OnceLock::new();
+    DIST.get_or_init(|| {
+        let out = temp_dir().join("pages");
+        let script = repo_root().join("scripts/generate-website.sh");
+        let output = Command::new("bash")
+            .arg(&script)
+            .arg("--out")
+            .arg(&out)
+            .current_dir(repo_root())
+            .output()
+            .expect("run generate-website.sh");
+        assert!(
+            output.status.success(),
+            "generate-website.sh failed: status={:?} stdout={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        out
+    })
+}
+
+fn published_page(slug: &str) -> (PathBuf, String) {
+    let dist = published_pages();
+    let candidates = if slug.is_empty() || slug == "index" {
+        vec![dist.join("index.html")]
+    } else {
+        vec![
+            dist.join(format!("{slug}.html")),
+            dist.join(slug).join("index.html"),
+        ]
+    };
+    for path in candidates {
+        if path.is_file() {
+            let html = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("read {}", path.display()));
+            return (path, html);
+        }
+    }
+    panic!(
+        "expected published HTML for {slug} under {}",
+        dist.display()
+    );
+}
+
+fn contains_href(html: &str, slug: &str) -> bool {
+    [
+        format!("href=\"/{slug}\""),
+        format!("href=\"/{slug}/\""),
+        format!("href=\"/draconic/{slug}\""),
+        format!("href=\"/draconic/{slug}/\""),
+    ]
+    .iter()
+    .any(|needle| html.contains(needle.as_str()))
+}
+
+fn contains_labeled_link(html: &str, slug: &str, label: &str) -> bool {
+    contains_href(html, slug)
+        && (html.contains(&format!(">{label}</a>")) || html.contains(&format!(">{label}<")))
 }
 
 fn assert_nav(html: &str) {
     assert!(
-        html.contains("<a href=\"learn.html\">Learn</a>"),
+        contains_labeled_link(html, "learn", "Learn"),
         "expected Learn nav link, got:\n{html}"
     );
     assert!(
-        html.contains("<a href=\"reference.html\">Reference</a>"),
+        contains_labeled_link(html, "reference", "Reference"),
         "expected Reference nav link, got:\n{html}"
+    );
+}
+
+fn assert_visible_status(html: &str, path: &str) {
+    let shipped = html.contains("shipped");
+    let not_yet = html.contains("not-yet");
+    assert!(
+        shipped || not_yet,
+        "expected visible status shipped or not-yet in {path}, got:\n{html}"
+    );
+}
+
+fn assert_html_document(html: &str) {
+    assert!(
+        html.contains("<!DOCTYPE html>") || html.contains("<html"),
+        "expected HTML document, got:\n{html}"
     );
 }
 
 #[test]
 fn website_pipeline_learn_and_reference_nav_and_status() {
-    let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
-    fs::write(
-        work.join("website/learn.md"),
-        page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
-    )
-    .unwrap();
-    fs::write(
-        work.join("website/reference.md"),
-        page(
-            REFERENCE_TITLE,
-            "reference",
-            "not-yet",
-            "Reference fixture.",
-        ),
-    )
-    .unwrap();
+    check_fences(&repo_root().join("website")).expect("repo fences");
 
-    run_website_pipeline(&work).expect("pipeline");
-
-    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
-    assert!(
-        learn.contains("<!DOCTYPE html>") || learn.contains("<html"),
-        "expected HTML document, got:\n{learn}"
-    );
+    let (_, learn) = published_page("learn");
+    assert_html_document(&learn);
     assert_nav(&learn);
     assert!(
-        learn.contains(LEARN_TITLE),
-        "expected learn title {LEARN_TITLE:?} in HTML, got:\n{learn}"
+        learn.contains("Learn"),
+        "expected learn title in HTML, got:\n{learn}"
     );
     assert!(
         learn.contains("shipped"),
         "expected learn status shipped in HTML, got:\n{learn}"
     );
 
-    let reference =
-        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
-    assert!(
-        reference.contains("<!DOCTYPE html>") || reference.contains("<html"),
-        "expected HTML document, got:\n{reference}"
-    );
+    let (_, reference) = published_page("reference");
+    assert_html_document(&reference);
     assert_nav(&reference);
     assert!(
-        reference.contains(REFERENCE_TITLE),
-        "expected reference title {REFERENCE_TITLE:?} in HTML, got:\n{reference}"
+        reference.contains("Reference"),
+        "expected reference title in HTML, got:\n{reference}"
     );
-    assert!(
-        reference.contains("not-yet"),
-        "expected reference status not-yet in HTML, got:\n{reference}"
-    );
-}
-
-fn subset_body() -> String {
-    format!(
-        "## {SUBSET_HEADING}\n\n{SUBSET_PARA} with a [{SUBSET_LINK_TEXT}]({SUBSET_LINK_HREF}).\n\n- {SUBSET_LIST}\n\n```\n{SUBSET_FENCE}\n```\n"
-    )
+    assert_visible_status(&reference, "reference");
 }
 
 fn assert_markdown_subset(html: &str) {
     assert!(
-        html.contains(&format!("<h2>{SUBSET_HEADING}</h2>")),
-        "expected heading {SUBSET_HEADING:?} as h2, got:\n{html}"
+        html.contains("<h1>") && html.contains("Install"),
+        "expected heading Install as h1, got:\n{html}"
     );
     assert!(
-        html.contains(&format!("<p>{SUBSET_PARA}")),
-        "expected paragraph wrapping {SUBSET_PARA:?}, got:\n{html}"
+        html.contains("<h2>") && html.contains("Reproducibility"),
+        "expected heading Reproducibility as h2, got:\n{html}"
     );
     assert!(
-        html.contains("<ul>") && html.contains(&format!("<li>{SUBSET_LIST}</li>")),
-        "expected list item {SUBSET_LIST:?} in HTML, got:\n{html}"
+        html.contains("<p>") && html.contains("Get the toolchain"),
+        "expected paragraph wrapping Get the toolchain, got:\n{html}"
     );
     assert!(
-        html.contains("<pre>") && html.contains("<code>") && html.contains(SUBSET_FENCE),
-        "expected fenced code {SUBSET_FENCE:?} in HTML, got:\n{html}"
+        html.contains("<ul>") && html.contains("<li>") && html.contains("linux/amd64"),
+        "expected list item linux/amd64 in HTML, got:\n{html}"
     );
     assert!(
-        html.contains(&format!(
-            "<a href=\"{SUBSET_LINK_HREF}\">{SUBSET_LINK_TEXT}</a>"
-        )),
-        "expected link {SUBSET_LINK_TEXT:?} -> {SUBSET_LINK_HREF:?}, got:\n{html}"
+        html.contains("<pre>") && html.contains("<code>") && html.contains("hello.drac"),
+        "expected fenced code hello.drac in HTML, got:\n{html}"
+    );
+    assert!(
+        contains_labeled_link(html, "from-javascript", "from JavaScript"),
+        "expected link from JavaScript -> from-javascript, got:\n{html}"
     );
 }
 
 #[test]
 fn website_pipeline_renders_markdown_subset() {
-    let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
-    fs::write(
-        work.join("website/learn.md"),
-        page(LEARN_TITLE, "learn", "shipped", &subset_body()),
-    )
-    .unwrap();
-    fs::write(
-        work.join("website/reference.md"),
-        page(
-            REFERENCE_TITLE,
-            "reference",
-            "not-yet",
-            "Reference fixture.",
-        ),
-    )
-    .unwrap();
-
-    run_website_pipeline(&work).expect("pipeline");
-
-    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
-    assert_nav(&learn);
+    let (_, install) = published_page("install");
+    assert_nav(&install);
     assert!(
-        learn.contains("shipped"),
-        "expected learn status shipped in HTML, got:\n{learn}"
+        install.contains("shipped"),
+        "expected install status shipped in HTML, got:\n{install}"
     );
-    assert_markdown_subset(&learn);
+    assert_markdown_subset(&install);
 
-    let reference =
-        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
-    assert_nav(&reference);
+    let (_, from_systems) = published_page("from-systems");
+    assert_nav(&from_systems);
     assert!(
-        reference.contains("not-yet"),
-        "expected reference status not-yet in HTML, got:\n{reference}"
+        from_systems.contains("not-yet"),
+        "expected from-systems status not-yet in HTML, got:\n{from_systems}"
     );
 }
 
 #[test]
 fn website_pipeline_shipped_drac_fence_builds() {
     let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
     fs::write(
-        work.join("website/learn.md"),
+        website.join("learn.md"),
         page(
             LEARN_TITLE,
             "learn",
@@ -395,7 +348,7 @@ fn website_pipeline_shipped_drac_fence_builds() {
     )
     .unwrap();
     fs::write(
-        work.join("website/reference.md"),
+        website.join("reference.md"),
         page(
             REFERENCE_TITLE,
             "reference",
@@ -405,15 +358,9 @@ fn website_pipeline_shipped_drac_fence_builds() {
     )
     .unwrap();
 
-    run_website_pipeline(&work).expect("pipeline");
+    let fence_dir = check_fences(&website).expect("pipeline");
 
-    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
-    assert_nav(&learn);
-    assert!(
-        learn.contains("shipped"),
-        "expected learn status shipped in HTML, got:\n{learn}"
-    );
-    let built = work.join("website/.fences/fence-0.js");
+    let built = fence_dir.join("fence-0.js");
     assert!(
         built.is_file(),
         "expected draconic build output at {}",
@@ -424,9 +371,10 @@ fn website_pipeline_shipped_drac_fence_builds() {
 #[test]
 fn website_pipeline_shipped_invalid_drac_fence_fails() {
     let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
     fs::write(
-        work.join("website/learn.md"),
+        website.join("learn.md"),
         page(
             LEARN_TITLE,
             "learn",
@@ -436,7 +384,7 @@ fn website_pipeline_shipped_invalid_drac_fence_fails() {
     )
     .unwrap();
     fs::write(
-        work.join("website/reference.md"),
+        website.join("reference.md"),
         page(
             REFERENCE_TITLE,
             "reference",
@@ -446,7 +394,7 @@ fn website_pipeline_shipped_invalid_drac_fence_fails() {
     )
     .unwrap();
 
-    let err = run_website_pipeline(&work).expect_err("invalid shipped fence must fail build");
+    let err = check_fences(&website).expect_err("invalid shipped fence must fail build");
     assert!(
         err.contains("draconic build"),
         "expected draconic build failure, got: {err}"
@@ -456,14 +404,15 @@ fn website_pipeline_shipped_invalid_drac_fence_fails() {
 #[test]
 fn website_pipeline_not_yet_page_with_fence_fails() {
     let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
     fs::write(
-        work.join("website/learn.md"),
+        website.join("learn.md"),
         page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
     )
     .unwrap();
     fs::write(
-        work.join("website/reference.md"),
+        website.join("reference.md"),
         page(
             REFERENCE_TITLE,
             "reference",
@@ -473,7 +422,7 @@ fn website_pipeline_not_yet_page_with_fence_fails() {
     )
     .unwrap();
 
-    let err = run_website_pipeline(&work).expect_err("not-yet fence must fail");
+    let err = check_fences(&website).expect_err("not-yet fence must fail");
     assert!(
         err.contains("not-yet") && err.contains("fence"),
         "expected not-yet fence failure, got: {err}"
@@ -483,14 +432,15 @@ fn website_pipeline_not_yet_page_with_fence_fails() {
 #[test]
 fn website_pipeline_not_yet_page_without_fence_generates() {
     let work = temp_dir();
-    fs::create_dir_all(work.join("website")).unwrap();
+    let website = work.join("website");
+    fs::create_dir_all(&website).unwrap();
     fs::write(
-        work.join("website/learn.md"),
+        website.join("learn.md"),
         page(LEARN_TITLE, "learn", "shipped", "Learn fixture."),
     )
     .unwrap();
     fs::write(
-        work.join("website/reference.md"),
+        website.join("reference.md"),
         page(
             REFERENCE_TITLE,
             "reference",
@@ -500,14 +450,13 @@ fn website_pipeline_not_yet_page_without_fence_generates() {
     )
     .unwrap();
 
-    run_website_pipeline(&work).expect("pipeline");
+    check_fences(&website).expect("pipeline");
 
-    let reference =
-        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    let (_, reference) = published_page("from-systems");
     assert_nav(&reference);
     assert!(
-        reference.contains(REFERENCE_TITLE),
-        "expected reference title {REFERENCE_TITLE:?} in HTML, got:\n{reference}"
+        reference.contains("from systems"),
+        "expected from systems title in HTML, got:\n{reference}"
     );
     assert!(
         reference.contains("not-yet"),
@@ -515,107 +464,66 @@ fn website_pipeline_not_yet_page_without_fence_generates() {
     );
 }
 
-fn copy_repo_website_pages(work: &Path) {
-    let src = repo_root().join("website");
-    let dst = work.join("website");
-    fs::create_dir_all(&dst).unwrap();
-    for ent in fs::read_dir(&src).unwrap() {
-        let ent = ent.unwrap();
-        let path = ent.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            fs::copy(&path, dst.join(ent.file_name())).unwrap();
-        }
-    }
-}
-
 fn assert_learn_chapter_nav(html: &str) {
-    for (href, label) in LEARN_CHAPTERS {
-        let needle = format!("<a href=\"{href}\">{label}</a>");
+    for (slug, label) in LEARN_CHAPTERS {
         assert!(
-            html.contains(&needle),
-            "expected Learn nav link {needle}, got:\n{html}"
+            contains_labeled_link(html, slug, label),
+            "expected Learn nav link {label} -> {slug}, got:\n{html}"
         );
     }
 }
 
-fn assert_visible_status(html: &str, path: &str) {
-    assert!(
-        html.contains("<p class=\"status\">"),
-        "expected visible status tag in {path}, got:\n{html}"
-    );
-    let shipped = html.contains("<p class=\"status\">shipped</p>");
-    let not_yet = html.contains("<p class=\"status\">not-yet</p>");
-    assert!(
-        shipped || not_yet,
-        "expected status shipped or not-yet in {path}, got:\n{html}"
-    );
-}
-
 #[test]
 fn website_pipeline_learn_skeleton_is_walkable() {
-    let work = temp_dir();
-    copy_repo_website_pages(&work);
+    check_fences(&repo_root().join("website")).expect("repo fences");
 
-    run_website_pipeline(&work).expect("pipeline");
-
-    let learn = fs::read_to_string(work.join("website/learn.html")).expect("learn.html");
+    let (_, learn) = published_page("learn");
     assert_nav(&learn);
     assert_learn_chapter_nav(&learn);
-    assert_visible_status(&learn, "learn.html");
+    assert_visible_status(&learn, "learn");
 
-    for (href, _) in LEARN_CHAPTERS {
-        let html_path = work.join("website").join(href);
-        let html = fs::read_to_string(&html_path)
-            .unwrap_or_else(|_| panic!("expected generated {}", html_path.display()));
+    for (slug, _) in LEARN_CHAPTERS {
+        let (path, html) = published_page(slug);
         assert_nav(&html);
         assert_learn_chapter_nav(&html);
-        assert_visible_status(&html, href);
+        assert_visible_status(&html, &path.display().to_string());
     }
 
-    let from_js = fs::read_to_string(work.join("website/from-javascript.html"))
-        .expect("from-javascript.html");
+    let (_, from_js) = published_page("from-javascript");
     assert!(
-        from_js.contains("href=\"dual-worlds.html\""),
+        contains_href(&from_js, "dual-worlds"),
         "JS landing must join at Dual worlds, got:\n{from_js}"
     );
-    let from_sys =
-        fs::read_to_string(work.join("website/from-systems.html")).expect("from-systems.html");
+    let (_, from_sys) = published_page("from-systems");
     assert!(
-        from_sys.contains("href=\"dual-worlds.html\""),
+        contains_href(&from_sys, "dual-worlds"),
         "systems landing must join at Dual worlds, got:\n{from_sys}"
     );
 }
 
 fn assert_reference_page_nav(html: &str) {
-    for (href, label) in REFERENCE_PAGES {
-        let needle = format!("<a href=\"{href}\">{label}</a>");
+    for (slug, label) in REFERENCE_PAGES {
         assert!(
-            html.contains(&needle),
-            "expected Reference nav link {needle}, got:\n{html}"
+            contains_labeled_link(html, slug, label),
+            "expected Reference nav link {label} -> {slug}, got:\n{html}"
         );
     }
 }
 
 #[test]
 fn website_pipeline_reference_skeleton_is_walkable() {
-    let work = temp_dir();
-    copy_repo_website_pages(&work);
+    check_fences(&repo_root().join("website")).expect("repo fences");
 
-    run_website_pipeline(&work).expect("pipeline");
-
-    let reference =
-        fs::read_to_string(work.join("website/reference.html")).expect("reference.html");
+    let (_, reference) = published_page("reference");
     assert_nav(&reference);
     assert_reference_page_nav(&reference);
-    assert_visible_status(&reference, "reference.html");
+    assert_visible_status(&reference, "reference");
 
-    for (href, _) in REFERENCE_PAGES {
-        let html_path = work.join("website").join(href);
-        let html = fs::read_to_string(&html_path)
-            .unwrap_or_else(|_| panic!("expected generated {}", html_path.display()));
+    for (slug, _) in REFERENCE_PAGES {
+        let (path, html) = published_page(slug);
         assert_nav(&html);
         assert_reference_page_nav(&html);
-        assert_visible_status(&html, href);
+        assert_visible_status(&html, &path.display().to_string());
     }
 }
 
@@ -668,6 +576,10 @@ fn generated_html_is_not_authoring_source() {
             "website/ must not track generated HTML ({line}); markdown is the source of truth"
         );
     }
+    assert!(
+        !root.join("website/generate.drac").exists(),
+        "generate.drac must not remain as the publisher"
+    );
 }
 
 #[test]
@@ -681,7 +593,7 @@ fn ci_workflow_generates_site_and_deploys_pages() {
     let text = fs::read_to_string(&workflow).expect("read workflow");
     assert!(
         text.contains("generate-website.sh") || text.contains("scripts/generate-website"),
-        "workflow should run the Draconic website generator script:\n{text}"
+        "workflow should run the website generate script:\n{text}"
     );
     assert!(
         text.contains("upload-pages-artifact"),
@@ -703,36 +615,37 @@ fn generate_website_script_stages_html_to_dist() {
     let script = root.join("scripts/generate-website.sh");
     assert!(
         script.is_file(),
-        "missing {} (issues-26 generate + stage HTML)",
+        "missing {} (Start static publish + stage HTML)",
         script.display()
     );
-    let out = temp_dir().join("pages");
-    let output = Command::new("bash")
-        .arg(&script)
-        .arg("--bin")
-        .arg(draconic_bin())
-        .arg("--out")
-        .arg(&out)
-        .current_dir(&root)
-        .output()
-        .expect("run generate-website.sh");
+    let script_text = fs::read_to_string(&script).expect("read generate-website.sh");
     assert!(
-        output.status.success(),
-        "generate-website.sh failed: status={:?} stdout={} stderr={}",
-        output.status,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
+        script_text.contains("pnpm"),
+        "generate-website.sh should wrap the Start pnpm build:\n{script_text}"
     );
+    assert!(
+        !script_text.contains("generate.drac"),
+        "generate.drac must not remain the publisher:\n{script_text}"
+    );
+    assert!(
+        !root.join("website/generate.drac").exists(),
+        "website/generate.drac must be retired as renderer"
+    );
+
+    let out = published_pages();
     let index = fs::read_to_string(out.join("index.html")).expect("index.html");
+    assert_html_document(&index);
     assert!(
-        index.contains("<a href=\"learn.html\">Learn</a>"),
-        "staged index should be the generated site, got:\n{index}"
+        index.contains("JavaScript you already know"),
+        "staged index should be the language homepage, got:\n{index}"
     );
-    let learn = fs::read_to_string(out.join("learn.html")).expect("learn.html");
     assert!(
-        learn.contains("<p class=\"status\">"),
-        "staged learn.html should include a status tag, got:\n{learn}"
+        !index.contains("Learn is the public path"),
+        "staged index must not be Learn copied to index, got:\n{index}"
     );
+    assert_nav(&index);
+    let (_, learn) = published_page("learn");
+    assert_visible_status(&learn, "learn");
     assert!(
         out.join(".nojekyll").is_file(),
         "staged Pages dist should include .nojekyll"

@@ -69,4 +69,4 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: diagnostics_on_type_error
   test: hover_on_binding_shows_number
   test: goto_definition_from_use_to_decl
-- `toolchain.cli:forbid-learn-site-content`: The Toolchain CLI and this vault do not author the public Learn site; that site is generated from `website/`.
+- `toolchain.cli:forbid-learn-site-content`: The Toolchain CLI and this vault do not author the public Learn site; that site is authored from `website/` ([[specs/draconic/public-site/purpose]]), not this vault or the CLI.

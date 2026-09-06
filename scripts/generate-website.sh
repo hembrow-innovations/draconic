@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# issues-26: compile website/generate.drac, emit HTML, stage to dist/pages.
+# Start static build, stage HTML to dist/pages for GitHub Pages.
 set -euo pipefail
 
 usage() {
   echo "Usage: scripts/generate-website.sh [--bin PATH] [--out DIR]" >&2
 }
 
-BIN=""
 OUT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bin)
-      BIN="${2:-}"
       shift 2
       ;;
     --out)
@@ -33,41 +31,21 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${OUT:-"$ROOT/dist/pages"}"
 
-if [[ -z "$BIN" ]]; then
-  if [[ -n "${DRACONIC:-}" ]]; then
-    BIN="$DRACONIC"
-  elif [[ -f "$ROOT/target/release/draconic" ]]; then
-    BIN="$ROOT/target/release/draconic"
-  elif [[ -f "$ROOT/target/debug/draconic" ]]; then
-    BIN="$ROOT/target/debug/draconic"
-  else
-    cargo build -p draconic-cli --release --manifest-path "$ROOT/Cargo.toml"
-    BIN="$ROOT/target/release/draconic"
-  fi
-fi
+PAGES_BASE="${PAGES_BASE:-/draconic}" pnpm --dir "$ROOT/website" build
 
-if [[ ! -f "$BIN" ]]; then
-  echo "binary not found: $BIN" >&2
+CLIENT=""
+for candidate in "$ROOT/website/dist/client" "$ROOT/website/dist"; do
+  if [[ -f "$candidate/index.html" ]]; then
+    CLIENT="$candidate"
+    break
+  fi
+done
+if [[ -z "$CLIENT" ]]; then
+  echo "Start static build produced no index.html under website/dist" >&2
   exit 1
 fi
-
-WORKDIR="$(mktemp -d)"
-GEN="$WORKDIR/generate"
-"$BIN" build --target native "$ROOT/website/generate.drac" -o "$GEN"
-(cd "$ROOT" && "$GEN")
 
 mkdir -p "$OUT"
-shopt -s nullglob
-htmls=("$ROOT"/website/*.html)
-if [[ ${#htmls[@]} -eq 0 ]]; then
-  echo "generator produced no HTML under website/" >&2
-  exit 1
-fi
-cp "${htmls[@]}" "$OUT"/
-if [[ ! -f "$OUT/learn.html" ]]; then
-  echo "expected website/learn.html after generate" >&2
-  exit 1
-fi
-cp "$OUT/learn.html" "$OUT/index.html"
+cp -R "$CLIENT"/. "$OUT"/
 touch "$OUT/.nojekyll"
 echo "$OUT"

@@ -1,6 +1,3 @@
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { listMarkdownPages, type MarkdownPage } from "../content";
 
 /**
@@ -13,8 +10,6 @@ export type SearchEntry = {
   title: string;
   headings: string[];
 };
-
-const routesDir = join(dirname(fileURLToPath(import.meta.url)), "../../routes");
 
 /**
  * Pull heading lines from a teaching-page body, skipping fenced samples.
@@ -51,9 +46,7 @@ export function extractHeadings(source: string): string[] {
  * @returns Finder entries for existing Start routes
  */
 export function buildSearchIndex(): SearchEntry[] {
-  return listMarkdownPages()
-    .filter((page) => existsSync(join(routesDir, `${page.slug}.tsx`)))
-    .map(toSearchEntry);
+  return listMarkdownPages().map(toSearchEntry);
 }
 
 /**
@@ -74,12 +67,6 @@ export function querySearchIndex(
   return index.filter((entry) => matchesEntry(entry, needle));
 }
 
-/**
- * Map a loaded teaching page to a finder entry.
- *
- * @param page - Parsed `website/*.md` page with a Start route
- * @returns Title, headings, and app href
- */
 function toSearchEntry(page: MarkdownPage): SearchEntry {
   return {
     href: `/${page.slug}`,
@@ -88,13 +75,6 @@ function toSearchEntry(page: MarkdownPage): SearchEntry {
   };
 }
 
-/**
- * Whether a page title or heading contains the needle.
- *
- * @param entry - One finder entry
- * @param needle - Lowercased query
- * @returns True when title or a heading matches
- */
 function matchesEntry(entry: SearchEntry, needle: string): boolean {
   if (entry.title.toLowerCase().includes(needle)) {
     return true;
@@ -102,12 +82,6 @@ function matchesEntry(entry: SearchEntry, needle: string): boolean {
   return entry.headings.some((heading) => heading.toLowerCase().includes(needle));
 }
 
-/**
- * Use link labels as the visible heading text.
- *
- * @param text - One heading line
- * @returns Heading text without markdown link markup
- */
 function unwrapLinks(text: string): string {
   return text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
 }

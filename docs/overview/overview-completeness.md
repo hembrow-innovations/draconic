@@ -75,6 +75,7 @@ Do not invent decisions. Wikilink existing files in `docs/adr/`:
 - **0010**: [[0010-public-docs-draconic-ssg]] — public docs from `website/`, not this vault.
 - **0011**: [[0011-catchable-exceptions-vs-abort]] — catchable exceptions versus process abort.
 - **0012**: [[0012-oracle-check-timeout]] — workspace CHECK timeout is ten minutes, not a hang detector.
+- **0013**: [[0013-public-site-tanstack-start]] — public site presentation is TanStack Start.
 
 ## Trade-offs
 

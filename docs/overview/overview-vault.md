@@ -24,7 +24,7 @@ This vault documents the language Toolchain as it is locked: glossary, ADRs, arc
 
 Day-to-day agent working files under `.heio/` are not language completeness. Do not treat Heio tickets, slices, or rounds as the Loop source of truth.
 
-Public Learn and Reference are generated from `website/` ([[0010-public-docs-draconic-ssg]], [[guides-public-docs]]). Agent and toolchain notes stay in this vault.
+Public Learn and Reference sources live in `website/`, not this vault ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]], [[guides-public-docs]]). Agent and toolchain notes stay in this vault.
 
 ## Design
 
@@ -87,7 +87,7 @@ Note to note uses `[[wikilinks]]` only. Never relative `.md` paths. Filename ste
 - **docs/99_scribble/**: scratch. Never source of truth. Ignore.
 - **docs/reference/guides/**: leftover tree. Not source of truth. Do not move it; do not treat it as [[guides-toolchain]] or [[guides-public-docs]].
 - **.heio/**: local working memory (tickets, slices, tasks, rounds). Not language completeness. [[ROADMAP]] remains the Loop checklist.
-- **website/**: public site sources, not this vault ([[0010-public-docs-draconic-ssg]]).
+- **website/**: public site sources, not this vault ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]]).
 
 ## Trade-offs
 

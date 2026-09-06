@@ -22,8 +22,8 @@ Spec folder for the product a developer runs. Promises live only on [[Toolchain 
 - **Completeness**: [[ROADMAP]]
 - **Orientation**: [[overview-toolchain]]
 
-Decisions: [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0004-full-ecma-262-and-embed]], [[0010-public-docs-draconic-ssg]].
+Decisions: [[0001-rust-host-compiler]], [[0002-shared-ir-dual-backends]], [[0004-full-ecma-262-and-embed]], [[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]].
 
 Shape (not promises): [[architecture-cli]], [[architecture-frontend]], [[architecture-embed]], [[architecture-lsp]], [[architecture-pipeline]].
 
-Sibling areas: [[Host I/O specs]], [[Packages specs]], [[Conformance specs]].
+Sibling areas: [[Host I/O specs]], [[Packages specs]], [[Conformance specs]], [[Public site specs]].

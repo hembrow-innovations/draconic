@@ -1,7 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 /**
  * Teaching page loaded from `website/*.md`, not from the agent vault.
  */
@@ -14,47 +10,41 @@ export type MarkdownPage = {
 };
 
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
-const DEFAULT_ROOT = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "../../..",
-);
+
+const bundledMarkdown = import.meta.glob("../../../*.md", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
 
 /**
- * Catalog of public teaching pages, derived from markdown files in the content root.
+ * Catalog of public teaching pages bundled from `website/*.md`.
  *
- * @param rootDir - Directory of `*.md` sources; defaults to `website/`
- * @returns Parsed pages for each markdown file in that directory
+ * @returns Parsed pages for each markdown file in the content root
  */
-export function listMarkdownPages(rootDir: string = DEFAULT_ROOT): MarkdownPage[] {
-  const root = resolve(rootDir);
-  return readdirSync(root)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => loadMarkdownPage(name.slice(0, -3), root))
+export function listMarkdownPages(): MarkdownPage[] {
+  return Object.keys(bundledMarkdown)
+    .map((key) => slugFromGlobKey(key))
+    .filter((slug) => SLUG_PATTERN.test(slug))
+    .map((slug) => loadMarkdownPage(slug))
     .sort((left, right) => left.slug.localeCompare(right.slug));
 }
 
 /**
- * Load one teaching page by slug from the content root.
+ * Load one teaching page by slug from the bundled catalog.
  *
  * @param slug - File stem of a `website/*.md` page
- * @param rootDir - Directory of `*.md` sources; defaults to `website/`
  * @returns Title, section, status, and markdown body
  */
-export function loadMarkdownPage(
-  slug: string,
-  rootDir: string = DEFAULT_ROOT,
-): MarkdownPage {
+export function loadMarkdownPage(slug: string): MarkdownPage {
   if (!SLUG_PATTERN.test(slug)) {
     throw new Error(`Invalid markdown slug: ${slug}`);
   }
-  const root = resolve(rootDir);
-  const filePath = join(root, `${slug}.md`);
-  if (!filePath.startsWith(root)) {
+  const source = sourceFromBundle(slug);
+  if (source === undefined) {
     throw new Error(`Invalid markdown slug: ${slug}`);
   }
-  const source = readFileSync(filePath, "utf8");
-  const parsed = parseMarkdownPage(source);
-  return { slug, ...parsed };
+  return { slug, ...parseMarkdownPage(source) };
 }
 
 /**
@@ -63,7 +53,7 @@ export function loadMarkdownPage(
  * @param source - Raw file text including `title`, `section`, and `status`
  * @returns Frontmatter fields plus the remaining body
  */
-function parseMarkdownPage(source: string): Omit<MarkdownPage, "slug"> {
+export function parseMarkdownPage(source: string): Omit<MarkdownPage, "slug"> {
   if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) {
     throw new Error("Markdown page is missing frontmatter");
   }
@@ -83,12 +73,21 @@ function parseMarkdownPage(source: string): Omit<MarkdownPage, "slug"> {
   };
 }
 
-/**
- * Read `key: value` pairs from a frontmatter block.
- *
- * @param block - Text between the opening and closing `---` fences
- * @returns Map of frontmatter keys to string values
- */
+function sourceFromBundle(slug: string): string | undefined {
+  const suffix = `/${slug}.md`;
+  for (const [key, source] of Object.entries(bundledMarkdown)) {
+    if (key === `${slug}.md` || key.endsWith(suffix)) {
+      return source;
+    }
+  }
+  return undefined;
+}
+
+function slugFromGlobKey(key: string): string {
+  const name = key.split("/").pop() ?? "";
+  return name.replace(/\.md$/, "");
+}
+
 function parseFrontmatter(block: string): Map<string, string> {
   const fields = new Map<string, string>();
   for (const line of block.split(/\r?\n/)) {
@@ -104,13 +103,6 @@ function parseFrontmatter(block: string): Map<string, string> {
   return fields;
 }
 
-/**
- * Require a named frontmatter field.
- *
- * @param fields - Parsed frontmatter map
- * @param key - Field name that must be present
- * @returns The field value
- */
 function requireField(fields: Map<string, string>, key: string): string {
   const value = fields.get(key);
   if (value === undefined || value === "") {

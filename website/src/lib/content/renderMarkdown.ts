@@ -24,7 +24,8 @@ export function toAppHref(href: string): string {
   if (!APP_SLUG.test(slug)) {
     return href;
   }
-  return `/${slug}${hash}`;
+  const base = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+  return `${base}/${slug}${hash}`;
 }
 
 /**
