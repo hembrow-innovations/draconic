@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { ThemeToggle } from "../ThemeToggle";
 import {
   siteHeaderClusterVariants,
   siteHeaderLinkVariants,
@@ -31,6 +32,7 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
             <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>
           }
           <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
+          <ThemeToggle />
         </div>
       </nav>
     </header>

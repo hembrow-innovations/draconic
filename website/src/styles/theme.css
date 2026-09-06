@@ -17,3 +17,12 @@
   --text-mono: 0.875rem;
   --text-mono--line-height: 1.7;
 }
+
+html.dark {
+  --color-canvas: #07111c;
+  --color-ink: #e8f1fa;
+  --color-accent: #4c9ae8;
+  --color-accent-foreground: #07111c;
+  --color-muted: #9bb0c4;
+  --color-line: #1c3348;
+}

@@ -43,9 +43,15 @@ function RootComponent() {
 
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{var r=JSON.parse(localStorage.getItem("theme:v1"));if(r&&r.theme==="dark")document.documentElement.classList.add("dark")}catch(e){}',
+          }}
+        />
       </head>
       <body className="bg-canvas text-ink min-h-dvh">
         {children}
