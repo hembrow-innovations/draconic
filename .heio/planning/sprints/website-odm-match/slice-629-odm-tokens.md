@@ -2,12 +2,12 @@
 id: "slice-629-odm-tokens"
 title: "ODM semantic tokens"
 kind: slice
-status: frozen
+status: active
 sprint: "website-odm-match"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T20:00:00Z"
 ---
 
 # ODM semantic tokens
