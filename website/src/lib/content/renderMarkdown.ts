@@ -1,3 +1,32 @@
+const APP_SLUG = /^[a-z0-9-]+$/;
+
+/**
+ * Turn a markdown href into a Start path. Legacy `.html` links become `/slug`.
+ *
+ * @param href - Raw markdown href
+ * @returns App path for in-site `.html` links; otherwise the original href
+ */
+export function toAppHref(href: string): string {
+  if (
+    /^[a-z][a-z0-9+.-]*:/i.test(href) ||
+    href.startsWith("#") ||
+    href.startsWith("/")
+  ) {
+    return href;
+  }
+  const hashAt = href.indexOf("#");
+  const path = hashAt === -1 ? href : href.slice(0, hashAt);
+  const hash = hashAt === -1 ? "" : href.slice(hashAt);
+  if (!path.endsWith(".html")) {
+    return href;
+  }
+  const slug = path.replace(/^\.\//, "").slice(0, -5);
+  if (!APP_SLUG.test(slug)) {
+    return href;
+  }
+  return `/${slug}${hash}`;
+}
+
 /**
  * Turn the public markdown subset into HTML: headings, paragraphs, lists, fences, and links.
  *
@@ -116,7 +145,7 @@ function renderInline(text: string): string {
       if (index < text.length && text[index] === ")") {
         index += 1;
       }
-      html += `<a href="${href}">${label}</a>`;
+      html += `<a href="${toAppHref(href)}">${label}</a>`;
     } else {
       html += `[${label}]`;
     }

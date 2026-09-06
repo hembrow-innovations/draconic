@@ -11,7 +11,7 @@ export const Route = createFileRoute("/learn")({
 /**
  * Learn hub in handbook chrome. Locks `public-site.ia:learn-walkable`.
  *
- * Teaching copy stays in `website/learn.md`. Chapter bodies wait for a later sitting.
+ * Teaching copy stays in `website/learn.md`.
  */
 function LearnHubRoute() {
   const page = Route.useLoaderData();

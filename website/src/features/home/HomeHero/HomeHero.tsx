@@ -27,10 +27,7 @@ export function HomeHero({ className, ...props }: HomeHeroProps) {
         A full ECMAScript superset with TypeScript-inspired static types and native systems types, compiling to JavaScript and to native binaries via LLVM.
       </p>
       <div className={homeHeroCtaClusterVariants()}>
-        {
-          // @ts-expect-error Install route is registered in a later sitting
-          <Link to="/install" className={homeHeroCtaVariants({ variant: "primary" })}>Install</Link>
-        }
+        <Link to="/install" className={homeHeroCtaVariants({ variant: "primary" })}>Install</Link>
         <Link to="/learn" className={homeHeroCtaVariants({ variant: "secondary" })}>Learn</Link>
       </div>
     </section>

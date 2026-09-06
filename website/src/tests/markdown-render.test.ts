@@ -20,10 +20,10 @@ test("markdown render install subset", () => {
   );
   expect(html).toContain("let console = globalThis.console;");
   expect(html).toContain(
-    '<a href="from-javascript.html">from JavaScript</a>',
+    '<a href="/from-javascript">from JavaScript</a>',
   );
-  expect(html).toContain('<a href="from-systems.html">from systems</a>');
-  expect(html).toContain('<a href="dual-worlds.html">Dual worlds</a>');
+  expect(html).toContain('<a href="/from-systems">from systems</a>');
+  expect(html).toContain('<a href="/dual-worlds">Dual worlds</a>');
 
   expect(html).not.toContain("# Install");
   expect(html).not.toContain("## Reproducibility");

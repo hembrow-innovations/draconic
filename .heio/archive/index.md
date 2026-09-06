@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-621-learn-pages** — website Learn chapter routes from existing markdown with status badges
 - **task-620-learn-hub-nav** — website Learn hub route and aside nav in hub order
 - **task-619-docs-shell** — website handbook chrome with aside, article, and status Badge
 - **task-618-markdown-render** — website public markdown subset renderer with Install body as proof

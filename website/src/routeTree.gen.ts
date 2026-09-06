@@ -10,11 +10,44 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DualWorldsRouteImport } from './routes/dual-worlds'
+import { Route as FromJavascriptRouteImport } from './routes/from-javascript'
+import { Route as FromSystemsRouteImport } from './routes/from-systems'
+import { Route as HostIoRouteImport } from './routes/host-io'
+import { Route as InstallRouteImport } from './routes/install'
 import { Route as LearnRouteImport } from './routes/learn'
+import { Route as ModulesRouteImport } from './routes/modules'
+import { Route as NativeTypesRouteImport } from './routes/native-types'
+import { Route as PackagesRouteImport } from './routes/packages'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DualWorldsRoute = DualWorldsRouteImport.update({
+  id: '/dual-worlds',
+  path: '/dual-worlds',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FromJavascriptRoute = FromJavascriptRouteImport.update({
+  id: '/from-javascript',
+  path: '/from-javascript',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FromSystemsRoute = FromSystemsRouteImport.update({
+  id: '/from-systems',
+  path: '/from-systems',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HostIoRoute = HostIoRouteImport.update({
+  id: '/host-io',
+  path: '/host-io',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstallRoute = InstallRouteImport.update({
+  id: '/install',
+  path: '/install',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LearnRoute = LearnRouteImport.update({
@@ -22,31 +55,109 @@ const LearnRoute = LearnRouteImport.update({
   path: '/learn',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ModulesRoute = ModulesRouteImport.update({
+  id: '/modules',
+  path: '/modules',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NativeTypesRoute = NativeTypesRouteImport.update({
+  id: '/native-types',
+  path: '/native-types',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PackagesRoute = PackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/dual-worlds': typeof DualWorldsRoute
+  '/from-javascript': typeof FromJavascriptRoute
+  '/from-systems': typeof FromSystemsRoute
+  '/host-io': typeof HostIoRoute
+  '/install': typeof InstallRoute
   '/learn': typeof LearnRoute
+  '/modules': typeof ModulesRoute
+  '/native-types': typeof NativeTypesRoute
+  '/packages': typeof PackagesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/dual-worlds': typeof DualWorldsRoute
+  '/from-javascript': typeof FromJavascriptRoute
+  '/from-systems': typeof FromSystemsRoute
+  '/host-io': typeof HostIoRoute
+  '/install': typeof InstallRoute
   '/learn': typeof LearnRoute
+  '/modules': typeof ModulesRoute
+  '/native-types': typeof NativeTypesRoute
+  '/packages': typeof PackagesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/dual-worlds': typeof DualWorldsRoute
+  '/from-javascript': typeof FromJavascriptRoute
+  '/from-systems': typeof FromSystemsRoute
+  '/host-io': typeof HostIoRoute
+  '/install': typeof InstallRoute
   '/learn': typeof LearnRoute
+  '/modules': typeof ModulesRoute
+  '/native-types': typeof NativeTypesRoute
+  '/packages': typeof PackagesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/learn'
+  fullPaths:
+    | '/'
+    | '/dual-worlds'
+    | '/from-javascript'
+    | '/from-systems'
+    | '/host-io'
+    | '/install'
+    | '/learn'
+    | '/modules'
+    | '/native-types'
+    | '/packages'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/learn'
-  id: '__root__' | '/' | '/learn'
+  to:
+    | '/'
+    | '/dual-worlds'
+    | '/from-javascript'
+    | '/from-systems'
+    | '/host-io'
+    | '/install'
+    | '/learn'
+    | '/modules'
+    | '/native-types'
+    | '/packages'
+  id:
+    | '__root__'
+    | '/'
+    | '/dual-worlds'
+    | '/from-javascript'
+    | '/from-systems'
+    | '/host-io'
+    | '/install'
+    | '/learn'
+    | '/modules'
+    | '/native-types'
+    | '/packages'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DualWorldsRoute: typeof DualWorldsRoute
+  FromJavascriptRoute: typeof FromJavascriptRoute
+  FromSystemsRoute: typeof FromSystemsRoute
+  HostIoRoute: typeof HostIoRoute
+  InstallRoute: typeof InstallRoute
   LearnRoute: typeof LearnRoute
+  ModulesRoute: typeof ModulesRoute
+  NativeTypesRoute: typeof NativeTypesRoute
+  PackagesRoute: typeof PackagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -58,6 +169,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dual-worlds': {
+      id: '/dual-worlds'
+      path: '/dual-worlds'
+      fullPath: '/dual-worlds'
+      preLoaderRoute: typeof DualWorldsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/from-javascript': {
+      id: '/from-javascript'
+      path: '/from-javascript'
+      fullPath: '/from-javascript'
+      preLoaderRoute: typeof FromJavascriptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/from-systems': {
+      id: '/from-systems'
+      path: '/from-systems'
+      fullPath: '/from-systems'
+      preLoaderRoute: typeof FromSystemsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/host-io': {
+      id: '/host-io'
+      path: '/host-io'
+      fullPath: '/host-io'
+      preLoaderRoute: typeof HostIoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/install': {
+      id: '/install'
+      path: '/install'
+      fullPath: '/install'
+      preLoaderRoute: typeof InstallRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/learn': {
       id: '/learn'
       path: '/learn'
@@ -65,12 +211,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LearnRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/modules': {
+      id: '/modules'
+      path: '/modules'
+      fullPath: '/modules'
+      preLoaderRoute: typeof ModulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/native-types': {
+      id: '/native-types'
+      path: '/native-types'
+      fullPath: '/native-types'
+      preLoaderRoute: typeof NativeTypesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/packages': {
+      id: '/packages'
+      path: '/packages'
+      fullPath: '/packages'
+      preLoaderRoute: typeof PackagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DualWorldsRoute: DualWorldsRoute,
+  FromJavascriptRoute: FromJavascriptRoute,
+  FromSystemsRoute: FromSystemsRoute,
+  HostIoRoute: HostIoRoute,
+  InstallRoute: InstallRoute,
   LearnRoute: LearnRoute,
+  ModulesRoute: ModulesRoute,
+  NativeTypesRoute: NativeTypesRoute,
+  PackagesRoute: PackagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
