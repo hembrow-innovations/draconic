@@ -32,6 +32,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/functions.rs** — `decl_return_call_runs`
   - **How:** Run `es/functions/decl_return_call` on declared targets.
   - **Why:** Locks `language.ecma:functions` at declaration/return/call grain. Arrows and rest have their own `*_runs`.
+- **tests/conformance/tests/legacy.rs** — `arguments_iterator_runs`
+  - **How:** Run `es/legacy/arguments_iterator` on declared js (no `with`).
+  - **Why:** Locks `language.ecma:functions` arguments `@@iterator` residual (E17.02.170) without wrapping the program in `with`.
 - **tests/conformance/tests/objects.rs** — `object_lit_access_runs` / `prototype_runs`
   - **How:** Run object-literal and prototype fixtures.
   - **Why:** Locks `language.ecma:objects`.

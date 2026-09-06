@@ -1,0 +1,126 @@
+// E17.02.170: arguments @@iterator residual (non-strict) without with.
+// Identity with Array.prototype.values; descriptor residual; live mapped
+// iteration; delete then spread/for-of TypeError; unmapped non-simple params
+// keep the same iterator; named function expression and method.
+
+// Identity: arguments[Symbol.iterator] is Array.prototype.values.
+function ident(x, y) {
+  return arguments[Symbol.iterator] === Array.prototype.values;
+}
+let a = ident(1, 2);
+
+// Descriptor: writable, not enumerable, configurable; value is values.
+function iterDesc() {
+  let desc = Object.getOwnPropertyDescriptor(arguments, Symbol.iterator);
+  return (
+    desc.writable === true &&
+    desc.enumerable === false &&
+    desc.configurable === true &&
+    desc.value === Array.prototype.values
+  );
+}
+let b = iterDesc();
+
+// Live mapped values: iterator reads current formals as it walks.
+function liveMapped(p0, p1) {
+  let it = arguments[Symbol.iterator]();
+  let n0 = it.next();
+  p0 = 9;
+  p1 = 8;
+  let n1 = it.next();
+  let n2 = it.next();
+  return (
+    n0.value === 1 &&
+    n0.done === false &&
+    n1.value === 8 &&
+    n1.done === false &&
+    n2.done === true
+  );
+}
+let c = liveMapped(1, 2);
+
+// Live mapped length: shrink then spread sees current length and formal.
+function liveLength(p0, p1) {
+  p0 = 9;
+  arguments.length = 1;
+  let arr = [...arguments];
+  return arr.length === 1 && arr[0] === 9;
+}
+let d = liveLength(1, 2);
+
+// Live length grow: extra index plus length is visible to the iterator.
+function liveGrow(p0) {
+  arguments[1] = 2;
+  arguments.length = 2;
+  let arr = [...arguments];
+  return arr.length === 2 && arr[0] === 1 && arr[1] === 2;
+}
+let e = liveGrow(1);
+
+// Delete @@iterator then spread is TypeError.
+function delSpread(x, y) {
+  delete arguments[Symbol.iterator];
+  try {
+    [...arguments];
+    return "no";
+  } catch (err) {
+    return err.name;
+  }
+}
+let f = delSpread(1, 2);
+
+// Delete @@iterator then for-of is TypeError.
+function delForOf(x, y) {
+  delete arguments[Symbol.iterator];
+  try {
+    for (let v of arguments) {
+    }
+    return "no";
+  } catch (err) {
+    return err.name;
+  }
+}
+let g = delForOf(1, 2);
+
+// Unmapped non-simple params keep the same iterator identity + descriptor.
+function unmappedDefault(p = 0) {
+  let desc = Object.getOwnPropertyDescriptor(arguments, Symbol.iterator);
+  return (
+    arguments[Symbol.iterator] === Array.prototype.values &&
+    desc.writable === true &&
+    desc.enumerable === false &&
+    desc.configurable === true &&
+    desc.value === Array.prototype.values
+  );
+}
+let h = unmappedDefault(1);
+
+function unmappedRest(...r) {
+  return arguments[Symbol.iterator] === Array.prototype.values;
+}
+let i = unmappedRest(1, 2);
+
+function unmappedDstr({ x }) {
+  return arguments[Symbol.iterator] === Array.prototype.values;
+}
+let j = unmappedDstr({ x: 1 });
+
+// Named function expression: same iterator identity.
+let named = function (z) {
+  return arguments[Symbol.iterator] === Array.prototype.values && arguments[0] === z;
+};
+let k = named(7);
+
+// Object method (non-arrow): same iterator; live mapped write visible to spread.
+let o = {
+  m: function (p0, p1) {
+    p0 = 4;
+    let arr = [...arguments];
+    return (
+      arguments[Symbol.iterator] === Array.prototype.values &&
+      arr[0] === 4 &&
+      arr[1] === 2
+    );
+  },
+};
+let m = o.m(1, 2);

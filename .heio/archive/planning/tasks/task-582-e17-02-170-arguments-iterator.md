@@ -2,14 +2,14 @@
 id: "task-582-e17-02-170-arguments-iterator"
 title: "E17.02.170 arguments @@iterator residual without with"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-581-e17-02-170-arguments-iterator"
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T23:20:00Z"
 ---
 
 # E17.02.170 arguments @@iterator residual without with
@@ -59,11 +59,11 @@ E17.02.19 proves for-of and spread consume an arguments object and pins callee a
 - Conformance `.drac` + `.meta` under es/legacy, harness `legacy` present and runs tests
 
 **Acceptance criteria:**
-- [ ] `arguments[Symbol.iterator] === Array.prototype.values`
-- [ ] iterator descriptor is writable, non-enumerable, configurable
-- [ ] delete then spread or for-of is TypeError
-- [ ] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
-- [ ] E17.02.170 is `done`; E17.02 stays `todo`
+- [x] `arguments[Symbol.iterator] === Array.prototype.values`
+- [x] iterator descriptor is writable, non-enumerable, configurable
+- [x] delete then spread or for-of is TypeError
+- [x] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
+- [x] E17.02.170 is `done`; E17.02 stays `todo`
 
 **Out of scope:**
 - Re-filing E17.02.01 through .22
@@ -72,3 +72,7 @@ E17.02.19 proves for-of and spread consume an arguments object and pins callee a
 - Native observations
 - Marking E17.02 done
 - Workspace CHECK as this task's oracle
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-conformance --test legacy` — win. `test result: ok.` 344 passed. Diff keeps `language.ecma:functions`; no `with`; js-only; E17.02 stays todo; identity/descriptor/live map/delete TypeError/unmapped/named FE+method locked.

@@ -1738,3 +1738,13 @@ fn html_comments_fixture_present() {
 fn html_comments_runs() {
     assert_fixture_runs_declared_targets("es/legacy/html_comments");
 }
+
+#[test]
+fn arguments_iterator_fixture_present() {
+    assert_fixture_present("es/legacy/arguments_iterator");
+}
+
+#[test]
+fn arguments_iterator_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/arguments_iterator");
+}

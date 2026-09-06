@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-582-e17-02-170-arguments-iterator** — E17.02.170 arguments @@iterator residual without with
 - **task-578-e18-44-02-incomplete-unicode-escape** — E18.44.02 Annex B.1.4 incomplete UnicodeEscape IdentityEscape
 - **task-217-workspace-test-budget** — workspace tests finish inside the oracle budget
 - **housekeeping** — migrated .heio planning tree to the management layout

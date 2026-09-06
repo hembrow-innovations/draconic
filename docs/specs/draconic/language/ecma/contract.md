@@ -36,6 +36,8 @@ These promises are the shipped clusters, not the whole of ECMA-262.
   test: decl_return_call_runs
   test: es/functions/arrow
   test: es/functions/rest_params
+  test: es/legacy/arguments_iterator
+  test: arguments_iterator_runs
 - `language.ecma:objects`: A Program builds object literals, reads and writes properties, preserves `this` on method call, constructs with `new`, and inherits prototype methods on declared targets.
   test: es/objects/object_lit_access
   test: object_lit_access_runs
