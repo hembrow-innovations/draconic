@@ -35,3 +35,5 @@ examples/types/types-bin.dSYM
 
 # Zed clones tree-sitter grammars here when compiling the dev extension
 editors/zed/grammars/
+
+.stitch
