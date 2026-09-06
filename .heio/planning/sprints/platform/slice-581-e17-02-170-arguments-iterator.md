@@ -2,12 +2,12 @@
 id: "slice-581-e17-02-170-arguments-iterator"
 title: "E17.02.170 arguments @@iterator residual without with"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T22:30:00Z"
+updated_at: "2026-09-06T23:30:00Z"
 ---
 
 # E17.02.170 arguments @@iterator residual without with
@@ -39,7 +39,7 @@ None.
 - [x] O1: E17.02.170 fixtures run on the declared js target through the legacy harness
   CHECK: cargo test -p draconic-conformance --test legacy
   EXPECT: test result: ok.
-  EVIDENCE: test result: ok. 344 passed; 0 failed (arguments_iterator_runs)
+  EVIDENCE: cargo test -p draconic-conformance --test legacy → test result: ok. 344 passed; 0 failed (arguments_iterator_runs)
 
 ## Pool
 
