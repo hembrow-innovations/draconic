@@ -2,7 +2,7 @@
 id: "slice-644-ui-audit"
 title: "Public-site UI audit"
 kind: slice
-status: active
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-631-home-odm-layout
@@ -12,7 +12,7 @@ blocked_by:
   - slice-635-mobile-odm-wrap
 tags: [website, public-site]
 created_at: "2026-09-07T19:00:00Z"
-updated_at: "2026-09-07T08:00:00Z"
+updated_at: "2026-09-07T22:00:00Z"
 ---
 
 # Public-site UI audit
@@ -39,10 +39,10 @@ Home, Learn hub, one Learn chapter, Reference hub, one Reference page, and a sma
 
 ## Oracle checklist
 
-- [ ] O1: a closeout ticket links this slice and lists pages walked plus finding ticket ids
+- [x] O1: a closeout ticket links this slice and lists pages walked plus finding ticket ids
   CHECK: rg -l "slice-644-ui-audit" .heio/planning/tickets .heio/archive/planning/tickets
   EXPECT: ticket-
-  EVIDENCE: ticket-655-ui-audit-closeout in .heio/planning/tickets lists pages walked plus finding ticket-646 through ticket-654
+  EVIDENCE: `rg -l "slice-644-ui-audit" .heio/planning/tickets .heio/archive/planning/tickets` → ticket-655-ui-audit-closeout plus ticket-643 and findings ticket-646 through ticket-654; task-645 completed in archive
 
 ## Pool
 
