@@ -2,13 +2,13 @@
 id: "slice-630-site-shell"
 title: "ODM site shell"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-629-odm-tokens
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T22:50:00Z"
 ---
 
 # ODM site shell
@@ -35,10 +35,10 @@ Every route, including `/`, renders skip-to-content, a sticky side nav with word
 
 ## Oracle checklist
 
-- [ ] O1: root layout is skip plus sticky side nav plus main; side nav has wordmark, Learn, Reference, GitHub
+- [x] O1: root layout is skip plus sticky side nav plus main; side nav has wordmark, Learn, Reference, GitHub
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav site-footer-and-skip-link
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run site-header-primary-nav site-footer-and-skip-link` → Test Files  2 passed (2); task-637 completed in archive
 
 ## Pool
 
