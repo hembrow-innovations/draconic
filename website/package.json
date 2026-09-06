@@ -6,7 +6,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run learn-prev-next",
+    "test": "vitest run reference-hub-pages",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

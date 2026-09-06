@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-623-reference-hub-pages** — website Reference hub and working pages from existing markdown with status badges
 - **task-622-learn-prev-next** — website Learn prev/next following learn.md with both landings joining Dual worlds
 - **task-621-learn-pages** — website Learn chapter routes from existing markdown with status badges
 - **task-620-learn-hub-nav** — website Learn hub route and aside nav in hub order

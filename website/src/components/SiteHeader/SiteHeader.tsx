@@ -55,10 +55,7 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
           className={siteHeaderClusterVariants({ open })}
         >
           <Link to="/learn" className={siteHeaderLinkVariants()}>Learn</Link>
-          {
-            // @ts-expect-error Reference hub route is registered in a later sitting
-            <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>
-          }
+          <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>
           <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
           <ThemeToggle />
         </div>

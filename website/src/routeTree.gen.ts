@@ -10,6 +10,8 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CliRouteImport } from './routes/cli'
+import { Route as DualWorldRulesRouteImport } from './routes/dual-world-rules'
 import { Route as DualWorldsRouteImport } from './routes/dual-worlds'
 import { Route as FromJavascriptRouteImport } from './routes/from-javascript'
 import { Route as FromSystemsRouteImport } from './routes/from-systems'
@@ -19,10 +21,24 @@ import { Route as LearnRouteImport } from './routes/learn'
 import { Route as ModulesRouteImport } from './routes/modules'
 import { Route as NativeTypesRouteImport } from './routes/native-types'
 import { Route as PackagesRouteImport } from './routes/packages'
+import { Route as ReferenceRouteImport } from './routes/reference'
+import { Route as ReferenceHostIoRouteImport } from './routes/reference-host-io'
+import { Route as ReferencePackagesRouteImport } from './routes/reference-packages'
+import { Route as TypesRouteImport } from './routes/types'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CliRoute = CliRouteImport.update({
+  id: '/cli',
+  path: '/cli',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DualWorldRulesRoute = DualWorldRulesRouteImport.update({
+  id: '/dual-world-rules',
+  path: '/dual-world-rules',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DualWorldsRoute = DualWorldsRouteImport.update({
@@ -70,9 +86,31 @@ const PackagesRoute = PackagesRouteImport.update({
   path: '/packages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReferenceRoute = ReferenceRouteImport.update({
+  id: '/reference',
+  path: '/reference',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReferenceHostIoRoute = ReferenceHostIoRouteImport.update({
+  id: '/reference-host-io',
+  path: '/reference-host-io',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReferencePackagesRoute = ReferencePackagesRouteImport.update({
+  id: '/reference-packages',
+  path: '/reference-packages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TypesRoute = TypesRouteImport.update({
+  id: '/types',
+  path: '/types',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/cli': typeof CliRoute
+  '/dual-world-rules': typeof DualWorldRulesRoute
   '/dual-worlds': typeof DualWorldsRoute
   '/from-javascript': typeof FromJavascriptRoute
   '/from-systems': typeof FromSystemsRoute
@@ -82,9 +120,15 @@ export interface FileRoutesByFullPath {
   '/modules': typeof ModulesRoute
   '/native-types': typeof NativeTypesRoute
   '/packages': typeof PackagesRoute
+  '/reference': typeof ReferenceRoute
+  '/reference-host-io': typeof ReferenceHostIoRoute
+  '/reference-packages': typeof ReferencePackagesRoute
+  '/types': typeof TypesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/cli': typeof CliRoute
+  '/dual-world-rules': typeof DualWorldRulesRoute
   '/dual-worlds': typeof DualWorldsRoute
   '/from-javascript': typeof FromJavascriptRoute
   '/from-systems': typeof FromSystemsRoute
@@ -94,10 +138,16 @@ export interface FileRoutesByTo {
   '/modules': typeof ModulesRoute
   '/native-types': typeof NativeTypesRoute
   '/packages': typeof PackagesRoute
+  '/reference': typeof ReferenceRoute
+  '/reference-host-io': typeof ReferenceHostIoRoute
+  '/reference-packages': typeof ReferencePackagesRoute
+  '/types': typeof TypesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/cli': typeof CliRoute
+  '/dual-world-rules': typeof DualWorldRulesRoute
   '/dual-worlds': typeof DualWorldsRoute
   '/from-javascript': typeof FromJavascriptRoute
   '/from-systems': typeof FromSystemsRoute
@@ -107,11 +157,17 @@ export interface FileRoutesById {
   '/modules': typeof ModulesRoute
   '/native-types': typeof NativeTypesRoute
   '/packages': typeof PackagesRoute
+  '/reference': typeof ReferenceRoute
+  '/reference-host-io': typeof ReferenceHostIoRoute
+  '/reference-packages': typeof ReferencePackagesRoute
+  '/types': typeof TypesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/cli'
+    | '/dual-world-rules'
     | '/dual-worlds'
     | '/from-javascript'
     | '/from-systems'
@@ -121,9 +177,15 @@ export interface FileRouteTypes {
     | '/modules'
     | '/native-types'
     | '/packages'
+    | '/reference'
+    | '/reference-host-io'
+    | '/reference-packages'
+    | '/types'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/cli'
+    | '/dual-world-rules'
     | '/dual-worlds'
     | '/from-javascript'
     | '/from-systems'
@@ -133,9 +195,15 @@ export interface FileRouteTypes {
     | '/modules'
     | '/native-types'
     | '/packages'
+    | '/reference'
+    | '/reference-host-io'
+    | '/reference-packages'
+    | '/types'
   id:
     | '__root__'
     | '/'
+    | '/cli'
+    | '/dual-world-rules'
     | '/dual-worlds'
     | '/from-javascript'
     | '/from-systems'
@@ -145,10 +213,16 @@ export interface FileRouteTypes {
     | '/modules'
     | '/native-types'
     | '/packages'
+    | '/reference'
+    | '/reference-host-io'
+    | '/reference-packages'
+    | '/types'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CliRoute: typeof CliRoute
+  DualWorldRulesRoute: typeof DualWorldRulesRoute
   DualWorldsRoute: typeof DualWorldsRoute
   FromJavascriptRoute: typeof FromJavascriptRoute
   FromSystemsRoute: typeof FromSystemsRoute
@@ -158,6 +232,10 @@ export interface RootRouteChildren {
   ModulesRoute: typeof ModulesRoute
   NativeTypesRoute: typeof NativeTypesRoute
   PackagesRoute: typeof PackagesRoute
+  ReferenceRoute: typeof ReferenceRoute
+  ReferenceHostIoRoute: typeof ReferenceHostIoRoute
+  ReferencePackagesRoute: typeof ReferencePackagesRoute
+  TypesRoute: typeof TypesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -167,6 +245,20 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cli': {
+      id: '/cli'
+      path: '/cli'
+      fullPath: '/cli'
+      preLoaderRoute: typeof CliRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dual-world-rules': {
+      id: '/dual-world-rules'
+      path: '/dual-world-rules'
+      fullPath: '/dual-world-rules'
+      preLoaderRoute: typeof DualWorldRulesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dual-worlds': {
@@ -232,11 +324,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PackagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reference': {
+      id: '/reference'
+      path: '/reference'
+      fullPath: '/reference'
+      preLoaderRoute: typeof ReferenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reference-host-io': {
+      id: '/reference-host-io'
+      path: '/reference-host-io'
+      fullPath: '/reference-host-io'
+      preLoaderRoute: typeof ReferenceHostIoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reference-packages': {
+      id: '/reference-packages'
+      path: '/reference-packages'
+      fullPath: '/reference-packages'
+      preLoaderRoute: typeof ReferencePackagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/types': {
+      id: '/types'
+      path: '/types'
+      fullPath: '/types'
+      preLoaderRoute: typeof TypesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CliRoute: CliRoute,
+  DualWorldRulesRoute: DualWorldRulesRoute,
   DualWorldsRoute: DualWorldsRoute,
   FromJavascriptRoute: FromJavascriptRoute,
   FromSystemsRoute: FromSystemsRoute,
@@ -246,6 +368,10 @@ const rootRouteChildren: RootRouteChildren = {
   ModulesRoute: ModulesRoute,
   NativeTypesRoute: NativeTypesRoute,
   PackagesRoute: PackagesRoute,
+  ReferenceRoute: ReferenceRoute,
+  ReferenceHostIoRoute: ReferenceHostIoRoute,
+  ReferencePackagesRoute: ReferencePackagesRoute,
+  TypesRoute: TypesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
