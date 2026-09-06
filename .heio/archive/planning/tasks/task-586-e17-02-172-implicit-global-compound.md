@@ -2,14 +2,14 @@
 id: "task-586-e17-02-172-implicit-global-compound"
 title: "E17.02.172 unresolvable compound/update does not create a global"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-585-e17-02-172-implicit-global-compound"
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T19:15:00Z"
 ---
 
 # E17.02.172 unresolvable compound/update does not create a global
@@ -59,11 +59,11 @@ In non-strict code, `missing += 1`, `++missing`, `missing++`, and `--missing` th
 - Conformance `.drac` + `.meta` under es/legacy, harness `legacy` present and runs tests
 
 **Acceptance criteria:**
-- [ ] unresolvable `+=` / `++` / `--` throw ReferenceError and do not create `globalThis.missing`
-- [ ] compound RHS is not evaluated when the identifier is unresolvable
-- [ ] an already-created implicit global still updates
-- [ ] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
-- [ ] E17.02.172 is `done`; E17.02 stays `todo`
+- [x] unresolvable `+=` / `++` / `--` throw ReferenceError and do not create `globalThis.missing`
+- [x] compound RHS is not evaluated when the identifier is unresolvable
+- [x] an already-created implicit global still updates
+- [x] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
+- [x] E17.02.172 is `done`; E17.02 stays `todo`
 
 **Out of scope:**
 - Logical assignment
@@ -72,3 +72,10 @@ In non-strict code, `missing += 1`, `++missing`, `missing++`, and `--missing` th
 - Native observations
 - Marking E17.02 done
 - Workspace CHECK as this task's oracle
+
+## Gauntlet
+
+- **round:** 1
+- **command:** cargo test -p draconic-conformance --test legacy
+- **result:** win
+- **gap:** none. Fixture locks GetValue-first `language.ecma:expressions` on js; emit already uses native `+=` / `++` / `--`.

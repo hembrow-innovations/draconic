@@ -2,12 +2,12 @@
 id: "slice-585-e17-02-172-implicit-global-compound"
 title: "E17.02.172 unresolvable compound/update does not create a global"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T23:55:00Z"
 ---
 
 # E17.02.172 unresolvable compound/update does not create a global
@@ -36,10 +36,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: E17.02.172 fixtures run on the declared js target through the legacy harness
+- [x] O1: E17.02.172 fixtures run on the declared js target through the legacy harness
   CHECK: cargo test -p draconic-conformance --test legacy
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 348 passed; 0 failed (implicit_global_compound_runs)
 
 ## Pool
 

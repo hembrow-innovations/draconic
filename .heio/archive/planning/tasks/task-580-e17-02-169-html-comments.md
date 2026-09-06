@@ -2,16 +2,15 @@
 id: "task-580-e17-02-169-html-comments"
 title: "E17.02.169 Annex B.1.3 HTML-like comments without with"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-579-e17-02-169-html-comments"
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T12:45:00Z"
 ---
-
 # E17.02.169 Annex B.1.3 HTML-like comments without with
 
 ## Blocked by
@@ -59,11 +58,11 @@ In sloppy script, `<!--` is a single-line open comment. Line-start `-->` after n
 - Conformance `.drac` + `.meta` under es/legacy, harness `legacy` present and runs tests
 
 **Acceptance criteria:**
-- [ ] `<!--` and line-start `-->` do not evaluate the commented text
-- [ ] `ident-->0` is postfix decrement of `ident`
-- [ ] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
-- [ ] `cargo test -p draconic-lexer --lib` prints `test result: ok.`
-- [ ] E17.02.169 is `done`; E17.02 stays `todo`
+- [x] `<!--` and line-start `-->` do not evaluate the commented text
+- [x] `ident-->0` is postfix decrement of `ident`
+- [x] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
+- [x] `cargo test -p draconic-lexer --lib` prints `test result: ok.`
+- [x] E17.02.169 is `done`; E17.02 stays `todo`
 
 **Out of scope:**
 - E17.02.122 with-plus HTML comments
@@ -72,3 +71,7 @@ In sloppy script, `<!--` is a single-line open comment. Line-start `-->` after n
 - Native observations
 - Marking E17.02 done
 - Workspace CHECK as this task's oracle
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-conformance --test legacy` and `cargo test -p draconic-lexer --lib` — win. Diff keeps `language.ecma:annex-b`; no `with`; js-only; E17.02 stays todo.

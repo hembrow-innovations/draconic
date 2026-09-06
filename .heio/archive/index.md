@@ -2,6 +2,9 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — archived 6 met platform slices; closed website-redesign sprint (19 met slices) and ticket-628; 15 tickets remain; platform sprint stays active
+- **ticket-628-public-site-redesign** — Public site TanStack Start redesign
+- **task-627-fence-static-deploy** — Start static publish, shipped fence compile, not-yet pages stay prose
 - **task-624-search** — website title and heading search that reaches Learn Dual worlds
 - **task-623-reference-hub-pages** — website Reference hub and working pages from existing markdown with status badges
 - **task-622-learn-prev-next** — website Learn prev/next following learn.md with both landings joining Dual worlds

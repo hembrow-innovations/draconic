@@ -2,14 +2,13 @@
 id: "slice-579-e17-02-169-html-comments"
 title: "E17.02.169 Annex B.1.3 HTML-like comments without with"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T12:20:00Z"
 ---
-
 # E17.02.169 Annex B.1.3 HTML-like comments without with
 
 ## Why
@@ -34,16 +33,15 @@ None.
 - `cargo test --workspace` as this slice's oracle (workspace budget is [[slice-216-workspace-test-budget]] / ADR-0012 ten minutes)
 
 ## Oracle checklist
-
-- [ ] O1: E17.02.169 fixtures run on the declared js target through the legacy harness
+- [x] O1: E17.02.169 fixtures run on the declared js target through the legacy harness
   CHECK: cargo test -p draconic-conformance --test legacy
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 342 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.39s
 
-- [ ] O2: lexer trivia unit tests stay green for HTML-like comments
+- [x] O2: lexer trivia unit tests stay green for HTML-like comments
   CHECK: cargo test -p draconic-lexer --lib
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
 
 ## Pool
 
