@@ -8,6 +8,8 @@ Load the matching skill before the work it covers.
 
 - **docs**: committed vault under `docs/`
 - **domain-modeling**: glossary and ADRs
+- **rust-development**: Cargo crates, pipeline, diagnostics, workspace tests
+- **draconic-language**: toolchain conventions (Frontend, IR, dual backends, Conformance)
 - **draconic-loop**: one atomic Roadmap item, test-first
 - **gauntlet-loop**: bounded implement-then-critic until the bar wins
 - **diagnose**: hard bugs and performance regressions
@@ -29,6 +31,7 @@ This repo **is** the Draconic toolchain. Completeness is driven by:
 - [`ROADMAP.md`](./ROADMAP.md) — feature checklist (Loop source of truth)
 - [`CONTEXT.md`](./CONTEXT.md) — glossary
 - [`docs/adr/`](./docs/adr/) — locked decisions
+- **draconic-language** skill — toolchain conventions
 - **draconic-loop** skill — one atomic Roadmap item per Loop (test-first)
 
 Prefer `cargo test --workspace` and the `draconic` CLI over ad-hoc scripts.
