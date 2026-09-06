@@ -23,6 +23,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website_pipeline_learn_skeleton_is_walkable
   test: website/src/tests/learn-hub-nav.test.ts
   test: website/src/tests/learn-pages.test.ts
+  test: website/src/tests/learn-prev-next.test.ts
 - `public-site.ia:reference-walkable`: Reference is walkable as CLI, types, Dual-world rules, host I/O, and packages.
   test: website_pipeline_reference_skeleton_is_walkable
 - `public-site.fences:shipped-must-build`: A shipped page's copy-paste Draconic fence builds.

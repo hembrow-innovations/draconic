@@ -1,5 +1,6 @@
 import { DocsShell } from "../../docs/DocsShell";
 import { LearnNav } from "../LearnNav";
+import { LearnPager } from "../LearnPager";
 import type { LearnPageProps } from "./LearnPage.types";
 
 /**
@@ -8,7 +9,7 @@ import type { LearnPageProps } from "./LearnPage.types";
  * Teaching copy stays in `website/*.md`. Status comes from frontmatter.
  *
  * @param props - Loaded markdown page
- * @returns Docs shell with Learn nav and body
+ * @returns Docs shell with Learn nav, body, and prev/next
  */
 export function LearnPage({ page }: LearnPageProps) {
   return (
@@ -16,6 +17,8 @@ export function LearnPage({ page }: LearnPageProps) {
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<LearnNav />}
       body={page.body}
-    />
+    >
+      <LearnPager slug={page.slug} />
+    </DocsShell>
   );
 }
