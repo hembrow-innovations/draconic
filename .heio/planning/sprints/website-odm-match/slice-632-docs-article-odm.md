@@ -2,16 +2,15 @@
 id: "slice-632-docs-article-odm"
 title: "ODM docs article"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-629-odm-tokens
   - slice-630-site-shell
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T07:00:00Z"
 ---
-
 # ODM docs article
 
 ## Why
@@ -36,10 +35,10 @@ Learn and Reference articles render kicker, heading, status badge, ODM-styled ma
 
 ## Oracle checklist
 
-- [ ] O1: docs article has kicker, badge, and ODM prose; home still does not use DocsShell
+- [x] O1: docs article has kicker, badge, and ODM prose; home still does not use DocsShell
   CHECK: pnpm --dir website exec vitest run docs-shell markdown-render
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run docs-shell markdown-render` → Test Files  2 passed (2); task-639 completed in archive
 
 ## Pool
 
