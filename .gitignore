@@ -18,6 +18,7 @@
 *.exe
 /tmp
 .loop/worktrees/
+.loop/logs/
 .scratch/**/claim.lock
 examples/todo/server/server
 examples/types/types-bin
