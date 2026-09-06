@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
 import { Link } from "@tanstack/react-router";
+import { SiteSearch } from "../SiteSearch";
 import { ThemeToggle } from "../ThemeToggle";
 import {
   siteHeaderClusterVariants,
@@ -57,6 +58,7 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
           <Link to="/learn" className={siteHeaderLinkVariants()}>Learn</Link>
           <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>
           <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
+          <SiteSearch />
           <ThemeToggle />
         </div>
       </nav>

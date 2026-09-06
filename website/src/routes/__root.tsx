@@ -8,9 +8,14 @@ import {
 import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { SkipLink } from "../components/SkipLink";
+import {
+  buildSearchIndex,
+  SearchIndexProvider,
+} from "../lib/search";
 import "../styles/theme.css";
 
 export const Route = createRootRoute({
+  loader: () => ({ searchIndex: buildSearchIndex() }),
   head: () => ({
     meta: [
       {
@@ -29,14 +34,17 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  const { searchIndex } = Route.useLoaderData();
   return (
     <RootDocument>
-      <SkipLink />
-      <SiteHeader />
-      <main id="main" tabIndex={-1}>
-        <Outlet />
-      </main>
-      <SiteFooter />
+      <SearchIndexProvider index={searchIndex}>
+        <SkipLink />
+        <SiteHeader />
+        <main id="main" tabIndex={-1}>
+          <Outlet />
+        </main>
+        <SiteFooter />
+      </SearchIndexProvider>
     </RootDocument>
   );
 }
