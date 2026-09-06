@@ -7,6 +7,7 @@ import { loadMarkdownPage, renderMarkdown } from "../lib/content";
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
 const navDir = join(srcDir, "features", "learn", "LearnNav");
+const cardsDir = join(srcDir, "features", "learn", "LearnHubCards");
 const learnRoute = join(srcDir, "routes", "learn.tsx");
 
 /** Hub order from `public-site.ia:learn-walkable` and `website/learn.md`. */
@@ -62,10 +63,28 @@ test("learn hub nav", () => {
     expect(statSync(join(navDir, name)).isFile()).toBe(true);
   }
   expect(statSync(learnRoute).isFile()).toBe(true);
+  expect(statSync(cardsDir).isDirectory()).toBe(true);
+  for (const name of [
+    "index.ts",
+    "LearnHubCards.tsx",
+    "LearnHubCards.types.ts",
+    "LearnHubCards.variants.ts",
+  ]) {
+    expect(statSync(join(cardsDir, name)).isFile()).toBe(true);
+  }
 
   const route = readFileSync(learnRoute, "utf8");
   const nav = readFileSync(join(navDir, "LearnNav.tsx"), "utf8");
   const variants = readFileSync(join(navDir, "LearnNav.variants.ts"), "utf8");
+  const cards = readFileSync(join(cardsDir, "LearnHubCards.tsx"), "utf8");
+  const cardVariants = readFileSync(
+    join(cardsDir, "LearnHubCards.variants.ts"),
+    "utf8",
+  );
+  const learnPage = readFileSync(
+    join(srcDir, "features", "learn", "LearnPage", "LearnPage.tsx"),
+    "utf8",
+  );
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
   const header = readFileSync(
@@ -84,9 +103,11 @@ test("learn hub nav", () => {
   expect(route).toContain('"/learn"');
   expect(route).toContain("DocsShell");
   expect(route).toContain("LearnNav");
+  expect(route).toContain("LearnHubCards");
   expect(route).toContain('loadMarkdownPage("learn")');
   expect(route).toContain("body");
   expect(route).not.toContain("HomeHero");
+  expect(route).not.toContain("HomeFeatures");
   expect(route).not.toMatch(/playground/i);
   expect(route).not.toContain("docs/specs");
   expect(route).not.toContain(".html");
@@ -95,6 +116,8 @@ test("learn hub nav", () => {
 
   expect(home).not.toContain("DocsShell");
   expect(home).not.toContain("LearnNav");
+  expect(home).not.toContain("LearnHubCards");
+  expect(learnPage).not.toContain("LearnHubCards");
   expect(root).not.toContain("LearnNav");
   expect(header).toContain("LearnNav");
   expect(header).toContain('from "../../features/learn/LearnNav"');
@@ -130,6 +153,10 @@ test("learn hub nav", () => {
     nav,
     learnPath.flatMap((chapter) => [chapter.href, `>${chapter.label}<`]),
   );
+  assertOrder(
+    cards,
+    learnPath.flatMap((chapter) => [chapter.href, `>${chapter.label}<`]),
+  );
 
   const fromJs = nav.indexOf("/from-javascript");
   const fromSystems = nav.indexOf("/from-systems");
@@ -138,6 +165,14 @@ test("learn hub nav", () => {
   expect(fromSystems).toBeGreaterThan(-1);
   expect(dualWorlds).toBeGreaterThan(fromJs);
   expect(dualWorlds).toBeGreaterThan(fromSystems);
+
+  const cardsFromJs = cards.indexOf("/from-javascript");
+  const cardsFromSystems = cards.indexOf("/from-systems");
+  const cardsDualWorlds = cards.indexOf("/dual-worlds");
+  expect(cardsFromJs).toBeGreaterThan(-1);
+  expect(cardsFromSystems).toBeGreaterThan(-1);
+  expect(cardsDualWorlds).toBeGreaterThan(cardsFromJs);
+  expect(cardsDualWorlds).toBeGreaterThan(cardsFromSystems);
 
   expect(page.title).toBe("Learn");
   expect(page.section).toBe("learn");
@@ -170,6 +205,40 @@ test("learn hub nav", () => {
   expect(nav).not.toMatch(/bg-blue-500/);
   expect(route).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(route).not.toMatch(/\bmax-w-sm\b/);
+
+  expect(cards).toContain("public-site.ia:learn-walkable");
+  expect(cards).toContain("from \"@tanstack/react-router\"");
+  expect(cards).toContain("Link");
+  expect(cards).toContain("<div");
+  expect(cards).toContain("<h3>");
+  expect(cards).toContain("learnHubCardsVariants");
+  expect(cards).toContain("learnHubCardVariants");
+  expect(cards.match(/<div className=\{learnHubCardVariants/g)?.length).toBe(
+    learnPath.length,
+  );
+  expect(cards.match(/<h3>/g)?.length).toBe(learnPath.length);
+  expect(cards).not.toContain(".html");
+  expect(cards).not.toMatch(/playground/i);
+  expect(cards).not.toContain("docs/");
+  expect(cards).not.toContain("vault");
+  expect(cards).not.toContain("tutorial");
+  expect(cards).not.toContain("CLI");
+  expect(cards).not.toContain("getting started");
+  expect(cards).not.toContain("Reference");
+  expect(cards).not.toContain("HomeFeatures");
+  expect(cards).not.toContain("HomeHero");
+  expect(cards).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+  expect(cards).not.toMatch(/\bmax-w-sm\b/);
+  expect(cards).not.toMatch(/bg-blue-500/);
+
+  expect(cardVariants).toContain('from "class-variance-authority"');
+  expect(cardVariants).toContain("cva(");
+  expect(cardVariants).toContain("grid");
+  expect(cardVariants).toContain("card");
+  expect(cardVariants).toContain("font-body");
+  expect(cardVariants).not.toContain("grid-cols-3");
+  expect(cardVariants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+  expect(cardVariants).not.toMatch(/\bmax-w-sm\b/);
 
   for (const file of walkProductFiles(srcDir)) {
     const source = readFileSync(file, "utf8");

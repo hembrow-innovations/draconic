@@ -2,7 +2,7 @@
 id: "task-641-hub-cards"
 title: "Card-grid Learn and Reference hubs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-639-docs-article-odm" ]
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-634-hub-cards"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T21:15:00Z"
 ---
 
 # Card-grid Learn and Reference hubs
@@ -67,13 +67,13 @@ Same hubs, plus a card grid of the same links. Still not the home landing.
 - Card grid CVA; existing chapter and working-page hrefs
 
 **Acceptance criteria:**
-- [ ] `/learn` and `/reference` render cards to each listed page
-- [ ] Hub markdown still loads
-- [ ] Named tests pass and typecheck exits 0
+- [x] `/learn` and `/reference` render cards to each listed page
+- [x] Hub markdown still loads
+- [x] Named tests pass and typecheck exits 0
 
 **Out of scope:**
 - Home cards; changing chapter set; playground
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages` — win. `Test Files  2 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages` — win. `Test Files  2 passed (2)`. `pnpm --dir website exec tsc --noEmit` exits 0.

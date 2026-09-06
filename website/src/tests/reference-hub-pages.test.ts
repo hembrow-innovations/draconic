@@ -8,6 +8,7 @@ const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
 const routesDir = join(srcDir, "routes");
 const navDir = join(srcDir, "features", "reference", "ReferenceNav");
+const cardsDir = join(srcDir, "features", "reference", "ReferenceHubCards");
 const pageDir = join(srcDir, "features", "reference", "ReferencePage");
 const referenceRoute = join(routesDir, "reference.tsx");
 
@@ -99,11 +100,25 @@ test("reference hub pages", () => {
     expect(statSync(join(pageDir, name)).isFile()).toBe(true);
   }
   expect(statSync(referenceRoute).isFile()).toBe(true);
+  expect(statSync(cardsDir).isDirectory()).toBe(true);
+  for (const name of [
+    "index.ts",
+    "ReferenceHubCards.tsx",
+    "ReferenceHubCards.types.ts",
+    "ReferenceHubCards.variants.ts",
+  ]) {
+    expect(statSync(join(cardsDir, name)).isFile()).toBe(true);
+  }
   expect(existsSync(join(websiteDir, "generate.drac"))).toBe(false);
 
   const route = readFileSync(referenceRoute, "utf8");
   const nav = readFileSync(join(navDir, "ReferenceNav.tsx"), "utf8");
   const variants = readFileSync(join(navDir, "ReferenceNav.variants.ts"), "utf8");
+  const cards = readFileSync(join(cardsDir, "ReferenceHubCards.tsx"), "utf8");
+  const cardVariants = readFileSync(
+    join(cardsDir, "ReferenceHubCards.variants.ts"),
+    "utf8",
+  );
   const pageSource = readFileSync(join(pageDir, "ReferencePage.tsx"), "utf8");
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
@@ -127,9 +142,11 @@ test("reference hub pages", () => {
   expect(route).toContain('"/reference"');
   expect(route).toContain("DocsShell");
   expect(route).toContain("ReferenceNav");
+  expect(route).toContain("ReferenceHubCards");
   expect(route).toContain('loadMarkdownPage("reference")');
   expect(route).toContain("body");
   expect(route).not.toContain("HomeHero");
+  expect(route).not.toContain("HomeFeatures");
   expect(route).not.toContain("LearnNav");
   expect(route).not.toContain("LearnPage");
   expect(route).not.toMatch(/playground/i);
@@ -141,6 +158,8 @@ test("reference hub pages", () => {
 
   expect(home).not.toContain("DocsShell");
   expect(home).not.toContain("ReferenceNav");
+  expect(home).not.toContain("ReferenceHubCards");
+  expect(pageSource).not.toContain("ReferenceHubCards");
   expect(root).not.toContain("ReferenceNav");
   expect(header).toContain("LearnNav");
   expect(header).toContain("ReferenceNav");
@@ -185,6 +204,10 @@ test("reference hub pages", () => {
     nav,
     referencePath.flatMap((entry) => [entry.href, `>${entry.label}<`]),
   );
+  assertOrder(
+    cards,
+    referencePath.flatMap((entry) => [entry.href, `>${entry.label}<`]),
+  );
 
   expect(page.title).toBe("Reference");
   expect(page.section).toBe("reference");
@@ -224,6 +247,45 @@ test("reference hub pages", () => {
   expect(nav).not.toMatch(/bg-blue-500/);
   expect(route).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(route).not.toMatch(/\bmax-w-sm\b/);
+
+  expect(cards).toContain("public-site.ia:reference-walkable");
+  expect(cards).toContain("from \"@tanstack/react-router\"");
+  expect(cards).toContain("Link");
+  expect(cards).toContain("<div");
+  expect(cards).toContain("<h3>");
+  expect(cards).toContain("referenceHubCardsVariants");
+  expect(cards).toContain("referenceHubCardVariants");
+  expect(cards.match(/<div className=\{referenceHubCardVariants/g)?.length).toBe(
+    referencePath.length,
+  );
+  expect(cards.match(/<h3>/g)?.length).toBe(referencePath.length);
+  expect(cards).not.toContain(".html");
+  expect(cards).not.toMatch(/playground/i);
+  expect(cards).not.toContain("docs/");
+  expect(cards).not.toContain("vault");
+  expect(cards).not.toContain("api-cli");
+  expect(cards).not.toContain("Learn");
+  expect(cards).not.toContain("Install");
+  expect(cards).not.toContain("from JavaScript");
+  expect(cards).not.toContain("from systems");
+  expect(cards).not.toContain("Dual worlds");
+  expect(cards).not.toContain("/host-io");
+  expect(cards).not.toContain('to="/packages"');
+  expect(cards).not.toContain("@ts-expect-error");
+  expect(cards).not.toContain("HomeFeatures");
+  expect(cards).not.toContain("HomeHero");
+  expect(cards).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+  expect(cards).not.toMatch(/\bmax-w-sm\b/);
+  expect(cards).not.toMatch(/bg-blue-500/);
+
+  expect(cardVariants).toContain('from "class-variance-authority"');
+  expect(cardVariants).toContain("cva(");
+  expect(cardVariants).toContain("grid");
+  expect(cardVariants).toContain("card");
+  expect(cardVariants).toContain("font-body");
+  expect(cardVariants).not.toContain("grid-cols-3");
+  expect(cardVariants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+  expect(cardVariants).not.toMatch(/\bmax-w-sm\b/);
 
   expect(pageSource).toContain("DocsShell");
   expect(pageSource).toContain("ReferenceNav");

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { DocsShell } from "../features/docs/DocsShell";
+import { LearnHubCards } from "../features/learn/LearnHubCards";
 import { LearnNav } from "../features/learn/LearnNav";
 import { loadMarkdownPage } from "../lib/content";
 
@@ -21,6 +22,8 @@ function LearnHubRoute() {
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<LearnNav />}
       body={page.body}
-    />
+    >
+      <LearnHubCards />
+    </DocsShell>
   );
 }
