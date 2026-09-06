@@ -1,8 +1,10 @@
 # Archive
 
-One-liners of what landed. Newest first. Closed vault issues from docs/planning.
+One-liners of what landed. Newest first.
 
-- **housekeeping** — archived 12 failed slices, 12 closed tickets; 14 ready-for-agent tickets remain; pump stays held at WIP cap
+- **task-217-workspace-test-budget** — workspace tests finish inside the oracle budget
+- **housekeeping** — migrated .heio planning tree to the management layout
+- **housekeeping** — archived 12 abandoned slices, 12 closed tickets; 14 open tickets remain
 - **ticket-190-l07-02-workspace-tests-native** — L07.02 workspace tests did not pass (O1 O2 native runtime C)
 - **ticket-191-d04-workspace-tests-timeout** — D04 workspace tests did not finish (O1 workspace-timeout)
 - **ticket-192-l09-workspace-timeout** — L09 workspace tests did not finish (O2 workspace-timeout)
@@ -16,19 +18,19 @@ One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 - **ticket-200-l10-workspace-timeout** — L10 workspace tests did not finish (O3 workspace-timeout)
 - **ticket-201-r03-workspace-timeout** — R03 workspace tests did not finish (O2 workspace-timeout)
 - **housekeeping** — archived 12 completed tasks; 12 released slices remain for Reviewer; 12 promoted tickets stay live; pump stays held at WIP cap
-- **d04-workspace-tests-timeout** — D04 workspace tests finish
-- **l07-02-workspace-tests-native** — L07.02 workspace tests pass (native runtime C)
-- **l09-workspace-timeout** — L09 workspace tests finish
-- **l10-02-workspace-timeout** — L10.02 workspace tests finish
-- **l10-workspace-timeout** — L10 workspace tests finish
-- **p04-workspace-tests** — P04 workspace tests pass
-- **r03-02-workspace-tests** — R03.02 workspace tests pass
-- **r03-workspace-timeout** — R03 workspace tests finish
-- **r04-workspace-timeout** — R04 workspace tests finish
-- **r05-02-workspace-tests** — R05.02 workspace tests pass
-- **r05-workspace-timeout** — R05 workspace tests finish
-- **r06-workspace-timeout** — R06 workspace tests finish
-- **housekeeping** — archived 24 finished slices (12 met, 12 failed), 24 completed tasks, 24 closed tickets; 12 ready-for-agent tickets remain; pump stays held at WIP cap
+- **task-430-d04-workspace-tests-timeout** — D04 workspace tests finish
+- **task-541-l07-02-workspace-tests-native** — L07.02 workspace tests pass (native runtime C)
+- **task-548-l09-workspace-timeout** — L09 workspace tests finish
+- **task-551-l10-02-workspace-timeout** — L10.02 workspace tests finish
+- **task-553-l10-workspace-timeout** — L10 workspace tests finish
+- **task-555-p04-workspace-tests** — P04 workspace tests pass
+- **task-565-r03-02-workspace-tests** — R03.02 workspace tests pass
+- **task-567-r03-workspace-timeout** — R03 workspace tests finish
+- **task-569-r04-workspace-timeout** — R04 workspace tests finish
+- **task-571-r05-02-workspace-tests** — R05.02 workspace tests pass
+- **task-573-r05-workspace-timeout** — R05 workspace tests finish
+- **task-575-r06-workspace-timeout** — R06 workspace tests finish
+- **housekeeping** — archived 24 finished slices (12 met, 12 failed), 24 completed tasks, 24 closed tickets; 12 open tickets remain
 - **ticket-104-r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
 - **ticket-105-r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
 - **ticket-106-r02-01-permission-grants-fs-read-write** — R02.01 Permission grants: fs read/write, net listen/connect (as designed)
@@ -53,30 +55,30 @@ One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 - **ticket-90-l10-crypto-later-hmac-aead-after** — L10 Crypto later: HMAC + AEAD (after L03)
 - **ticket-91-l10-01-hmac-sha256-after-l03** — L10.01 HMAC-SHA256 (after L03)
 - **ticket-92-l10-02-aead-encrypt-decrypt-after-l03** — L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
-- **d04-workspace-tests** — D04 workspace tests pass
-- **l07-02-workspace-tests** — L07.02 workspace tests pass
-- **l07-workspace-timeout** — L07 workspace tests finish
-- **l08-url-query-parse-serialize** — L08 URL / query parse + serialize
-- **l09-mime-multipart-later** — L09 MIME multipart later (HTTP-shaped programs; after H10)
-- **l10-01-hmac-sha256-after-l03** — L10.01 HMAC-SHA256 (after L03)
-- **l10-02-aead-encrypt-decrypt-after-l03** — L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
-- **l10-crypto-later-hmac-aead-after** — L10 Crypto later: HMAC + AEAD (after L03)
-- **p04-flagship-service-example-typed-http** — P04 Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09)
-- **p05-shebang-support-docs-usr-bin** — P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)
-- **r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
-- **r02-01-permission-grants-fs-read-write** — R02.01 Permission grants: fs read/write, net listen/connect (as designed)
-- **r02-02-deny-path-clear-diagnostic** — R02.02 Deny path: clear diagnostic when host op lacks grant
-- **r02-03-cli-runtime-flags-to-grant** — R02.03 CLI/runtime flags to grant subset (opt-in permissions)
-- **r02-04-default-policy-documented** — R02.04 Default policy documented (permissive vs locked-down as designed)
-- **r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
-- **r03-01-integration-tampered-cache-refused** — R03.01 Integration: tampered cache refused (depends K08)
-- **r03-02-integration-lock-hash-mismatch-hard** — R03.02 Integration: lock hash mismatch hard-fails build
-- **r03-supply-chain-policy-tests-once** — R03 Supply-chain policy tests once K08 lands (lock verify refuse tamper)
-- **r04-panic-abort-vs-catchable-exception** — R04 Panic/abort vs catchable exception policy; fixtures per class
-- **r05-02-embed-runtime-fuzz-or-stress** — R05.02 Embed/runtime fuzz or stress hooks
-- **r05-fuzz-stress-hooks-parser-embed** — R05 Fuzz/stress hooks: parser/embed/runtime entry points
-- **r06-panic-backtraces-with-source-locations** — R06 Panic backtraces with source locations
-- **s02-expand-test262-allowlist-promote-first** — S02 Expand Test262 allowlist / promote first failure cluster (see **E19.02**)
+- **task-431-d04-workspace-tests** — D04 workspace tests pass
+- **task-542-l07-02-workspace-tests** — L07.02 workspace tests pass
+- **task-545-l07-workspace-timeout** — L07 workspace tests finish
+- **task-546-l08-url-query-parse-serialize** — L08 URL / query parse + serialize
+- **task-547-l09-mime-multipart-later** — L09 MIME multipart later (HTTP-shaped programs; after H10)
+- **task-549-l10-01-hmac-sha256-after-l03** — L10.01 HMAC-SHA256 (after L03)
+- **task-550-l10-02-aead-encrypt-decrypt-after-l03** — L10.02 AEAD encrypt/decrypt (after L03; algorithm as designed)
+- **task-552-l10-crypto-later-hmac-aead-after** — L10 Crypto later: HMAC + AEAD (after L03)
+- **task-554-p04-flagship-service-example-typed-http** — P04 Flagship service example: typed HTTP + fs/config + git dep (after H17 + K09)
+- **task-556-p05-shebang-support-docs-usr-bin** — P05 Shebang support docs + `#!/usr/bin/env draconic` run path (with **U14**)
+- **task-557-r01-embed-eval-resource-limits-max** — R01 Embed/eval resource limits: max source size, alloc/time budget
+- **task-558-r02-01-permission-grants-fs-read-write** — R02.01 Permission grants: fs read/write, net listen/connect (as designed)
+- **task-559-r02-02-deny-path-clear-diagnostic** — R02.02 Deny path: clear diagnostic when host op lacks grant
+- **task-560-r02-03-cli-runtime-flags-to-grant** — R02.03 CLI/runtime flags to grant subset (opt-in permissions)
+- **task-561-r02-04-default-policy-documented** — R02.04 Default policy documented (permissive vs locked-down as designed)
+- **task-562-r02-permission-model-optional-deno-like** — R02 Permission model (optional Deno-like): grant/deny fs and net; clear deny diagnostics
+- **task-563-r03-01-integration-tampered-cache-refused** — R03.01 Integration: tampered cache refused (depends K08)
+- **task-564-r03-02-integration-lock-hash-mismatch-hard** — R03.02 Integration: lock hash mismatch hard-fails build
+- **task-566-r03-supply-chain-policy-tests-once** — R03 Supply-chain policy tests once K08 lands (lock verify refuse tamper)
+- **task-568-r04-panic-abort-vs-catchable-exception** — R04 Panic/abort vs catchable exception policy; fixtures per class
+- **task-570-r05-02-embed-runtime-fuzz-or-stress** — R05.02 Embed/runtime fuzz or stress hooks
+- **task-572-r05-fuzz-stress-hooks-parser-embed** — R05 Fuzz/stress hooks: parser/embed/runtime entry points
+- **task-574-r06-panic-backtraces-with-source-locations** — R06 Panic backtraces with source locations
+- **task-576-s02-expand-test262-allowlist-promote-first** — S02 Expand Test262 allowlist / promote first failure cluster (see **E19.02**)
 - **housekeeping** — archived 8 finished slices (3 met, 5 failed), 8 completed tasks, 8 closed tickets; pump reset idle; platform sprint still holds 24 in-flight slices
 - **ticket-187-workspace-disabled-gha-workflow** — Workspace tests fail: release-artifact.yml renamed .disabled
 - **ticket-185-l07-02-workspace-timeout** — L07.02 workspace tests did not finish (O2 timeout)
@@ -86,14 +88,14 @@ One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 - **ticket-86-l07-01-parse-long-short-flags-positionals** — L07.01 Parse long/short flags + positionals from string array
 - **ticket-85-l07-flags-cli-parse-argv-typed** — L07 Flags/CLI parse: argv → typed options/positionals
 - **ticket-84-l06-logging-leveled-logger-stderr-stdout** — L06 Logging: leveled logger; stderr/stdout sink
-- **d04-workspace-disabled-gha** — D04 workspace tests vs disabled GHA workflow
-- **l07-02-workspace-timeout** — L07.02 workspace tests finish
-- **l07-02-typed-options-bool-string-number** — L07.02 Typed options (bool/string/number); help text as designed
-- **l07-01-parse-long-short-flags-positionals** — L07.01 Parse long/short flags + positionals from string array
-- **l07-flags-cli-parse-argv-typed** — L07 Flags/CLI parse: argv → typed options/positionals
-- **l06-workspace-timeout** — L06 workspace tests finish
-- **l06-logging-leveled-logger-stderr-stdout-sink** — L06 Logging: leveled logger; stderr/stdout sink
-- **l05-workspace-timeout** — L05 workspace tests finish
+- **task-429-d04-workspace-disabled-gha** — D04 workspace tests vs disabled GHA workflow
+- **task-543-l07-02-workspace-timeout** — L07.02 workspace tests finish
+- **task-540-l07-02-typed-options-bool-string-number** — L07.02 Typed options (bool/string/number); help text as designed
+- **task-539-l07-01-parse-long-short-flags-positionals** — L07.01 Parse long/short flags + positionals from string array
+- **task-544-l07-flags-cli-parse-argv-typed** — L07 Flags/CLI parse: argv → typed options/positionals
+- **task-538-l06-workspace-timeout** — L06 workspace tests finish
+- **task-537-l06-logging-leveled-logger-stderr-stdout-sink** — L06 Logging: leveled logger; stderr/stdout sink
+- **task-536-l05-workspace-timeout** — L05 workspace tests finish
 - **housekeeping** — archived 131 finished slices (66 met, 65 failed), 72 completed tasks, 73 closed tickets; pump reset idle; platform sprint still holds 26 in-flight slices
 - **ticket-120-c01-workspace-timeout** — C01 workspace tests did not finish (O2 timeout)
 - **ticket-121-c02-workspace-timeout** — C02 workspace tests did not finish (O2 timeout)
@@ -168,78 +170,78 @@ One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 - **ticket-81-l03-crypto-sha-256-digest-secure** — L03 Crypto: SHA-256 digest + secure random bytes
 - **ticket-82-l04-compression-later-gzip-deflate-byte** — L04 Compression later: gzip/deflate byte buffers
 - **ticket-83-l05-in-language-test-framework-describe** — L05 In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test`
-- **c01-workspace-timeout** — C01 workspace tests finish
-- **c02-workspace-timeout** — C02 workspace tests finish
-- **c03-workspace-timeout** — C03 workspace tests finish
-- **c04-workspace-timeout** — C04 workspace tests finish
-- **c05-workspace-timeout** — C05 workspace tests finish
-- **c06-workspace-timeout** — C06 workspace tests finish
-- **d01-workspace-timeout** — D01 workspace tests finish
-- **d02-workspace-timeout** — D02 workspace tests finish
-- **d03-01-workspace-timeout** — D03.01 workspace tests finish
-- **d03-02-workspace-tests** — D03.02 workspace tests pass
-- **d03-workspace-timeout** — D03 workspace tests finish
-- **d04-01-workspace-timeout** — D04.01 workspace tests finish
-- **d04-02-workspace-timeout** — D04.02 workspace tests finish
-- **d04-workspace-timeout** — D04 workspace tests finish
-- **d05-01-workspace-timeout** — D05.01 workspace tests finish
-- **d05-02-workspace-timeout** — D05.02 workspace tests finish
-- **d05-workspace-timeout** — D05 workspace tests finish
-- **e17-02-remainder-workspace-timeout** — E17.02 remainder workspace tests finish
-- **e18-44-workspace-timeout** — E18.44 remainder workspace tests finish
-- **f02-workspace-timeout** — F02 workspace tests finish
-- **f03-c-compatible-struct-layout** — F03 C-compatible struct layout (repr(C)-style); read/write both sides
-- **f03-workspace-timeout** — F03 workspace tests finish
-- **f04-workspace-timeout** — F04 workspace tests finish
-- **f05-workspace-timeout** — F05 workspace tests finish
-- **f07-workspace-timeout** — F07 workspace tests finish
-- **f08-workspace-timeout** — F08 workspace tests finish
-- **f09-workspace-timeout** — F09 workspace tests finish
-- **h00-workspace-timeout** — H00 workspace tests finish
-- **h01-workspace-timeout** — H01 workspace tests finish
-- **h02-workspace-timeout** — H02 workspace tests finish
-- **h03-workspace-timeout** — H03 workspace tests finish
-- **h04-workspace-timeout** — H04 workspace tests finish
-- **h05-workspace-timeout** — H05 workspace tests finish
-- **h06-workspace-timeout** — H06 workspace tests finish
-- **h07-workspace-timeout** — H07 workspace tests finish
-- **h08-workspace-timeout** — H08 workspace tests finish
-- **h09-workspace-timeout** — H09 workspace tests finish
-- **h10-workspace-timeout** — H10 workspace tests finish
-- **h11-workspace-timeout** — H11 workspace tests finish
-- **h12-workspace-timeout** — H12 workspace tests finish
-- **h13-workspace-timeout** — H13 workspace tests finish
-- **h14-workspace-timeout** — H14 workspace tests finish
-- **h15-workspace-timeout** — H15 workspace tests finish
-- **h16-workspace-timeout** — H16 workspace tests finish
-- **h17-04-workspace-timeout** — H17.04 workspace tests finish
-- **h17-workspace-timeout** — H17 workspace tests finish
-- **k01-workspace-timeout** — K01 workspace tests finish
-- **k02-workspace-timeout** — K02 workspace tests finish
-- **k03-workspace-timeout** — K03 workspace tests finish
-- **k04-workspace-timeout** — K04 workspace tests finish
-- **k05-workspace-timeout** — K05 workspace tests finish
-- **k07-workspace-timeout** — K07 workspace tests finish
-- **k08-workspace-timeout** — K08 workspace tests finish
-- **k09-e2e-temp-git-dep-consumer** — K09 E2E: temp git dep + consumer Program
-- **k09-workspace-timeout** — K09 workspace tests finish
-- **k11-01-workspace-timeout** — K11.01 workspace tests finish
-- **k11-02-workspace-timeout** — K11.02 workspace tests finish
-- **k11-03-workspace-timeout** — K11.03 workspace tests finish
-- **k11-04-workspace-timeout** — K11.04 workspace tests finish
-- **k11-05-workspace-timeout** — K11.05 workspace tests finish
-- **k11-post-v1-packaging-not-v1** — K11 Post-v1 packaging (not v1 bar)
-- **k11-workspace-timeout** — K11 workspace tests finish
-- **l01-oracle-timeout** — L01 encoding and workspace checks finish
-- **l02-01-groupby-chunk-or-designed-names** — L02.01 `groupBy` / `chunk` (or designed names) on arrays
-- **l02-01-workspace-timeout** — L02.01 workspace tests finish
-- **l02-02-deque-or-designed-push-pop** — L02.02 Deque (or designed): push/pop both ends
-- **l02-collections-helpers-groupby-chunk-deque** — L02 Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set)
-- **l03-crypto-sha-256-digest-secure-random** — L03 Crypto: SHA-256 digest + secure random bytes
-- **l03-workspace-timeout** — L03 workspace tests finish
-- **l04-compression-later-gzip-deflate** — L04 Compression later: gzip/deflate byte buffers
-- **l04-workspace-timeout** — L04 workspace tests finish
-- **l05-in-language-test-framework-describe** — L05 In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test`
+- **task-403-c01-workspace-timeout** — C01 workspace tests finish
+- **task-405-c02-workspace-timeout** — C02 workspace tests finish
+- **task-407-c03-workspace-timeout** — C03 workspace tests finish
+- **task-409-c04-workspace-timeout** — C04 workspace tests finish
+- **task-411-c05-workspace-timeout** — C05 workspace tests finish
+- **task-413-c06-workspace-timeout** — C06 workspace tests finish
+- **task-415-d01-workspace-timeout** — D01 workspace tests finish
+- **task-417-d02-workspace-timeout** — D02 workspace tests finish
+- **task-419-d03-01-workspace-timeout** — D03.01 workspace tests finish
+- **task-421-d03-02-workspace-tests** — D03.02 workspace tests pass
+- **task-423-d03-workspace-timeout** — D03 workspace tests finish
+- **task-425-d04-01-workspace-timeout** — D04.01 workspace tests finish
+- **task-427-d04-02-workspace-timeout** — D04.02 workspace tests finish
+- **task-432-d04-workspace-timeout** — D04 workspace tests finish
+- **task-434-d05-01-workspace-timeout** — D05.01 workspace tests finish
+- **task-436-d05-02-workspace-timeout** — D05.02 workspace tests finish
+- **task-438-d05-workspace-timeout** — D05 workspace tests finish
+- **task-440-e17-02-remainder-workspace-timeout** — E17.02 remainder workspace tests finish
+- **task-444-e18-44-workspace-timeout** — E18.44 remainder workspace tests finish
+- **task-446-f02-workspace-timeout** — F02 workspace tests finish
+- **task-447-f03-c-compatible-struct-layout** — F03 C-compatible struct layout (repr(C)-style); read/write both sides
+- **task-448-f03-workspace-timeout** — F03 workspace tests finish
+- **task-450-f04-workspace-timeout** — F04 workspace tests finish
+- **task-452-f05-workspace-timeout** — F05 workspace tests finish
+- **task-454-f07-workspace-timeout** — F07 workspace tests finish
+- **task-456-f08-workspace-timeout** — F08 workspace tests finish
+- **task-458-f09-workspace-timeout** — F09 workspace tests finish
+- **task-460-h00-workspace-timeout** — H00 workspace tests finish
+- **task-462-h01-workspace-timeout** — H01 workspace tests finish
+- **task-464-h02-workspace-timeout** — H02 workspace tests finish
+- **task-466-h03-workspace-timeout** — H03 workspace tests finish
+- **task-468-h04-workspace-timeout** — H04 workspace tests finish
+- **task-470-h05-workspace-timeout** — H05 workspace tests finish
+- **task-472-h06-workspace-timeout** — H06 workspace tests finish
+- **task-474-h07-workspace-timeout** — H07 workspace tests finish
+- **task-476-h08-workspace-timeout** — H08 workspace tests finish
+- **task-478-h09-workspace-timeout** — H09 workspace tests finish
+- **task-480-h10-workspace-timeout** — H10 workspace tests finish
+- **task-482-h11-workspace-timeout** — H11 workspace tests finish
+- **task-484-h12-workspace-timeout** — H12 workspace tests finish
+- **task-486-h13-workspace-timeout** — H13 workspace tests finish
+- **task-488-h14-workspace-timeout** — H14 workspace tests finish
+- **task-490-h15-workspace-timeout** — H15 workspace tests finish
+- **task-492-h16-workspace-timeout** — H16 workspace tests finish
+- **task-494-h17-04-workspace-timeout** — H17.04 workspace tests finish
+- **task-496-h17-workspace-timeout** — H17 workspace tests finish
+- **task-498-k01-workspace-timeout** — K01 workspace tests finish
+- **task-500-k02-workspace-timeout** — K02 workspace tests finish
+- **task-502-k03-workspace-timeout** — K03 workspace tests finish
+- **task-504-k04-workspace-timeout** — K04 workspace tests finish
+- **task-506-k05-workspace-timeout** — K05 workspace tests finish
+- **task-508-k07-workspace-timeout** — K07 workspace tests finish
+- **task-510-k08-workspace-timeout** — K08 workspace tests finish
+- **task-511-k09-e2e-temp-git-dep-consumer** — K09 E2E: temp git dep + consumer Program
+- **task-512-k09-workspace-timeout** — K09 workspace tests finish
+- **task-514-k11-01-workspace-timeout** — K11.01 workspace tests finish
+- **task-516-k11-02-workspace-timeout** — K11.02 workspace tests finish
+- **task-518-k11-03-workspace-timeout** — K11.03 workspace tests finish
+- **task-520-k11-04-workspace-timeout** — K11.04 workspace tests finish
+- **task-521-k11-05-workspace-timeout** — K11.05 workspace tests finish
+- **task-523-k11-post-v1-packaging-not-v1** — K11 Post-v1 packaging (not v1 bar)
+- **task-524-k11-workspace-timeout** — K11 workspace tests finish
+- **task-526-l01-oracle-timeout** — L01 encoding and workspace checks finish
+- **task-527-l02-01-groupby-chunk-or-designed-names** — L02.01 `groupBy` / `chunk` (or designed names) on arrays
+- **task-528-l02-01-workspace-timeout** — L02.01 workspace tests finish
+- **task-529-l02-02-deque-or-designed-push-pop** — L02.02 Deque (or designed): push/pop both ends
+- **task-530-l02-collections-helpers-groupby-chunk-deque** — L02 Collections helpers (groupBy/chunk/Deque as designed; not redundant with Array/Map/Set)
+- **task-531-l03-crypto-sha-256-digest-secure-random** — L03 Crypto: SHA-256 digest + secure random bytes
+- **task-532-l03-workspace-timeout** — L03 workspace tests finish
+- **task-533-l04-compression-later-gzip-deflate** — L04 Compression later: gzip/deflate byte buffers
+- **task-534-l04-workspace-timeout** — L04 workspace tests finish
+- **task-535-l05-in-language-test-framework-describe** — L05 In-language test framework (`describe`/`it`/`expect` or designed) via `draconic test`
 
 - **ticket-99-d04-01-cross-compile-at-least-one** — D04.01 Cross-compile: at least one non-host triple smoke
 - **ticket-98-d04-cross-compile-matrix-linux-darwin** — D04 Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available)
@@ -299,65 +301,65 @@ One-liners of what landed. Newest first. Closed vault issues from docs/planning.
 - **ticket-102-d05-01-cli-build-flags-strip-symbols** — D05.01 CLI/build flags: strip symbols
 - **ticket-101-d05-binary-size-opts-strip-lto** — D05 Binary size opts: strip / LTO flags documented and testable
 - **ticket-100-d04-02-matrix-docs-ci-jobs-for** — D04.02 Matrix docs + CI jobs for available OS/arch pairs
-- **l01-encoding-utf-8-bytes-string** — L01 Encoding: UTF-8 bytes↔string, Base64, hex
-- **k11-05-yank-retract-when-advisory-source** — K11.05 Yank/retract when advisory source configured
-- **k11-04-module-proxy-mirror-git-still** — K11.04 Module proxy/mirror (git still canonical)
-- **k11-03-multi-module-monorepo-subdir-module** — K11.03 Multi-module monorepo (subdir module paths)
-- **k11-02-replace-directive-fork-local-override** — K11.02 `replace` directive: fork/local override
-- **k11-01-private-git-auth-https-token** — K11.01 Private git auth (HTTPS token / SSH)
-- **k08-integrity-verify-lock-hashes-refuse** — K08 Integrity: verify lock hashes; refuse tampered cache
-- **k07-build-integration-auto-fetch-offline** — K07 Build integration: auto-fetch; `--offline`
-- **k05-cli-draconic-get-draconic-mod** — K05 CLI: `draconic get`, `draconic mod tidy`
-- **k04-version-resolve-semver-tag-commit** — K04 Version resolve: semver tag → commit OID; fail closed
-- **k03-module-cache-layout-git-clone** — K03 Module cache: layout, git clone/fetch, checkout by OID
-- **k02-lockfile-draconic-lock-resolved-pins** — K02 Lockfile (draconic.lock): resolved pins
-- **k01-manifest-draconic-toml-module-path** — K01 Manifest (`draconic.toml`): module path, deps, optional path→git URL map
-- **h17-native-host-cutover** — H17 Success Programs & host cutover
-- **h17-04-optional-js-node-bridge-for** — H17.04 Optional JS/Node bridge for subset host APIs (after native green)
-- **h16-os-misc** — H16 OS misc
-- **h15-subprocess** — H15 Subprocess
-- **h14-signals** — H14 Signals
-- **h13-http-2-later-not-v1** — H13 HTTP/2 (later; not v1 bar)
-- **h12-websocket** — H12 WebSocket
-- **h11-tls** — H11 TLS
-- **h10-http-1-1-thin-helpers** — H10 HTTP/1.1 thin helpers (plaintext) on sockets
-- **h09-dns** — H09 DNS
-- **h08-udp** — H08 UDP
-- **h07-async-socket-i-o-job** — H07 Async socket I/O + job queue
-- **h06-tcp-sockets-sockets-first** — H06 TCP sockets (sockets-first)
-- **h05-time-clock-timers-job-queue** — H05 Time, clock, timers (job-queue integrated)
-- **h04-filesystem-read-write-dirs** — H04 filesystem read / write / dirs
-- **h03-path-helpers-string-ops-no-i-o** — H03 Path helpers (string ops; no I/O)
-- **h02-stdio-stdout-stderr-stdin** — H02 stdio stdout / stderr / stdin
-- **h00-host-i-o-surface-policy** — H00 Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix
-- **f09-optional-later-wasm32-wasi-emit** — F09 Optional later: wasm32/wasi emit + link smoke
-- **f05-link-load-dynamic-lib-so** — F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol
-- **d04-01-cross-compile-at-least-one-non-host** — D04.01 Cross-compile: at least one non-host triple smoke
-- **d01-release-binaries-install-script** — D01 release binaries + install-to-PATH surface
-- **d03-reproducible-builds** — D03 reproducible builds surface
-- **c06-shared-memory-atomics** — C06 shared-memory atomics surface
-- **f07-bindgen-ish-generate-externs-from** — F07 bindgen-ish generate externs from C header subset
-- **h01-process-args-env-exit** — H01 process args, env, exit
-- **f04-link-external-static-lib** — F04 link external static lib surface
-- **f02-c-callbacks** — F02 C callbacks surface
-- **e18-44-untracked-ecma-262-remainder** — E18.44 one atomic untracked ECMA-262 remainder
-- **e17-02-168-assign-update-target** — E17.02.168 with + assignment/update target residual
-- **d05-binary-size-opts** — D05 Binary size opts: strip / LTO flags documented and testable
-- **d05-02-lto-flag-size-delta** — D05.02 LTO flag documented; size delta smoke
-- **d05-01-strip-symbols** — D05.01 CLI/build flags: strip symbols
-- **d04-cross-compile-matrix** — D04 cross-compile matrix surface
-- **d03-01-document-reproducibility-expectations** — D03.01 document reproducibility expectations (timestamps, paths)
-- **d02-toolchain-version-pin** — D02 toolchain version pin in draconic.toml; CLI enforces or warns
-- **c05-structured-cancellation** — C05 structured cancellation / timeout surface
-- **c04-parallel-draconic-test** — C04 parallel draconic test surface
-- **c03-once-thread-safe-init** — C03 once / thread-safe init surface
-- **c01-worker-os-thread** — C01 worker / OS-thread isolate surface
-- **c02-message-passing-channels** — C02 message-passing channel surface
-- **d03-02-same-source-pin-byte-identical** — D03.02 Same source + pin → byte-identical or documented-equivalent emit
-- **f08-unsafe-native-only-ffi-diagnostics** — F08 unsafe/native-only FFI diagnostics
-- **d04-02-matrix-docs-ci-jobs** — D04.02 matrix docs + CI jobs for available OS/arch pairs
-- **e17-02-workspace-timeout** — E17.02 remainder workspace tests finish
-- **e17-02-remainder** — E17.02 one atomic non-strict legacy remainder
+- **task-525-l01-encoding-utf-8-bytes-string** — L01 Encoding: UTF-8 bytes↔string, Base64, hex
+- **task-522-k11-05-yank-retract-when-advisory-source** — K11.05 Yank/retract when advisory source configured
+- **task-519-k11-04-module-proxy-mirror-git-still** — K11.04 Module proxy/mirror (git still canonical)
+- **task-517-k11-03-multi-module-monorepo-subdir-module** — K11.03 Multi-module monorepo (subdir module paths)
+- **task-515-k11-02-replace-directive-fork-local-override** — K11.02 `replace` directive: fork/local override
+- **task-513-k11-01-private-git-auth-https-token** — K11.01 Private git auth (HTTPS token / SSH)
+- **task-509-k08-integrity-verify-lock-hashes-refuse** — K08 Integrity: verify lock hashes; refuse tampered cache
+- **task-507-k07-build-integration-auto-fetch-offline** — K07 Build integration: auto-fetch; `--offline`
+- **task-505-k05-cli-draconic-get-draconic-mod** — K05 CLI: `draconic get`, `draconic mod tidy`
+- **task-503-k04-version-resolve-semver-tag-commit** — K04 Version resolve: semver tag → commit OID; fail closed
+- **task-501-k03-module-cache-layout-git-clone** — K03 Module cache: layout, git clone/fetch, checkout by OID
+- **task-499-k02-lockfile-draconic-lock-resolved-pins** — K02 Lockfile (draconic.lock): resolved pins
+- **task-497-k01-manifest-draconic-toml-module-path** — K01 Manifest (`draconic.toml`): module path, deps, optional path→git URL map
+- **task-495-h17-native-host-cutover** — H17 Success Programs & host cutover
+- **task-493-h17-04-optional-js-node-bridge-for** — H17.04 Optional JS/Node bridge for subset host APIs (after native green)
+- **task-491-h16-os-misc** — H16 OS misc
+- **task-489-h15-subprocess** — H15 Subprocess
+- **task-487-h14-signals** — H14 Signals
+- **task-485-h13-http-2-later-not-v1** — H13 HTTP/2 (later; not v1 bar)
+- **task-483-h12-websocket** — H12 WebSocket
+- **task-481-h11-tls** — H11 TLS
+- **task-479-h10-http-1-1-thin-helpers** — H10 HTTP/1.1 thin helpers (plaintext) on sockets
+- **task-477-h09-dns** — H09 DNS
+- **task-475-h08-udp** — H08 UDP
+- **task-473-h07-async-socket-i-o-job** — H07 Async socket I/O + job queue
+- **task-471-h06-tcp-sockets-sockets-first** — H06 TCP sockets (sockets-first)
+- **task-469-h05-time-clock-timers-job-queue** — H05 Time, clock, timers (job-queue integrated)
+- **task-467-h04-filesystem-read-write-dirs** — H04 filesystem read / write / dirs
+- **task-465-h03-path-helpers-string-ops-no-i-o** — H03 Path helpers (string ops; no I/O)
+- **task-463-h02-stdio-stdout-stderr-stdin** — H02 stdio stdout / stderr / stdin
+- **task-459-h00-host-i-o-surface-policy** — H00 Host I/O surface policy: module/global shape, error model, js hard-error vs polyfill matrix
+- **task-457-f09-optional-later-wasm32-wasi-emit** — F09 Optional later: wasm32/wasi emit + link smoke
+- **task-451-f05-link-load-dynamic-lib-so** — F05 Link/load dynamic lib (`.so`/`.dylib`/`.dll`); call one symbol
+- **task-424-d04-01-cross-compile-at-least-one-non-host** — D04.01 Cross-compile: at least one non-host triple smoke
+- **task-414-d01-release-binaries-install-script** — D01 release binaries + install-to-PATH surface
+- **task-422-d03-reproducible-builds** — D03 reproducible builds surface
+- **task-412-c06-shared-memory-atomics** — C06 shared-memory atomics surface
+- **task-453-f07-bindgen-ish-generate-externs-from** — F07 bindgen-ish generate externs from C header subset
+- **task-461-h01-process-args-env-exit** — H01 process args, env, exit
+- **task-449-f04-link-external-static-lib** — F04 link external static lib surface
+- **task-445-f02-c-callbacks** — F02 C callbacks surface
+- **task-443-e18-44-untracked-ecma-262-remainder** — E18.44 one atomic untracked ECMA-262 remainder
+- **task-439-e17-02-168-assign-update-target** — E17.02.168 with + assignment/update target residual
+- **task-437-d05-binary-size-opts** — D05 Binary size opts: strip / LTO flags documented and testable
+- **task-435-d05-02-lto-flag-size-delta** — D05.02 LTO flag documented; size delta smoke
+- **task-433-d05-01-strip-symbols** — D05.01 CLI/build flags: strip symbols
+- **task-428-d04-cross-compile-matrix** — D04 cross-compile matrix surface
+- **task-418-d03-01-document-reproducibility-expectations** — D03.01 document reproducibility expectations (timestamps, paths)
+- **task-416-d02-toolchain-version-pin** — D02 toolchain version pin in draconic.toml; CLI enforces or warns
+- **task-410-c05-structured-cancellation** — C05 structured cancellation / timeout surface
+- **task-408-c04-parallel-draconic-test** — C04 parallel draconic test surface
+- **task-406-c03-once-thread-safe-init** — C03 once / thread-safe init surface
+- **task-402-c01-worker-os-thread** — C01 worker / OS-thread isolate surface
+- **task-404-c02-message-passing-channels** — C02 message-passing channel surface
+- **task-420-d03-02-same-source-pin-byte-identical** — D03.02 Same source + pin → byte-identical or documented-equivalent emit
+- **task-455-f08-unsafe-native-only-ffi-diagnostics** — F08 unsafe/native-only FFI diagnostics
+- **task-426-d04-02-matrix-docs-ci-jobs** — D04.02 matrix docs + CI jobs for available OS/arch pairs
+- **task-442-e17-02-workspace-timeout** — E17.02 remainder workspace tests finish
+- **task-441-e17-02-remainder** — E17.02 one atomic non-strict legacy remainder
 - **ticket-26-docs-pages-readme** — Publish docs site and link README
 - **ticket-25-docs-reference-skeleton** — Reference skeleton pages
 - **ticket-24-docs-learn-skeleton** — Learn skeleton pages

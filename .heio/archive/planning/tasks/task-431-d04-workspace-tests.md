@@ -1,0 +1,40 @@
+---
+id: "task-431-d04-workspace-tests"
+title: "D04 workspace tests pass"
+kind: task
+status: completed
+mode: afk
+blocked_by: []
+tags: []
+created_at: "2026-09-05T01:31:54Z"
+updated_at: "2026-09-06T18:00:00Z"
+sprint: "platform"
+---
+
+# D04 workspace tests pass
+
+## Blocked by
+
+None.
+
+## Done
+
+`cargo test --workspace` finishes with `test result: ok.` after the ROADMAP D04 work; D04, D04.02, and D01.01 readers stay green against `.yml.disabled`.
+
+## Context
+
+Roadmap ID **D04** (`Cross-compile matrix: linux/darwin/windows × amd64/arm64 (as available)`). Review of [[slice-253-d04-workspace-disabled-gha]] left O4 unmet: `cargo test --workspace` exited 101 while O1 (`cross_compile`), O2 (`cross_compile_matrix`), and O3 (`release_artifact`) stayed green against `.github/workflows/release-artifact.yml.disabled` and `docs-pages.yml.disabled`. The distribution location still needs the D04 Loop to leave the workspace green, not only the disabled-GHA matrix and release-artifact readers. If the failure comes from the D04 harness change, fix that matrix/CI contract so the workspace check and those readers hold. Do not restore live `.yml` names. Do not reopen ROADMAP D04 / D04.02 / D01.01 (already `done`); leave those rows `done` once the tests are green. Not re-opening [[slice-253-d04-workspace-disabled-gha]] or archived [[slice-257-d04]] / [[slice-252-d04-02]] / [[slice-240-d01]]. Not [[slice-366-l07-02-workspace-tests]] (L07.02 flags workspace fail is a different failure). Not D04.01 non-host triple LLVM smoke, not D05 strip/LTO, not P03 as a product row.
+
+## Verify
+
+`cargo test --workspace` prints `test result: ok.` and finishes with exit 0. `cargo test -p draconic-integration-tests --test cross_compile` still prints `test result: ok.` `cargo test -p draconic-integration-tests --test cross_compile_matrix` still prints `test result: ok.` `cargo test -p draconic-integration-tests --test release_artifact` still prints `test result: ok.` ROADMAP.md D04, D04.02, and D01.01 remain `done`. Live `.yml` names are not restored.
+
+scope: `tests/integration/tests/cross_compile.rs`, `tests/integration/tests/cross_compile_matrix.rs`, `tests/integration/tests/release_artifact.rs`, `tests/integration/tests/website_pipeline.rs`, `.github/workflows/release-artifact.yml.disabled`, `.github/workflows/docs-pages.yml.disabled`, plus whatever D04 harness change is required so workspace tests pass without restoring live `.yml` names
+
+## Links
+
+[[slice-255-d04-workspace-tests]] [[ticket-189-d04-workspace-tests]] [[slice-253-d04-workspace-disabled-gha]]
+
+## Gauntlet
+
+- **round 1**: `cargo test --workspace` — win. First run exited 101 (`draconic-backend-llvm` missing `draconic_rt.c` at a deleted pi-worktree `CARGO_MANIFEST_DIR`). After rebuilding runtime/LLVM against this checkout, workspace finished `test result: ok.` exit 0. D04/D04.02/D01.01 readers stayed green against `.yml.disabled`. ROADMAP D04/D04.02/D01.01 remain `done`. No live `.yml` restore. No product patch.

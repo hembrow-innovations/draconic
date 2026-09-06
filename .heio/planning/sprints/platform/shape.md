@@ -5,7 +5,7 @@ kind: "sprint"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-updated_at: "2026-09-06T04:39:34Z"
+updated_at: "2026-09-06T18:00:00Z"
 ---
 
 # platform
@@ -16,8 +16,7 @@ Location: remaining platform-capability and leftover conformance after the langu
 
 ## Slices in
 
-- [[s-workspace-test-budget]]
-- Sealed slices from this grouping are in `.heio/archive/planning/sprints/platform/slices/`.
+- [[slice-216-workspace-test-budget]]: workspace tests finish inside the oracle budget. blocked_by: none
 
 ## Slices out
 
