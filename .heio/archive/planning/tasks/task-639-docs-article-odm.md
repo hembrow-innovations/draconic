@@ -2,17 +2,16 @@
 id: "task-639-docs-article-odm"
 title: "Restyle docs article to ODM"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-636-odm-tokens", "task-637-site-shell" ]
 sprint: "website-odm-match"
 slice: "slice-632-docs-article-odm"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
 updated_at: "2026-09-07T19:30:00Z"
 ---
-
 # Restyle docs article to ODM
 
 ## Blocked by
@@ -68,10 +67,10 @@ Article wrap: section kicker, h1, Badge, ODM prose (code surface, h2 rules), rel
 - Markdown renderer subset unchanged
 
 **Acceptance criteria:**
-- [ ] DocsShell still aside + article + Badge
-- [ ] Kicker and ODM prose styles via tokens/CVA
-- [ ] markdown-render subset unchanged
-- [ ] Named tests pass and typecheck exits 0
+- [x] DocsShell still aside + article + Badge
+- [x] Kicker and ODM prose styles via tokens/CVA
+- [x] markdown-render subset unchanged
+- [x] Named tests pass and typecheck exits 0
 
 **Out of scope:**
 - Site nav groups; hub cards; fence pipeline; playground

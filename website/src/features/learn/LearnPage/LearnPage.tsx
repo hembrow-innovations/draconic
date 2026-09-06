@@ -14,6 +14,7 @@ import type { LearnPageProps } from "./LearnPage.types";
 export function LearnPage({ page }: LearnPageProps) {
   return (
     <DocsShell
+      kicker={page.section}
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<LearnNav />}
       body={page.body}

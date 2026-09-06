@@ -17,6 +17,7 @@ function ReferenceHubRoute() {
   const page = Route.useLoaderData();
   return (
     <DocsShell
+      kicker={page.section}
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<ReferenceNav />}
       body={page.body}

@@ -13,6 +13,7 @@ import type { ReferencePageProps } from "./ReferencePage.types";
 export function ReferencePage({ page }: ReferencePageProps) {
   return (
     <DocsShell
+      kicker={page.section}
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<ReferenceNav />}
       body={page.body}

@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-639-docs-article-odm** — website docs article kicker, ODM prose, and related-link footer
 - **task-638-home-odm-layout** — website home kicker, CTA row, path steps, and auto-fit cards
 - **task-637-site-shell** — website ODM skip plus sticky side nav plus main chrome
 - **task-636-odm-tokens** — website dark semantic tokens retokened to ODM navy with mint accent-2

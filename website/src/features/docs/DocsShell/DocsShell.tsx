@@ -3,6 +3,8 @@ import { renderMarkdown } from "../../../lib/content";
 import {
   docsShellArticleVariants,
   docsShellAsideVariants,
+  docsShellFooterVariants,
+  docsShellKickerVariants,
   docsShellNavVariants,
   docsShellVariants,
 } from "./DocsShell.variants";
@@ -28,11 +30,12 @@ function statusLabel(status: DocsShellProps["status"]): string {
  *
  * Locks `public-site.chrome:docs-sidebar`. Home landing stays outside this shell.
  *
- * @param props - Status from frontmatter, optional section nav, optional markdown body
+ * @param props - Section kicker, status from frontmatter, optional section nav, optional markdown body
  * @returns Docs shell
  */
 export function DocsShell({
   className,
+  kicker,
   status,
   nav,
   body,
@@ -47,11 +50,14 @@ export function DocsShell({
         </nav>
       </aside>
       <article className={docsShellArticleVariants()}>
+        <p className={docsShellKickerVariants()}>{kicker}</p>
         <Badge variant={status}>{statusLabel(status)}</Badge>
         {body !== undefined ? (
           <div dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />
         ) : null}
-        {children}
+        {children ? (
+          <footer className={docsShellFooterVariants()}>{children}</footer>
+        ) : null}
       </article>
     </div>
   );

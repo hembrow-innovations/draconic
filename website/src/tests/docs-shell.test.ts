@@ -42,6 +42,18 @@ test("docs shell", () => {
   const shell = readFileSync(join(shellDir, "DocsShell.tsx"), "utf8");
   const types = readFileSync(join(shellDir, "DocsShell.types.ts"), "utf8");
   const variants = readFileSync(join(shellDir, "DocsShell.variants.ts"), "utf8");
+  const learnPage = readFileSync(
+    join(srcDir, "features", "learn", "LearnPage", "LearnPage.tsx"),
+    "utf8",
+  );
+  const referencePage = readFileSync(
+    join(srcDir, "features", "reference", "ReferencePage", "ReferencePage.tsx"),
+    "utf8",
+  );
+  const pagerVariants = readFileSync(
+    join(srcDir, "features", "learn", "LearnPager", "LearnPager.variants.ts"),
+    "utf8",
+  );
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
   const install = loadMarkdownPage("install");
@@ -70,17 +82,43 @@ test("docs shell", () => {
 
   expect(types).toContain("status");
   expect(types).toContain("badgeVariants");
+  expect(types).toContain("kicker");
 
   expect(variants).toContain('from "class-variance-authority"');
   expect(variants).toContain("cva(");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("docsShellKickerVariants");
+  expect(variants).toContain("kicker");
+  expect(variants).toContain("uppercase");
+  expect(variants).toContain("tracking-widest");
+  expect(variants).toContain("docsShellFooterVariants");
+  expect(variants).toContain("bg-code");
+  expect(variants).toContain("[&_pre]");
+  expect(variants).toContain("[&_code]");
+  expect(variants).toContain("[&_h2]");
+  expect(variants).toContain("[&_h2:first-of-type]");
+  expect(variants).toContain("[&_h1+p]");
+  expect(variants).toContain("border-t");
+  expect(variants).toContain("border-line");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 
   expect(shell).toContain("docsShellVariants");
+  expect(shell).toContain("docsShellKickerVariants");
+  expect(shell).toContain("docsShellFooterVariants");
+  expect(shell).toContain("<footer");
   expect(shell).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(shell).not.toMatch(/\bmax-w-sm\b/);
   expect(shell).not.toMatch(/bg-blue-500/);
+
+  expect(learnPage).toContain("kicker={page.section}");
+  expect(learnPage).toContain("LearnPager");
+  expect(referencePage).toContain("kicker={page.section}");
+  expect(referencePage).not.toContain("LearnPager");
+
+  expect(pagerVariants).toContain("text-link");
+  expect(pagerVariants).toContain("border-t");
+  expect(pagerVariants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
 
   expect(install.status).toBe("shipped");
   expect(renderMarkdown(install.body)).toContain("<h1>Install</h1>");

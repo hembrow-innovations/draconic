@@ -4,5 +4,7 @@ export {
   docsShellVariants,
   docsShellAsideVariants,
   docsShellNavVariants,
+  docsShellKickerVariants,
   docsShellArticleVariants,
+  docsShellFooterVariants,
 } from "./DocsShell.variants";

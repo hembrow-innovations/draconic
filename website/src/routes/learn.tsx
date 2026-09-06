@@ -17,6 +17,7 @@ function LearnHubRoute() {
   const page = Route.useLoaderData();
   return (
     <DocsShell
+      kicker={page.section}
       status={page.status === "not-yet" ? "not-yet" : "shipped"}
       nav={<LearnNav />}
       body={page.body}

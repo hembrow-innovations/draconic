@@ -21,5 +21,5 @@ export const learnPagerLabelVariants = cva("font-body text-muted");
  * Chapter links share the aside body role and muted ink until hover.
  */
 export const learnPagerLinkVariants = cva(
-  "inline-flex items-center min-h-11 font-body text-body text-muted no-underline hover:text-ink",
+  "inline-flex items-center min-h-11 font-body text-body text-link no-underline hover:text-ink",
 );
