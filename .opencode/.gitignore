@@ -1,3 +1,4 @@
+node_modules/
 npm/node_modules/
 npm/package-lock.json
 npm/package.json
