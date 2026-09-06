@@ -43,17 +43,37 @@ test("site header primary nav", () => {
   const variants = readFileSync(join(headerDir, "SiteHeader.variants.ts"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
+  const learn = readFileSync(join(srcDir, "routes", "learn.tsx"), "utf8");
+
+  expect(header).toContain("public-site.chrome:primary-nav");
+  expect(header).toContain("public-site.chrome:odm-shell");
 
   expect(root).toContain("SiteHeader");
   expect(root).toMatch(/<SiteHeader\s*\/>/);
+  expect(root).toContain("siteShellVariants");
+  expect(root).toContain("siteMainVariants");
   expect(root).toContain("<Outlet");
-  expect(root.indexOf("SiteHeader")).toBeLessThan(root.indexOf("<Outlet"));
+  expect(root).toMatch(/<main\b[^>]*id=["']main["']/);
+  expect(root.indexOf("<SkipLink")).toBeLessThan(
+    root.indexOf("className={siteShellVariants()}"),
+  );
+  expect(root.indexOf("className={siteShellVariants()}")).toBeLessThan(
+    root.indexOf("<SiteHeader"),
+  );
+  expect(root.indexOf("<SiteHeader")).toBeLessThan(root.indexOf("<main"));
+  expect(root.indexOf("<main")).toBeLessThan(root.indexOf("<Outlet"));
   expect(home).not.toContain("SiteHeader");
+  expect(home).not.toContain("DocsShell");
+  expect(learn).not.toContain("SiteHeader");
+  expect(root).not.toContain("DocsShell");
 
+  expect(header).toContain("<aside");
+  expect(header).not.toMatch(/<header\b/);
   expect(header).toContain("from \"@tanstack/react-router\"");
   expect(header).toContain("Link");
   expect(header).toMatch(/to=["']\/["']/);
   expect(header).toContain("Draconic");
+  expect(header).toContain("One language, two backends.");
   expect(header).toMatch(/to=["']\/learn["']/);
   expect(header).toContain(">Learn<");
   expect(header).toMatch(/to=["']\/reference["']/);
@@ -61,6 +81,9 @@ test("site header primary nav", () => {
   expect(header).toContain(`href="${githubUrl}"`);
   expect(header).toContain(">GitHub<");
   expect(header).toMatch(/<a\s[^>]*href="https:\/\/github.com\/hembrow-innovations\/draconic"/);
+  expect(header).toContain('"aria-current": "page"');
+  expect(header).toContain("<SiteSearch");
+  expect(header).toContain("<ThemeToggle");
 
   expect(header).not.toMatch(/playground/i);
   expect(header).not.toContain("docs/");
@@ -73,8 +96,13 @@ test("site header primary nav", () => {
 
   expect(variants).toContain("from \"class-variance-authority\"");
   expect(variants).toContain("cva(");
+  expect(variants).toContain("siteShellVariants");
+  expect(variants).toContain("siteMainVariants");
   expect(variants).toContain("font-display");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("sticky");
+  expect(variants).toMatch(/\bside\b/);
+  expect(variants).toMatch(/\bshell\b/);
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 

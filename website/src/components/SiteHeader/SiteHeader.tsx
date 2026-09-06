@@ -7,21 +7,24 @@ import {
   siteHeaderLinkVariants,
   siteHeaderMenuButtonVariants,
   siteHeaderNavVariants,
+  siteHeaderTaglineVariants,
   siteHeaderVariants,
   siteHeaderWordmarkVariants,
 } from "./SiteHeader.variants";
 import type { SiteHeaderProps } from "./SiteHeader.types";
 
 const primaryNavId = "site-primary-nav";
+const currentPage = { "aria-current": "page" as const };
 
 /**
- * Primary site chrome for every page: wordmark, Learn, Reference, GitHub.
+ * Sticky side nav for every page: wordmark, Learn, Reference, GitHub.
  *
- * Locks `public-site.chrome:primary-nav` and `public-site.a11y:keyboard-small`.
+ * Locks `public-site.chrome:odm-shell`, `public-site.chrome:primary-nav`,
+ * and `public-site.a11y:keyboard-small`.
  * Small viewports disclose the same primary links from a keyboard-operable button.
  *
- * @param props - Native header attributes
- * @returns Site header
+ * @param props - Native aside attributes
+ * @returns Site side nav
  */
 export function SiteHeader({ className, ...props }: SiteHeaderProps) {
   const [open, setOpen] = useState(false);
@@ -37,13 +40,14 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
   }
 
   return (
-    <header
+    <aside
       className={siteHeaderVariants({ className })}
       {...props}
       onKeyDown={onKeyDown}
     >
       <nav className={siteHeaderNavVariants()} aria-label="Primary">
-        <Link to="/" className={siteHeaderWordmarkVariants()}>Draconic</Link>
+        <Link to="/" className={siteHeaderWordmarkVariants()} activeProps={currentPage}>Draconic</Link>
+        <p className={siteHeaderTaglineVariants()}>One language, two backends.</p>
         <button
           type="button"
           className={siteHeaderMenuButtonVariants()}
@@ -55,13 +59,13 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
           id={primaryNavId}
           className={siteHeaderClusterVariants({ open })}
         >
-          <Link to="/learn" className={siteHeaderLinkVariants()}>Learn</Link>
-          <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>
+          <Link to="/learn" className={siteHeaderLinkVariants()} activeProps={currentPage}>Learn</Link>
+          <Link to="/reference" className={siteHeaderLinkVariants()} activeProps={currentPage}>Reference</Link>
           <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
           <SiteSearch />
           <ThemeToggle />
         </div>
       </nav>
-    </header>
+    </aside>
   );
 }

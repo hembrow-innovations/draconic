@@ -1,10 +1,20 @@
 import { cva } from "class-variance-authority";
 
 /**
- * Site header chrome. Classes stay here so the JSX does not own a second type scale.
+ * Two-column ODM shell wrapping the sticky side nav and the main column.
+ */
+export const siteShellVariants = cva("shell flex min-h-dvh bg-canvas text-ink");
+
+/**
+ * Reading column beside the sticky side nav.
+ */
+export const siteMainVariants = cva("main flex min-w-0 flex-1 flex-col");
+
+/**
+ * Sticky side nav chrome. Classes stay here so the JSX does not own a second type scale.
  */
 export const siteHeaderVariants = cva(
-  "px-8 bg-canvas text-ink border-b border-line",
+  "side sticky top-0 h-dvh w-1/4 shrink-0 overflow-y-auto border-r border-line bg-canvas px-6 py-8 text-ink",
 );
 
 /**
@@ -15,21 +25,24 @@ export const siteHeaderWordmarkVariants = cva(
 );
 
 /**
- * Primary nav cluster: Learn, Reference, GitHub.
+ * Short language tagline under the wordmark, reused from the home pitch.
  */
-export const siteHeaderNavVariants = cva(
-  "flex flex-wrap items-center justify-between gap-4 min-h-16",
-);
+export const siteHeaderTaglineVariants = cva("font-body text-body text-muted");
 
 /**
- * Learn, Reference, and GitHub sit opposite the wordmark.
+ * Primary nav cluster: Learn, Reference, GitHub.
+ */
+export const siteHeaderNavVariants = cva("flex flex-col gap-4");
+
+/**
+ * Learn, Reference, and GitHub sit under the wordmark.
  * Closed on small viewports until the disclosure opens; always shown from md.
  */
-export const siteHeaderClusterVariants = cva("gap-5", {
+export const siteHeaderClusterVariants = cva("gap-3", {
   variants: {
     open: {
-      true: "flex w-full flex-col md:w-auto md:flex-row md:items-center",
-      false: "hidden md:flex md:items-center",
+      true: "flex w-full flex-col",
+      false: "hidden md:flex md:flex-col",
     },
   },
   defaultVariants: { open: false },

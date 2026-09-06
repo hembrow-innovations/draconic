@@ -35,7 +35,10 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website_pipeline_learn_and_reference_nav_and_status
 - `public-site.home:landing`: `/` is a language homepage with pitch and Get-started CTA, not the Learn chapter dump.
 - `public-site.chrome:odm-shell`: Every page, including home, uses skip-to-content plus a sticky side nav plus a main column.
+  test: website/src/tests/site-footer-and-skip-link.test.ts
+  test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:primary-nav`: Every page's side nav has wordmark plus Learn, Reference, and GitHub.
+  test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:docs-sidebar`: Learn and Reference article pages have a section sidebar and a shipped or not-yet badge from frontmatter.
   test: website/src/tests/docs-shell.test.ts
 - `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title or heading text.

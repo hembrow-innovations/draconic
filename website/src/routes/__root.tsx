@@ -6,7 +6,11 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { SiteFooter } from "../components/SiteFooter";
-import { SiteHeader } from "../components/SiteHeader";
+import {
+  SiteHeader,
+  siteMainVariants,
+  siteShellVariants,
+} from "../components/SiteHeader";
 import { SkipLink } from "../components/SkipLink";
 import {
   buildSearchIndex,
@@ -33,17 +37,24 @@ export const Route = createRootRoute({
   component: RootComponent,
 });
 
+/**
+ * Skip link, sticky side nav, and main column on every route.
+ *
+ * Locks `public-site.chrome:odm-shell` and `public-site.chrome:primary-nav`.
+ */
 function RootComponent() {
   const { searchIndex } = Route.useLoaderData();
   return (
     <RootDocument>
       <SearchIndexProvider index={searchIndex}>
         <SkipLink />
-        <SiteHeader />
-        <main id="main" tabIndex={-1}>
-          <Outlet />
-        </main>
-        <SiteFooter />
+        <div className={siteShellVariants()}>
+          <SiteHeader />
+          <main id="main" className={siteMainVariants()} tabIndex={-1}>
+            <Outlet />
+            <SiteFooter />
+          </main>
+        </div>
       </SearchIndexProvider>
     </RootDocument>
   );

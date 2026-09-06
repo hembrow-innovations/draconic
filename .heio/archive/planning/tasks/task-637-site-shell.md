@@ -2,7 +2,7 @@
 id: "task-637-site-shell"
 title: "Replace top header with ODM site shell"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-636-odm-tokens" ]
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-630-site-shell"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T22:45:00Z"
 ---
 
 # Replace top header with ODM site shell
@@ -68,11 +68,11 @@ Skip to `#main`, sticky side nav, main column on every page including home. Side
 - CVA variants; no hex in TS
 
 **Acceptance criteria:**
-- [ ] Skip link is first and targets `#main`
-- [ ] Sticky side nav + main on `/` and a Learn page
-- [ ] Wordmark, Learn, Reference, GitHub in the side nav
-- [ ] Search and theme toggle still present
-- [ ] Named tests pass and typecheck exits 0
+- [x] Skip link is first and targets `#main`
+- [x] Sticky side nav + main on `/` and a Learn page
+- [x] Wordmark, Learn, Reference, GitHub in the side nav
+- [x] Search and theme toggle still present
+- [x] Named tests pass and typecheck exits 0
 
 **Out of scope:**
 - Home kicker/path-steps; docs article prose; Learn/Reference groups; mobile wrap; hamburger removal beyond what root tests require; Start replacement
