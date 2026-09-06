@@ -5,6 +5,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import "../styles/theme.css";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -38,7 +39,7 @@ function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="bg-canvas text-ink min-h-dvh">
         {children}
         <Scripts />
       </body>

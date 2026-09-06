@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-611-semantic-tokens** — website Tailwind v4 @theme semantic color roles
 - **task-610-nested-src-root-route** — nested website/src with root file route
 - **task-609-scaffold-start-app** — TanStack Start app scaffold under website/ typechecks
 - **task-586-e17-02-172-implicit-global-compound** — E17.02.172 unresolvable compound/update does not create a global
