@@ -5,7 +5,7 @@ import type { SkipLinkProps } from "./SkipLink.types";
  * First keyboard stop: jump past chrome into the main landmark.
  *
  * Locks `public-site.chrome:odm-shell`. Partial lock of
- * `public-site.a11y:keyboard-small` (disclosure lives on the side nav).
+ * `public-site.a11y:keyboard-small` (side nav wrap lives on the shell).
  *
  * @param props - Native anchor attributes
  * @returns Skip link

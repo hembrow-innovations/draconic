@@ -9,6 +9,5 @@ export {
   siteHeaderNavVariants,
   siteHeaderGroupVariants,
   siteHeaderClusterVariants,
-  siteHeaderMenuButtonVariants,
   siteHeaderLinkVariants,
 } from "./SiteHeader.variants";

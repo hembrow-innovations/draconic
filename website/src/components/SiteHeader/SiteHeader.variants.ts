@@ -40,24 +40,10 @@ export const siteHeaderNavVariants = cva("flex flex-col gap-4");
 export const siteHeaderGroupVariants = cva("flex flex-col gap-2");
 
 /**
- * Learn, Reference, and GitHub sit under the wordmark.
- * Closed on small viewports until the disclosure opens; always shown from md.
+ * Learn, Reference, and GitHub sit under the wordmark and wrap on a small viewport.
  */
-export const siteHeaderClusterVariants = cva("gap-3", {
-  variants: {
-    open: {
-      true: "flex w-full flex-col",
-      false: "hidden md:flex md:flex-col",
-    },
-  },
-  defaultVariants: { open: false },
-});
-
-/**
- * Small-viewport control that discloses the same primary links. Hidden from md.
- */
-export const siteHeaderMenuButtonVariants = cva(
-  "inline-flex items-center min-h-11 font-body text-body text-muted hover:text-ink md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+export const siteHeaderClusterVariants = cva(
+  "cluster flex flex-col flex-wrap gap-3",
 );
 
 /**

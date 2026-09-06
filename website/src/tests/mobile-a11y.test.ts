@@ -6,6 +6,7 @@ import { expect, test } from "vitest";
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const headerDir = join(srcDir, "components", "SiteHeader");
 const skipDir = join(srcDir, "components", "SkipLink");
+const stylesDir = join(srcDir, "styles");
 const githubUrl = "https://github.com/hembrow-innovations/draconic";
 
 function walkProductFiles(dir: string): string[] {
@@ -35,17 +36,20 @@ test("mobile a11y", () => {
   const skip = readFileSync(join(skipDir, "SkipLink.tsx"), "utf8");
   const skipVariants = readFileSync(join(skipDir, "SkipLink.variants.ts"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
+  const css = readdirSync(stylesDir)
+    .filter((name) => name.endsWith(".css"))
+    .map((name) => readFileSync(join(stylesDir, name), "utf8"))
+    .join("\n");
 
   expect(header).toContain("public-site.a11y:keyboard-small");
-  expect(header).toContain('type="button"');
-  expect(header).toContain("aria-expanded");
-  expect(header).toContain("aria-controls");
-  expect(header).toContain("useState");
-  expect(header).toMatch(/onClick/);
-  expect(header).toContain("Escape");
+  expect(header).toContain("<aside");
+  expect(header).not.toMatch(/<header\b/);
+  expect(header).not.toContain(">Menu<");
+  expect(header).not.toContain("aria-expanded");
+  expect(header).not.toContain("aria-controls");
+  expect(header).not.toContain("siteHeaderMenuButtonVariants");
   expect(header).not.toMatch(/onMouseEnter/);
   expect(header).not.toMatch(/onMouseOver/);
-  expect(header).toContain(">Menu<");
   expect(header).toMatch(/to=["']\/["']/);
   expect(header).toContain("Draconic");
   expect(header).toMatch(/to=["']\/learn["']/);
@@ -54,23 +58,31 @@ test("mobile a11y", () => {
   expect(header).toContain(">Reference<");
   expect(header).toContain(`href="${githubUrl}"`);
   expect(header).toContain(">GitHub<");
+  expect(header).toContain("<SiteSearch");
+  expect(header).toContain("<ThemeToggle");
   expect(header).not.toMatch(/playground/i);
   expect(header).not.toContain("docs/");
 
-  expect(variants).toContain("siteHeaderMenuButtonVariants");
-  expect(variants).toContain("md:hidden");
-  expect(variants).toContain("hidden md:flex");
+  expect(variants).toContain("siteShellVariants");
+  expect(variants).toContain("flex-wrap");
   expect(variants).toContain("focus-visible:ring-2");
   expect(variants).toContain("focus-visible:ring-accent");
+  expect(variants).not.toContain("siteHeaderMenuButtonVariants");
+  expect(variants).not.toContain("md:hidden");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 
-  expect(header).toContain("siteHeaderMenuButtonVariants");
-  expect(header).toContain("siteHeaderClusterVariants");
+  expect(css).toMatch(/@media\s*\(\s*max-width:\s*860px\s*\)/);
+  expect(css).toContain("flex-direction: column");
+  expect(css).toContain("position: relative");
+  expect(css).toMatch(/border-bottom/);
 
   expect(root).toContain("SkipLink");
   expect(root).toMatch(/<SkipLink\s*\/>/);
-  expect(root.indexOf("<SkipLink")).toBeLessThan(root.indexOf("<SiteHeader"));
+  expect(root.indexOf("<SkipLink")).toBeLessThan(
+    root.indexOf("className={siteShellVariants()}"),
+  );
+  expect(root.indexOf("<SiteHeader")).toBeLessThan(root.indexOf("<main"));
   expect(skip).toMatch(/<a\s[^>]*href=["']#main["']/);
   expect(skip).toContain("Skip to content");
   expect(skipVariants).toContain("focus-visible:ring-2");

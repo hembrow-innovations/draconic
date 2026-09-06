@@ -36,3 +36,22 @@ html.dark {
   --color-link: #7eb8e8;
   --color-line: #2a3544;
 }
+
+@media (max-width: 860px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .side {
+    position: relative;
+    height: auto;
+    width: 100%;
+    border-right-width: 0;
+    border-bottom-width: 1px;
+  }
+
+  .cluster {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}

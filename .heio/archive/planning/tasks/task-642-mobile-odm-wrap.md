@@ -2,7 +2,7 @@
 id: "task-642-mobile-odm-wrap"
 title: "Wrap the side nav on small viewports"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-637-site-shell" ]
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-635-mobile-odm-wrap"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T20:25:00Z"
 ---
 
 # Wrap the side nav on small viewports
@@ -67,11 +67,11 @@ CSS wrap like ODM. No hamburger required. Skip link first. Side nav links keyboa
 - mobile-a11y vitest
 
 **Acceptance criteria:**
-- [ ] Small viewport is one column, side nav above main
-- [ ] No requirement for a Menu button in the updated test
-- [ ] Skip link first; focus-visible token ring
-- [ ] `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed
-- [ ] Typecheck exits 0
+- [x] Small viewport is one column, side nav above main
+- [x] No requirement for a Menu button in the updated test
+- [x] Skip link first; focus-visible token ring
+- [x] `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed
+- [x] Typecheck exits 0
 
 **Out of scope:**
 - Changing IA; dropping search; playground
