@@ -8,7 +8,7 @@ domain: draconic
 area: public-site
 tags: [purpose]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-07"
 ---
 
 # Public site purpose
@@ -24,8 +24,9 @@ Give someone writing a Program a public language homepage, a Learn path, and wor
 - **Reference working pages**: CLI, types, Dual-world rules, host I/O, packages.
 - **Shipped or not-yet badges**: Each teaching page shows its status.
 - **In-site search**: A visitor finds a Learn or Reference page by title or heading.
-- **Site chrome**: Wordmark, Learn, Reference, and GitHub.
-- **Keyboard and small-viewport use**: Primary nav and article reading remain usable.
+- **Site chrome**: Two-column shell on every page: skip link, sticky side nav, main column. Side nav has wordmark, Learn, Reference, and GitHub. Search stays in that nav.
+- **Docs article**: Learn and Reference pages share that shell. The article column has a section kicker, heading, status badge, and related-link footer. Side nav groups list the Learn path and Reference pages.
+- **Keyboard and small-viewport use**: Primary nav and article reading remain usable. At a small viewport the side nav stacks and wraps; no separate marketing top bar.
 
 ## Out of scope
 
