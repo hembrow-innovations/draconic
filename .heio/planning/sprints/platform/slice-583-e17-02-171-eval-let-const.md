@@ -2,12 +2,12 @@
 id: "slice-583-e17-02-171-eval-let-const"
 title: "E17.02.171 direct eval of let/const without caller inject"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T23:45:00Z"
+updated_at: "2026-09-06T23:50:00Z"
 ---
 # E17.02.171 direct eval of let/const without caller inject
 
