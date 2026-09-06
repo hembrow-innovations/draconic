@@ -56,3 +56,10 @@ toml = "0.8"
 sha2 = "0.10"
 aes-gcm = "0.10"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+# Fat `debug = 2` test binaries (161 harnesses, LLVM-linked) spent ~8 minutes on
+# process startup/page-ins after a 21s compile, blowing the 600s workspace oracle.
+# Line tables keep panic locations; skip incremental to keep `target/` under 10GB.
+[profile.test]
+debug = "line-tables-only"
+incremental = false
