@@ -68,6 +68,10 @@ test("learn hub nav", () => {
   const variants = readFileSync(join(navDir, "LearnNav.variants.ts"), "utf8");
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
+  const header = readFileSync(
+    join(srcDir, "components", "SiteHeader", "SiteHeader.tsx"),
+    "utf8",
+  );
   const shell = readFileSync(
     join(srcDir, "features", "docs", "DocsShell", "DocsShell.tsx"),
     "utf8",
@@ -92,12 +96,23 @@ test("learn hub nav", () => {
   expect(home).not.toContain("DocsShell");
   expect(home).not.toContain("LearnNav");
   expect(root).not.toContain("LearnNav");
+  expect(header).toContain("LearnNav");
+  expect(header).toContain('from "../../features/learn/LearnNav"');
+  assertOrder(header, [
+    'to="/"',
+    'to="/learn"',
+    "LearnNav",
+    'to="/reference"',
+    ">GitHub<",
+  ]);
   expect(shell).not.toContain("from JavaScript");
   expect(shell).not.toContain("from systems");
   expect(shell).not.toContain("Dual worlds");
 
   expect(nav).toContain("from \"@tanstack/react-router\"");
   expect(nav).toContain("Link");
+  expect(nav).toContain("activeProps");
+  expect(nav).toContain('"aria-current": "page"');
   expect(nav).not.toContain(".html");
   expect(nav).not.toMatch(/playground/i);
   expect(nav).not.toContain("docs/");

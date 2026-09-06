@@ -56,6 +56,10 @@ test("docs shell", () => {
   );
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
+  const header = readFileSync(
+    join(srcDir, "components", "SiteHeader", "SiteHeader.tsx"),
+    "utf8",
+  );
   const install = loadMarkdownPage("install");
 
   expect(home).not.toContain("DocsShell");
@@ -63,8 +67,12 @@ test("docs shell", () => {
   expect(root).not.toContain("DocsShell");
   expect(root).not.toContain("features/docs");
 
-  expect(shell).toContain("<aside");
-  expect(shell).toContain("<nav");
+  expect(header).toContain("<aside");
+  expect(header).toContain("<nav");
+  expect(header).toContain("LearnNav");
+  expect(header).toContain("ReferenceNav");
+  expect(header).toContain('"aria-current": "page"');
+  expect(shell).not.toContain("<aside");
   expect(shell).toContain("<article");
   expect(shell).toContain("Badge");
   expect(shell).toContain('from "../../../components/Badge"');

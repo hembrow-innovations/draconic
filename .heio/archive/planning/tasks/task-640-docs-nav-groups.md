@@ -2,17 +2,16 @@
 id: "task-640-docs-nav-groups"
 title: "Group Learn and Reference in the side nav"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-637-site-shell" ]
 sprint: "website-odm-match"
 slice: "slice-633-docs-nav-groups"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
 updated_at: "2026-09-07T19:30:00Z"
 ---
-
 # Group Learn and Reference in the side nav
 
 ## Blocked by
@@ -67,10 +66,10 @@ Site side nav groups: Home, Learn pages in hub order, Reference pages in hub ord
 - Learn and Reference hub order unchanged
 
 **Acceptance criteria:**
-- [ ] Learn sequence Install through packages in the side nav
-- [ ] Reference sequence CLI through packages in the side nav
-- [ ] aria-current on the open page
-- [ ] Named tests pass and typecheck exits 0
+- [x] Learn sequence Install through packages in the side nav
+- [x] Reference sequence CLI through packages in the side nav
+- [x] aria-current on the open page
+- [x] Named tests pass and typecheck exits 0
 
 **Out of scope:**
 - Hub card grids; mobile wrap; changing IA order; playground

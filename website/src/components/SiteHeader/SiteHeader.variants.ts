@@ -30,9 +30,14 @@ export const siteHeaderWordmarkVariants = cva(
 export const siteHeaderTaglineVariants = cva("font-body text-body text-muted");
 
 /**
- * Primary nav cluster: Learn, Reference, GitHub.
+ * Primary nav cluster: Learn group, Reference group, GitHub.
  */
 export const siteHeaderNavVariants = cva("flex flex-col gap-4");
+
+/**
+ * Hub link plus chapter list so Learn and Reference read as labeled groups.
+ */
+export const siteHeaderGroupVariants = cva("flex flex-col gap-2");
 
 /**
  * Learn, Reference, and GitHub sit under the wordmark.

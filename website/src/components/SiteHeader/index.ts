@@ -7,6 +7,7 @@ export {
   siteHeaderWordmarkVariants,
   siteHeaderTaglineVariants,
   siteHeaderNavVariants,
+  siteHeaderGroupVariants,
   siteHeaderClusterVariants,
   siteHeaderMenuButtonVariants,
   siteHeaderLinkVariants,

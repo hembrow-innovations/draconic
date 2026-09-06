@@ -2,10 +2,8 @@ import { Badge } from "../../../components/Badge";
 import { renderMarkdown } from "../../../lib/content";
 import {
   docsShellArticleVariants,
-  docsShellAsideVariants,
   docsShellFooterVariants,
   docsShellKickerVariants,
-  docsShellNavVariants,
   docsShellVariants,
 } from "./DocsShell.variants";
 import type { DocsShellProps } from "./DocsShell.types";
@@ -26,29 +24,25 @@ function statusLabel(status: DocsShellProps["status"]): string {
 }
 
 /**
- * Handbook chrome: section aside, article, and a shipped or not-yet Badge.
+ * Handbook article chrome: kicker, shipped or not-yet Badge, and related-link footer.
  *
- * Locks `public-site.chrome:docs-sidebar`. Home landing stays outside this shell.
+ * Locks `public-site.chrome:docs-sidebar` and `public-site.nav:learn-reference-status`.
+ * Section lists live in the site side nav. Home landing stays outside this shell.
  *
- * @param props - Section kicker, status from frontmatter, optional section nav, optional markdown body
+ * @param props - Section kicker, status from frontmatter, optional nav from callers, optional markdown body
  * @returns Docs shell
  */
 export function DocsShell({
   className,
   kicker,
   status,
-  nav,
+  nav: _nav,
   body,
   children,
   ...props
 }: DocsShellProps) {
   return (
     <div className={docsShellVariants({ className })} {...props}>
-      <aside className={docsShellAsideVariants()}>
-        <nav className={docsShellNavVariants()} aria-label="Section">
-          {nav}
-        </nav>
-      </aside>
       <article className={docsShellArticleVariants()}>
         <p className={docsShellKickerVariants()}>{kicker}</p>
         <Badge variant={status}>{statusLabel(status)}</Badge>

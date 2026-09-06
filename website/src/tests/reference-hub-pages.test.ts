@@ -107,6 +107,10 @@ test("reference hub pages", () => {
   const pageSource = readFileSync(join(pageDir, "ReferencePage.tsx"), "utf8");
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
+  const header = readFileSync(
+    join(srcDir, "components", "SiteHeader", "SiteHeader.tsx"),
+    "utf8",
+  );
   const shell = readFileSync(
     join(srcDir, "features", "docs", "DocsShell", "DocsShell.tsx"),
     "utf8",
@@ -138,11 +142,21 @@ test("reference hub pages", () => {
   expect(home).not.toContain("DocsShell");
   expect(home).not.toContain("ReferenceNav");
   expect(root).not.toContain("ReferenceNav");
+  expect(header).toContain("LearnNav");
+  expect(header).toContain("ReferenceNav");
+  expect(header).toContain('from "../../features/reference/ReferenceNav"');
+  assertOrder(header, [
+    "LearnNav",
+    "ReferenceNav",
+    ">GitHub<",
+  ]);
   expect(shell).not.toContain("Dual-world rules");
   expect(shell).not.toContain("api-cli");
 
   expect(nav).toContain("from \"@tanstack/react-router\"");
   expect(nav).toContain("Link");
+  expect(nav).toContain("activeProps");
+  expect(nav).toContain('"aria-current": "page"');
   expect(nav).not.toContain(".html");
   expect(nav).not.toMatch(/playground/i);
   expect(nav).not.toContain("docs/");
