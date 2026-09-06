@@ -2,15 +2,14 @@
 id: "slice-633-docs-nav-groups"
 title: "ODM docs nav groups"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-630-site-shell
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T21:10:00Z"
 ---
-
 # ODM docs nav groups
 
 ## Why
@@ -32,11 +31,10 @@ The site side nav groups Learn pages and Reference pages in hub order, marks the
 - **Playground**
 
 ## Oracle checklist
-
-- [ ] O1: side nav groups list Learn and Reference pages with aria-current; docs sidebar and badge still hold
+- [x] O1: side nav groups list Learn and Reference pages with aria-current; docs sidebar and badge still hold
   CHECK: pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages docs-shell
   EXPECT: Test Files  3 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages docs-shell` → Test Files  3 passed (3); task-640 completed in archive
 
 ## Pool
 
