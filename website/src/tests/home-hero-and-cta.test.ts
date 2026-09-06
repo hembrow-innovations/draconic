@@ -52,15 +52,30 @@ test("home hero and cta", () => {
   expect(home).not.toContain("from JavaScript");
   expect(home).not.toContain("from systems");
 
+  expect(home).not.toContain("DocsShell");
+  expect(hero).toContain("public-site.home:landing");
   expect(hero).toContain("from \"@tanstack/react-router\"");
   expect(hero).toContain("Link");
   expect(hero).toContain("JavaScript you already know");
   expect(hero).toContain("Native types when you need them");
   expect(hero).toContain("One language, two backends");
+  expect(hero).toContain("<h1");
+  expect(hero).toContain("homeHeroKickerVariants");
+  expect(hero).toContain("homeHeroLeadVariants");
+  expect(hero).toContain("homeHeroCtaClusterVariants");
+  expect(hero).toContain("homeHeroPathVariants");
   expect(hero).toMatch(/to=["']\/install["']/);
   expect(hero).toContain(">Install<");
   expect(hero).toMatch(/to=["']\/learn["']/);
   expect(hero).toContain(">Learn<");
+  expect(hero).toMatch(/to=["']\/reference["']/);
+  expect(hero).toContain(">Reference<");
+  expect(hero).toContain(">1<");
+  expect(hero).toContain(">2<");
+  expect(hero).toContain(">3<");
+  expect(hero).toContain("<ol");
+  expect(hero).toMatch(/homeHeroCtaVariants\(\{\s*variant:\s*["']primary["']\s*\}\)/);
+  expect(hero).toMatch(/homeHeroCtaVariants\(\{\s*variant:\s*["']ghost["']\s*\}\)/);
   expect(hero).not.toContain(".html");
   expect(hero).not.toContain("Start at");
   expect(hero).not.toContain("from JavaScript");
@@ -87,6 +102,12 @@ test("home hero and cta", () => {
   expect(variants).toContain("cva(");
   expect(variants).toContain("font-display");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("uppercase");
+  expect(variants).toMatch(/\btracking-widest\b/);
+  expect(variants).toContain("cta-row");
+  expect(variants).toContain("kicker");
+  expect(variants).toContain("ghost:");
+  expect(variants).toContain("path");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 

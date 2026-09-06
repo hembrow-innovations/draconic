@@ -50,13 +50,16 @@ test("home features", () => {
   expect(home).toContain("HomeHero");
   expect(home).toContain("HomeFeatures");
   expect(home).not.toContain("learn.md");
+  expect(home).not.toContain("DocsShell");
 
+  expect(features).toContain("public-site.home:landing");
   expect(features).toContain("Compiles to JavaScript");
   expect(features).toContain("Compiles to native via LLVM");
   expect(features).toContain(
     "Dual worlds are JS values and native types at explicit boundaries",
   );
   expect(features.match(/<article\b/g)?.length).toBe(3);
+  expect(features).toContain("homeFeatureCardVariants");
 
   expect(features).not.toMatch(/playground/i);
   expect(features).not.toContain("FFI-only");
@@ -71,6 +74,9 @@ test("home features", () => {
   expect(variants).toContain('from "class-variance-authority"');
   expect(variants).toContain("cva(");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("auto-fit");
+  expect(variants).toContain("card");
+  expect(variants).not.toContain("grid-cols-3");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 

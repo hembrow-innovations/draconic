@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-638-home-odm-layout** — website home kicker, CTA row, path steps, and auto-fit cards
 - **task-637-site-shell** — website ODM skip plus sticky side nav plus main chrome
 - **task-636-odm-tokens** — website dark semantic tokens retokened to ODM navy with mint accent-2
 - **housekeeping** — archived 6 met platform slices; closed website-redesign sprint (19 met slices) and ticket-628; 15 tickets remain; platform sprint stays active

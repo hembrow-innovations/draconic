@@ -1,17 +1,17 @@
 import { cva } from "class-variance-authority";
 
 /**
- * Three-fact grid under the home pitch. Classes stay here so the JSX does not own a second type scale.
+ * Feature cards under the home pitch. Auto-fit so three facts wrap without a fixed column count.
  */
 export const homeFeaturesVariants = cva(
-  "px-8 py-12 bg-canvas text-ink grid grid-cols-3 gap-6 max-w-3/4",
+  "px-8 py-12 bg-canvas text-ink grid gap-6 max-w-3/4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr))]",
 );
 
 /**
  * One glossary fact. Surface and ink come from theme roles.
  */
 export const homeFeatureCardVariants = cva(
-  "border border-line p-6 bg-canvas text-ink",
+  "card border border-line p-6 bg-elevated text-ink",
 );
 
 /**

@@ -2,6 +2,12 @@ import { Link } from "@tanstack/react-router";
 import {
   homeHeroCtaClusterVariants,
   homeHeroCtaVariants,
+  homeHeroKickerVariants,
+  homeHeroLeadVariants,
+  homeHeroPathIndexVariants,
+  homeHeroPathLinkVariants,
+  homeHeroPathStepVariants,
+  homeHeroPathVariants,
   homeHeroPitchVariants,
   homeHeroTitleVariants,
   homeHeroVariants,
@@ -19,8 +25,9 @@ import type { HomeHeroProps } from "./HomeHero.types";
 export function HomeHero({ className, ...props }: HomeHeroProps) {
   return (
     <section className={homeHeroVariants({ className })} {...props}>
+      <p className={homeHeroKickerVariants()}>Language</p>
       <h1 className={homeHeroTitleVariants()}>Draconic</h1>
-      <p className={homeHeroPitchVariants()}>
+      <p className={homeHeroLeadVariants()}>
         JavaScript you already know. Native types when you need them. One language, two backends.
       </p>
       <p className={homeHeroPitchVariants()}>
@@ -28,8 +35,22 @@ export function HomeHero({ className, ...props }: HomeHeroProps) {
       </p>
       <div className={homeHeroCtaClusterVariants()}>
         <Link to="/install" className={homeHeroCtaVariants({ variant: "primary" })}>Install</Link>
-        <Link to="/learn" className={homeHeroCtaVariants({ variant: "secondary" })}>Learn</Link>
+        <Link to="/learn" className={homeHeroCtaVariants({ variant: "ghost" })}>Learn</Link>
       </div>
+      <ol className={homeHeroPathVariants()}>
+        <li className={homeHeroPathStepVariants()}>
+          <span className={homeHeroPathIndexVariants()}>1</span>
+          <Link to="/install" className={homeHeroPathLinkVariants()}>Install</Link>
+        </li>
+        <li className={homeHeroPathStepVariants()}>
+          <span className={homeHeroPathIndexVariants()}>2</span>
+          <Link to="/learn" className={homeHeroPathLinkVariants()}>Learn</Link>
+        </li>
+        <li className={homeHeroPathStepVariants()}>
+          <span className={homeHeroPathIndexVariants()}>3</span>
+          <Link to="/reference" className={homeHeroPathLinkVariants()}>Reference</Link>
+        </li>
+      </ol>
     </section>
   );
 }

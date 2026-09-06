@@ -2,17 +2,16 @@
 id: "task-638-home-odm-layout"
 title: "Lay out home like ODM"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: [ "task-637-site-shell" ]
 sprint: "website-odm-match"
 slice: "slice-631-home-odm-layout"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T23:45:00Z"
 ---
-
 # Lay out home like ODM
 
 ## Blocked by
@@ -67,10 +66,10 @@ Same copy and CTA targets. Layout: kicker, hero, CTA row (primary + ghost), numb
 - Index route only; no DocsShell import
 
 **Acceptance criteria:**
-- [ ] Locked pitch strings still present
-- [ ] Install and Learn CTAs still those hrefs
-- [ ] Kicker, path steps, and cards exist
-- [ ] Named tests pass and typecheck exits 0
+- [x] Locked pitch strings still present
+- [x] Install and Learn CTAs still those hrefs
+- [x] Kicker, path steps, and cards exist
+- [x] Named tests pass and typecheck exits 0
 
 **Out of scope:**
 - Docs article; hub cards; changing IA; playground
