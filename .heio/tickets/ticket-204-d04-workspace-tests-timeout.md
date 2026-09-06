@@ -2,12 +2,12 @@
 id: "ticket-204-d04-workspace-tests-timeout"
 title: "D04 workspace tests timeout and release_artifact fail"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-05T21:15:00Z"
+updated_at: "2026-09-06T04:39:34Z"
 caused-by: s-d04-workspace-tests-timeout
 failed: true
 intent: fix

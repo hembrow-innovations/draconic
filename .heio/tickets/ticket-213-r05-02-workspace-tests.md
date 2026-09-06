@@ -2,12 +2,12 @@
 id: "ticket-213-r05-02-workspace-tests"
 title: "R05.02 workspace tests still exit 101"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-05T21:15:00Z"
+updated_at: "2026-09-06T04:39:34Z"
 caused-by: s-r05-02-workspace-tests
 failed: true
 intent: fix

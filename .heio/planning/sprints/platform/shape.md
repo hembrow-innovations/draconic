@@ -5,7 +5,7 @@ kind: "sprint"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-updated_at: "2026-09-05T22:20:00Z"
+updated_at: "2026-09-06T04:39:34Z"
 ---
 
 # platform
@@ -16,7 +16,8 @@ Location: remaining platform-capability and leftover conformance after the langu
 
 ## Slices in
 
-- none live. Sealed slices from this grouping are in `.heio/archive/planning/sprints/platform/slices/`. Planner mints the next ROADMAP atom here.
+- [[s-workspace-test-budget]]
+- Sealed slices from this grouping are in `.heio/archive/planning/sprints/platform/slices/`.
 
 ## Slices out
 

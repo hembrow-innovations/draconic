@@ -2,12 +2,12 @@
 id: "ticket-214-r05-workspace-timeout"
 title: "R05 workspace tests timeout then exit 101 (O2 oracle-budget / workspace-timeout)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-05T21:15:00Z"
+updated_at: "2026-09-06T04:39:34Z"
 caused-by: s-r05-workspace-timeout
 failed: true
 intent: fix

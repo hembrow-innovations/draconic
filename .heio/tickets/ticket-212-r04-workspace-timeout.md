@@ -2,12 +2,12 @@
 id: "ticket-212-r04-workspace-timeout"
 title: "R04 workspace tests did not finish (O3 oracle-budget / workspace-timeout)"
 kind: ticket
-status: ready-for-agent
+status: promoted
 labels: bug
 tags: []
 sprint: platform
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-05T21:15:00Z"
+updated_at: "2026-09-06T04:39:34Z"
 caused-by: s-r04-workspace-timeout
 failed: true
 intent: fix
