@@ -2,13 +2,13 @@
 id: "slice-635-mobile-odm-wrap"
 title: "ODM mobile wrap"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-630-site-shell
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T18:00:00Z"
+updated_at: "2026-09-07T07:22:00Z"
 ---
 
 # ODM mobile wrap
@@ -33,10 +33,10 @@ At a small viewport the side nav stacks above main and its links wrap. Skip link
 
 ## Oracle checklist
 
-- [ ] O1: small viewport stacks the side nav; skip link first; keyboard and token focus hold
+- [x] O1: small viewport stacks the side nav; skip link first; keyboard and token focus hold
   CHECK: pnpm --dir website exec vitest run mobile-a11y
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed (1); task-642 completed in archive
 
 ## Pool
 
