@@ -43,6 +43,7 @@ pub fn validate_regexp_flags(flags: &str) -> Result<(), String> {
 
 /// BodyText must be a valid Pattern (with flag-dependent grammar, e.g. unicode mode).
 fn validate_regexp_pattern(pattern: &str, flags: &str) -> Result<(), String> {
+    reject_incomplete_unicode_escape_in_uv(pattern, flags)?;
     // Only flags that affect Pattern parse/semantics matter for early errors.
     let mut pattern_flags = String::new();
     for c in flags.chars() {
@@ -88,6 +89,48 @@ fn rewrite_script_unknown_for_validate(pattern: &str) -> String {
         i += 1;
     }
     out
+}
+
+fn reject_incomplete_unicode_escape_in_uv(pattern: &str, flags: &str) -> Result<(), String> {
+    if !flags.chars().any(|c| c == 'u' || c == 'v') {
+        return Ok(());
+    }
+    let chars: Vec<char> = pattern.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '\\' {
+            i += 1;
+            continue;
+        }
+        if i + 1 >= chars.len() {
+            return Ok(());
+        }
+        if chars[i + 1] != 'u' {
+            i += 2;
+            continue;
+        }
+        i = consume_uv_unicode_escape(&chars, i + 2)?;
+    }
+    Ok(())
+}
+
+fn consume_uv_unicode_escape(chars: &[char], start: usize) -> Result<usize, String> {
+    let err = || "invalid regular expression pattern: Invalid unicode escape".to_string();
+    if start < chars.len() && chars[start] == '{' {
+        let mut j = start + 1;
+        let hex_start = j;
+        while j < chars.len() && chars[j].is_ascii_hexdigit() {
+            j += 1;
+        }
+        if j == hex_start || j >= chars.len() || chars[j] != '}' {
+            return Err(err());
+        }
+        return Ok(j + 1);
+    }
+    if start + 4 <= chars.len() && chars[start..start + 4].iter().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(start + 4);
+    }
+    Err(err())
 }
 
 fn rewrite_script_unknown_inner(inner: &str) -> String {
@@ -199,5 +242,31 @@ mod tests {
             rewrite_script_unknown_for_validate(r"\P{Script=Zzzz}"),
             r"\P{Script=Latin}"
         );
+    }
+
+    #[test]
+    fn annex_b_incomplete_unicode_escape_without_uv() {
+        assert!(validate_regexp_literal(r"\u", "").is_ok());
+        assert!(validate_regexp_literal(r"\u1", "").is_ok());
+        assert!(validate_regexp_literal(r"\u12", "").is_ok());
+        assert!(validate_regexp_literal(r"\u123", "").is_ok());
+        assert!(validate_regexp_literal(r"\u004G", "").is_ok());
+        assert!(validate_regexp_literal(r"[\u]", "").is_ok());
+        assert!(validate_regexp_literal(r"\u0041", "").is_ok());
+        assert!(validate_regexp_literal(r"\u{41}", "").is_ok());
+    }
+
+    #[test]
+    fn annex_b_incomplete_unicode_escape_u_v_early_error() {
+        assert!(validate_regexp_literal(r"\u", "u").is_err());
+        assert!(validate_regexp_literal(r"\u1", "u").is_err());
+        assert!(validate_regexp_literal(r"\u", "v").is_err());
+        assert!(validate_regexp_literal(r"\u1", "v").is_err());
+        assert!(validate_regexp_literal(r"[\u]", "v").is_err());
+        assert!(validate_regexp_literal(r"\u004G", "v").is_err());
+        assert!(validate_regexp_literal(r"\u0041", "u").is_ok());
+        assert!(validate_regexp_literal(r"\u0041", "v").is_ok());
+        assert!(validate_regexp_literal(r"\u{41}", "u").is_ok());
+        assert!(validate_regexp_literal(r"\u{41}", "v").is_ok());
     }
 }

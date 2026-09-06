@@ -518,3 +518,33 @@ fn regexp_annex_b_pattern_u_err_fixture_present() {
 fn regexp_annex_b_pattern_u_err_runs() {
     assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_pattern_u_err");
 }
+
+#[test]
+fn regexp_annex_b_unicode_escape_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_annex_b_unicode_escape");
+}
+
+#[test]
+fn regexp_annex_b_unicode_escape_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_unicode_escape");
+}
+
+#[test]
+fn regexp_annex_b_unicode_escape_u_err_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_annex_b_unicode_escape_u_err");
+}
+
+#[test]
+fn regexp_annex_b_unicode_escape_u_err_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_unicode_escape_u_err");
+}
+
+#[test]
+fn regexp_annex_b_unicode_escape_v_err_fixture_present() {
+    assert_fixture_present("es/annex-b/regexp_annex_b_unicode_escape_v_err");
+}
+
+#[test]
+fn regexp_annex_b_unicode_escape_v_err_runs() {
+    assert_fixture_runs_declared_targets("es/annex-b/regexp_annex_b_unicode_escape_v_err");
+}
