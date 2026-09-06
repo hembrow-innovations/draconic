@@ -2,10 +2,15 @@
 
 @theme {
   --color-canvas: #f5f8fc;
+  --color-elevated: #ffffff;
+  --color-soft: #e8eef5;
+  --color-code: #eef3f8;
   --color-ink: #0b2742;
   --color-accent: #3178c6;
+  --color-accent-2: #2f9e6f;
   --color-accent-foreground: #f8fbff;
   --color-muted: #5b6f86;
+  --color-link: #3178c6;
   --color-line: #d7e0ea;
   --font-display: ui-serif, Georgia, "Times New Roman", serif;
   --font-body: ui-sans-serif, system-ui, sans-serif;
@@ -19,10 +24,15 @@
 }
 
 html.dark {
-  --color-canvas: #07111c;
-  --color-ink: #e8f1fa;
-  --color-accent: #4c9ae8;
-  --color-accent-foreground: #07111c;
-  --color-muted: #9bb0c4;
-  --color-line: #1c3348;
+  --color-canvas: #0c0f14;
+  --color-elevated: #141a22;
+  --color-soft: #1a222d;
+  --color-code: #0a0d12;
+  --color-ink: #e8eef6;
+  --color-accent: #5b9fd4;
+  --color-accent-2: #7dd3a7;
+  --color-accent-foreground: #0c0f14;
+  --color-muted: #a3b4c6;
+  --color-link: #7eb8e8;
+  --color-line: #2a3544;
 }

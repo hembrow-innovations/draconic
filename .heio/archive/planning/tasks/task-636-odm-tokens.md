@@ -2,7 +2,7 @@
 id: "task-636-odm-tokens"
 title: "Retoken to ODM dark navy"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-629-odm-tokens"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T21:15:00Z"
 ---
 
 # Retoken to ODM dark navy
@@ -67,11 +67,11 @@ Light-first cool blue tokens. Dark is a navy variant of TypeScript.org blue.
 - Semantic token vitest that forbids hex in product TS/TSX
 
 **Acceptance criteria:**
-- [ ] Dark canvas `#0c0f14`, ink `#e8eef6`, accent `#5b9fd4`, line `#2a3544`
-- [ ] Accent-2 `#7dd3a7` exists as a token
-- [ ] Product TS/TSX still has no hex
-- [ ] `pnpm --dir website exec vitest run semantic-tokens` → Test Files  1 passed
-- [ ] `pnpm --dir website exec tsc --noEmit` exits 0
+- [x] Dark canvas `#0c0f14`, ink `#e8eef6`, accent `#5b9fd4`, line `#2a3544`
+- [x] Accent-2 `#7dd3a7` exists as a token
+- [x] Product TS/TSX still has no hex
+- [x] `pnpm --dir website exec vitest run semantic-tokens` → Test Files  1 passed
+- [x] `pnpm --dir website exec tsc --noEmit` exits 0
 
 **Out of scope:**
 - Site shell layout; home bands; docs article; dropping theme toggle; Start replacement; publishing `docs/`
@@ -81,4 +81,4 @@ ODM looks like cool dark navy with blue accent and mint current-page. Tokens mov
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run semantic-tokens` — win. `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run semantic-tokens` — win. `Test Files  1 passed`. `pnpm --dir website exec tsc --noEmit` exits 0.

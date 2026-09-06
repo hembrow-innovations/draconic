@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-636-odm-tokens** — website dark semantic tokens retokened to ODM navy with mint accent-2
 - **housekeeping** — archived 6 met platform slices; closed website-redesign sprint (19 met slices) and ticket-628; 15 tickets remain; platform sprint stays active
 - **ticket-628-public-site-redesign** — Public site TanStack Start redesign
 - **task-627-fence-static-deploy** — Start static publish, shipped fence compile, not-yet pages stay prose

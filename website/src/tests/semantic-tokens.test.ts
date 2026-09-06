@@ -39,8 +39,17 @@ test("semantic tokens", () => {
   expect(css).toContain("--color-canvas:");
   expect(css).toContain("--color-ink:");
   expect(css).toContain("--color-accent:");
+  expect(css).toContain("--color-accent-2:");
   expect(css).toContain("--color-muted:");
   expect(css).toContain("--color-line:");
+
+  const darkCss = css.match(/html\.dark\s*\{[\s\S]*?\}/)?.[0] ?? "";
+  expect(darkCss).toContain("--color-canvas: #0c0f14");
+  expect(darkCss).toContain("--color-ink: #e8eef6");
+  expect(darkCss).toContain("--color-accent: #5b9fd4");
+  expect(darkCss).toContain("--color-muted: #a3b4c6");
+  expect(darkCss).toContain("--color-line: #2a3544");
+  expect(darkCss).toContain("--color-accent-2: #7dd3a7");
 
   const pageSources = [
     readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8"),
