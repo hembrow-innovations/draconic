@@ -11,6 +11,7 @@ Load the matching skill before the work it covers.
 - **rust-development**: Cargo crates, pipeline, diagnostics, workspace tests
 - **draconic-language**: toolchain conventions (Frontend, IR, dual backends, Conformance)
 - **draconic-loop**: one atomic Roadmap item, test-first
+- **roadmap-audit**: one Roadmap row, findings and tickets only (`/afk-roadmap`)
 - **gauntlet-loop**: bounded implement-then-critic until the bar wins
 - **diagnose**: hard bugs and performance regressions
 - **behaviour-contracts**: intended behaviour under `docs/`
@@ -51,4 +52,4 @@ Each `rs` file should have a soft limit of 1,000 lines.
 
 ## Loop
 
-Language work is one Roadmap atom per sitting. Load **draconic-loop**. For a named implement-and-verify task, load **gauntlet-loop** as well. Default stop is one item; do not start the next unless the user says to continue.
+Language work is one Roadmap atom per sitting. Load **draconic-loop**. For a named implement-and-verify task, load **gauntlet-loop** as well. For a findings-only audit of one Roadmap row (tests, false greens, tickets, no implement), load **roadmap-audit** or invoke `/afk-roadmap`. Default stop is one item; do not start the next unless the user says to continue.
