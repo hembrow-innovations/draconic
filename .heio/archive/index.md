@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-614-site-footer-skip** — website skip-to-content link and modest site footer chrome
 - **task-613-site-header-nav** — website site header primary nav (wordmark, Learn, Reference, GitHub)
 - **task-612-typography-badge** — website display/body/mono type roles and status Badge
 - **task-611-semantic-tokens** — website Tailwind v4 @theme semantic color roles

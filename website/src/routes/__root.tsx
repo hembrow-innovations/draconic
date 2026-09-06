@@ -5,7 +5,9 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
+import { SkipLink } from "../components/SkipLink";
 import "../styles/theme.css";
 
 export const Route = createRootRoute({
@@ -29,8 +31,12 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
+      <SkipLink />
       <SiteHeader />
-      <Outlet />
+      <main id="main" tabIndex={-1}>
+        <Outlet />
+      </main>
+      <SiteFooter />
     </RootDocument>
   );
 }
