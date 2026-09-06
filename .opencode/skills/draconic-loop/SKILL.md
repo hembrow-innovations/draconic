@@ -1,6 +1,7 @@
 ---
 name: draconic-loop
 description: "Run one atomic Draconic language Loop: pick the next Roadmap item, implement it test-first, mark done only when tests pass. Use when the user wants to advance Draconic, run the language build loop, grow the compiler/runtime, or mentions draconic-loop / next feature / continue the language."
+disable-model-invocation: true
 ---
 
 # Draconic Loop
