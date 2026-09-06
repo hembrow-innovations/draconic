@@ -2,12 +2,12 @@
 id: "slice-629-odm-tokens"
 title: "ODM semantic tokens"
 kind: slice
-status: active
+status: met
 sprint: "website-odm-match"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T20:00:00Z"
+updated_at: "2026-09-07T21:30:00Z"
 ---
 
 # ODM semantic tokens
@@ -34,10 +34,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: dark canvas, ink, accent, muted, and line match ODM; accent-2 exists; no hex in product TS
+- [x] O1: dark canvas, ink, accent, muted, and line match ODM; accent-2 exists; no hex in product TS
   CHECK: pnpm --dir website exec vitest run semantic-tokens
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run semantic-tokens` → Test Files  1 passed (1); task-636 completed in archive
 
 ## Pool
 
