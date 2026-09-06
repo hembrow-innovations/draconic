@@ -2,12 +2,12 @@
 id: "slice-216-workspace-test-budget"
 title: "Workspace tests finish inside the oracle budget"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T04:39:34Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-06T08:44:39Z"
 ---
 
 # Workspace tests finish inside the oracle budget
@@ -32,15 +32,15 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: workspace tests finish inside the CHECK budget
+- [x] O1: workspace tests finish inside the CHECK budget
   CHECK: cargo test --workspace
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes lines=161 wall=339.12s (under 600s) target=2.1G at=2026-09-06T08:44:39Z
 
-- [ ] O2: D01.01 release-artifact workflow reader stays locked
+- [x] O2: D01.01 release-artifact workflow reader stays locked
   CHECK: cargo test -p draconic-integration-tests --test release_artifact
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: met exit=0 match=yes 2 passed wall=0.87s at=2026-09-06T08:44:39Z
 
 ## Pool
 
