@@ -5,5 +5,6 @@ export {
   siteHeaderWordmarkVariants,
   siteHeaderNavVariants,
   siteHeaderClusterVariants,
+  siteHeaderMenuButtonVariants,
   siteHeaderLinkVariants,
 } from "./SiteHeader.variants";

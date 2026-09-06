@@ -6,7 +6,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run theme-toggle",
+    "test": "vitest run mobile-a11y",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

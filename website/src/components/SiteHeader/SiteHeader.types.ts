@@ -3,7 +3,7 @@ import type { VariantProps } from "class-variance-authority";
 import type { siteHeaderVariants } from "./SiteHeader.variants";
 
 /**
- * Props for site chrome. No extra variants; mobile disclosure waits for a later sitting.
+ * Props for site chrome. Small-viewport disclosure is internal state.
  */
 export type SiteHeaderProps = HTMLAttributes<HTMLElement> &
   VariantProps<typeof siteHeaderVariants>;
