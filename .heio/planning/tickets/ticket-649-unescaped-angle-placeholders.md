@@ -1,0 +1,28 @@
+---
+id: "ticket-649-unescaped-angle-placeholders"
+title: "Article lists drop angle-bracket placeholders as leftover HTML"
+kind: ticket
+status: open
+ticket_type: bug
+blocked_by: []
+tags: [website, public-site]
+sprint: "website-odm-match"
+created_at: "2026-09-07T21:30:00Z"
+updated_at: "2026-09-07T21:30:00Z"
+---
+
+# Article lists drop angle-bracket placeholders as leftover HTML
+
+## Signal
+
+The CLI Commands list in `website/cli.md` writes `draconic parse <file>` and `[-o <out>]`. On `/cli` those angle-bracket tokens never appear: the list reads `draconic parse ` and `[-o ]`, and `<out>` shows up as a leftover generic DOM node. The markdown subset renders list text without escaping, so the browser treats the placeholders as HTML tags.
+
+## Fit
+
+this project, later slice. Do not execute from this ticket.
+
+## Notes
+
+- **Promise**: `public-site.markdown:subset` (lists and paragraphs from `website/` sources).
+- **Walked**: `/cli`. First list items: `draconic parse ` and `draconic check [--watch] ` with the file placeholder gone. Build line splits around a leftover `[-o ]` node.
+- **Parent**: [[slice-644-ui-audit]]

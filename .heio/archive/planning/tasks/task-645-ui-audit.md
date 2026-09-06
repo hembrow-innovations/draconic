@@ -2,7 +2,7 @@
 id: "task-645-ui-audit"
 title: "Audit public-site UI and file tickets"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-638-home-odm-layout
@@ -15,7 +15,7 @@ slice: "slice-644-ui-audit"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T19:00:00Z"
-updated_at: "2026-09-07T19:30:00Z"
+updated_at: "2026-09-07T21:45:00Z"
 ---
 
 # Audit public-site UI and file tickets
@@ -74,11 +74,11 @@ Each independent UI problem is its own ticket. A closeout ticket lists `/`, `/le
 - Public-site purpose and contract
 
 **Acceptance criteria:**
-- [ ] Named routes walked
-- [ ] One ticket per finding, or zero finding tickets
-- [ ] Closeout ticket links [[slice-644-ui-audit]]
-- [ ] No website source changes except slice EVIDENCE
-- [ ] `rg -l "slice-644-ui-audit" .heio/planning/tickets` matches
+- [x] Named routes walked
+- [x] One ticket per finding, or zero finding tickets
+- [x] Closeout ticket links [[slice-644-ui-audit]]
+- [x] No website source changes except slice EVIDENCE
+- [x] `rg -l "slice-644-ui-audit" .heio/planning/tickets` matches
 
 **Out of scope:**
 - Implementing fixes; playground; vault-as-site; Start replacement; copying ODM copy; language ROADMAP

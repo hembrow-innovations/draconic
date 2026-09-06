@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-645-ui-audit** — public-site UI audit closeout plus finding tickets
 - **task-642-mobile-odm-wrap** — website small-viewport side nav stacks and wraps without a hamburger
 - **task-641-hub-cards** — website Learn and Reference hubs as ODM card grids
 - **task-640-docs-nav-groups** — website side nav groups Learn and Reference pages with aria-current

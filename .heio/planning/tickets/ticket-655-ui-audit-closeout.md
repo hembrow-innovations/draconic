@@ -1,0 +1,29 @@
+---
+id: "ticket-655-ui-audit-closeout"
+title: "Public-site UI audit closeout"
+kind: ticket
+status: open
+ticket_type: observation
+blocked_by: []
+tags: [website, public-site]
+sprint: "website-odm-match"
+created_at: "2026-09-07T21:30:00Z"
+updated_at: "2026-09-07T21:30:00Z"
+---
+
+# Public-site UI audit closeout
+
+## Signal
+
+Walked the restyled public site for [[slice-644-ui-audit]]. Compared chrome to public-site purpose and contract and to the ODM two-column shell (skip, sticky side nav, main, kicker, cards, wrap). Did not implement findings.
+
+## Fit
+
+Closeout for [[slice-644-ui-audit]]. Finding tickets stay `open`. Do not execute from this ticket.
+
+## Notes
+
+- **Pages walked**: `/`, `/learn`, `/install` (one Learn chapter), `/reference`, `/cli` (one Reference page), small viewport 375 by 812 on `/cli`.
+- **Finding tickets**: [[ticket-646-search-below-nav-fold]] [[ticket-647-search-results-clipped]] [[ticket-648-fence-horizontal-overflow]] [[ticket-649-unescaped-angle-placeholders]] [[ticket-650-current-page-no-visual]] [[ticket-651-badge-before-heading]] [[ticket-652-chapter-nav-no-focus-ring]] [[ticket-653-chapter-nav-touch-target]] [[ticket-654-first-h2-no-border]]
+- **Held**: skip link first, sticky side nav plus main, wordmark Learn Reference GitHub, search and theme toggle present, kicker and cards on home and hubs, small-viewport stack and wrap, no leftover top header or Menu button, no playground, no `docs/` served, no ODM product copy copied.
+- **slice-644-ui-audit**
