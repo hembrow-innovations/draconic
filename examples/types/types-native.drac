@@ -1,0 +1,20 @@
+let anI8: i8 = 1;
+let anI16: i16 = 2;
+let anI32: i32 = 3;
+let anI64: i64 = 4;
+let aU8: u8 = 5;
+let aU16: u16 = 6;
+let aU32: u32 = 7;
+let aU64: u64 = 8;
+let anF32: f32 = 1.5;
+let anF64: f64 = 2.5;
+let aBool: bool = true;
+
+type Point = { x: i32; y: i32 };
+let aStruct: Point = { x: 10, y: 20 };
+
+type Vec3 = [i32, i32, i32];
+let aFixedArray: Vec3 = [1, 2, 3];
+
+let aPtr: *i32 = &anI32;
+let aPointee: i32 = *aPtr;

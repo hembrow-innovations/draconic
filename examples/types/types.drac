@@ -1,0 +1,48 @@
+let console = globalThis.console;
+
+let aNumber: number = 1;
+let aBigint: bigint = 1n;
+let aString: string = "hi";
+let aBoolean: boolean = true;
+let anAny: any = 1;
+let anObject: { x: number } = { x: 1 };
+let aFunction: function = () => 1;
+
+let anI8: i8 = 1;
+let anI16: i16 = 2;
+let anI32: i32 = 3;
+let anI64: i64 = 4;
+let aU8: u8 = 5;
+let aU16: u16 = 6;
+let aU32: u32 = 7;
+let aU64: u64 = 8;
+let anF32: f32 = 1.5;
+let anF64: f64 = 2.5;
+let aBool: bool = true;
+
+type Point = { x: i32; y: i32 };
+let aStruct: Point = { x: 10, y: 20 };
+
+type Vec3 = [i32, i32, i32];
+let aFixedArray: Vec3 = [1, 2, 3];
+
+console.log("number", aNumber);
+console.log("bigint", aBigint);
+console.log("string", aString);
+console.log("boolean", aBoolean);
+console.log("any", anAny);
+console.log("object", anObject);
+console.log("function", aFunction);
+console.log("i8", anI8);
+console.log("i16", anI16);
+console.log("i32", anI32);
+console.log("i64", anI64);
+console.log("u8", aU8);
+console.log("u16", aU16);
+console.log("u32", aU32);
+console.log("u64", aU64);
+console.log("f32", anF32);
+console.log("f64", anF64);
+console.log("bool", aBool);
+console.log("struct", aStruct);
+console.log("fixed-array", aFixedArray);

@@ -80,7 +80,8 @@ pub fn attach_debug_info(ir: &str, module: &Module, debug: &SourceDebug) -> Stri
 
     // Metadata ids (stable small set + dynamic locations).
     // !0 = CU, !1 = file, !2 = empty, !3 = main SP, !4 = subroutine type,
-    // !5 = type list, !6 = int type, !7+ = DILocations
+    // !5 = type list, !6 = int type, !7+ = DILocations, then module flags/ident.
+    const LOC_ID_BASE: usize = 7;
     let mut locations: Vec<(u32, u32)> = Vec::new();
     let mut loc_index = |line: u32, col: u32| -> usize {
         if let Some(i) = locations.iter().position(|&(l, c)| l == line && c == col) {
@@ -149,8 +150,7 @@ pub fn attach_debug_info(ir: &str, module: &Module, debug: &SourceDebug) -> Stri
             if is_inst && !trimmed.contains("!dbg ") {
                 let base = line.trim_end();
                 out.push_str(base);
-                // loc metadata id = 7 + index
-                let meta_id = 7 + current_loc;
+                let meta_id = LOC_ID_BASE + current_loc;
                 out.push_str(&format!(", !dbg !{meta_id}\n"));
                 continue;
             }
@@ -160,10 +160,15 @@ pub fn attach_debug_info(ir: &str, module: &Module, debug: &SourceDebug) -> Stri
         out.push('\n');
     }
 
-    // Module flags + CU
+    let dwarf_id = LOC_ID_BASE + locations.len();
+    let dbg_ver_id = dwarf_id + 1;
+    let ident_id = dwarf_id + 2;
+
     out.push_str("\n!llvm.dbg.cu = !{!0}\n");
-    out.push_str("!llvm.module.flags = !{!10, !11}\n");
-    out.push_str("!llvm.ident = !{!12}\n\n");
+    out.push_str(&format!(
+        "!llvm.module.flags = !{{!{dwarf_id}, !{dbg_ver_id}}}\n"
+    ));
+    out.push_str(&format!("!llvm.ident = !{{!{ident_id}}}\n\n"));
 
     out.push_str("!0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, file: !1, producer: \"draconic\", isOptimized: false, runtimeVersion: 0, emissionKind: FullDebug, enums: !2)\n");
     out.push_str(&format!(
@@ -180,15 +185,19 @@ pub fn attach_debug_info(ir: &str, module: &Module, debug: &SourceDebug) -> Stri
     out.push_str("!6 = !DIBasicType(name: \"int\", size: 32, encoding: DW_ATE_signed)\n");
 
     for (i, &(line, col)) in locations.iter().enumerate() {
-        let id = 7 + i;
+        let id = LOC_ID_BASE + i;
         out.push_str(&format!(
             "!{id} = !DILocation(line: {line}, column: {col}, scope: !3)\n"
         ));
     }
 
-    out.push_str("!10 = !{i32 7, !\"Dwarf Version\", i32 4}\n");
-    out.push_str("!11 = !{i32 2, !\"Debug Info Version\", i32 3}\n");
-    out.push_str("!12 = !{!\"draconic\"}\n");
+    out.push_str(&format!(
+        "!{dwarf_id} = !{{i32 7, !\"Dwarf Version\", i32 4}}\n"
+    ));
+    out.push_str(&format!(
+        "!{dbg_ver_id} = !{{i32 2, !\"Debug Info Version\", i32 3}}\n"
+    ));
+    out.push_str(&format!("!{ident_id} = !{{!\"draconic\"}}\n"));
 
     out
 }

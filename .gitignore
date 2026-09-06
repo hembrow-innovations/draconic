@@ -20,6 +20,8 @@
 .loop/worktrees/
 .scratch/**/claim.lock
 examples/todo/server/server
+examples/types/types-bin
+examples/types/types-bin.dSYM
 /third_party/test262/
 /tests/test262/baseline-report.md
 
