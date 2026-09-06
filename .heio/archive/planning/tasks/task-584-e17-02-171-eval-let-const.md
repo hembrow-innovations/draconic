@@ -2,16 +2,15 @@
 id: "task-584-e17-02-171-eval-let-const"
 title: "E17.02.171 direct eval of let/const without caller inject"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-583-e17-02-171-eval-let-const"
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T23:45:00Z"
 ---
-
 # E17.02.171 direct eval of let/const without caller inject
 
 ## Blocked by
@@ -59,11 +58,11 @@ After `eval("let x=1")` / `eval("const x=1")`, caller `typeof x` is `"undefined"
 - Conformance `.drac` + `.meta` under es/legacy, harness `legacy` present and runs tests
 
 **Acceptance criteria:**
-- [ ] `eval("let x=1")` does not bind `x` on the caller; `typeof x` is `"undefined"`
-- [ ] `eval("let x=1; x")` is `1`; access before init is ReferenceError
-- [ ] `eval("var x")` still injects
-- [ ] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
-- [ ] E17.02.171 is `done`; E17.02 stays `todo`
+- [x] `eval("let x=1")` does not bind `x` on the caller; `typeof x` is `"undefined"`
+- [x] `eval("let x=1; x")` is `1`; access before init is ReferenceError
+- [x] `eval("var x")` still injects
+- [x] `cargo test -p draconic-conformance --test legacy` prints `test result: ok.`
+- [x] E17.02.171 is `done`; E17.02 stays `todo`
 
 **Out of scope:**
 - E16.01–.03 eval basics
@@ -72,3 +71,7 @@ After `eval("let x=1")` / `eval("const x=1")`, caller `typeof x` is `"undefined"
 - Native observations
 - Marking E17.02 done
 - Workspace CHECK as this task's oracle
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-conformance --test legacy` — win. `test result: ok.` 346 passed. Diff keeps `language.ecma:eval`; js-only; no `with`; E17.02 stays todo. Host `eval` already implements lexical instantiation. Brief said `eval("let x")` vs caller `var`/`let` is SyntaxError; current ECMA/Node shadows in the eval lex env instead. Fixture locks shadow plus real SyntaxError (`eval("var x")` through caller `let`, duplicate lexical names in eval source).

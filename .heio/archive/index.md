@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-584-e17-02-171-eval-let-const** — E17.02.171 direct eval of let/const without caller inject
 - **task-582-e17-02-170-arguments-iterator** — E17.02.170 arguments @@iterator residual without with
 - **task-578-e18-44-02-incomplete-unicode-escape** — E18.44.02 Annex B.1.4 incomplete UnicodeEscape IdentityEscape
 - **task-217-workspace-test-budget** — workspace tests finish inside the oracle budget

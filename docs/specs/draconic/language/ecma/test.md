@@ -71,6 +71,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/eval.rs** — `direct_eval_runs` / `indirect_eval_runs`
   - **How:** Run eval fixtures on js and native (Embed on native).
   - **Why:** Locks `language.ecma:eval`.
+- **tests/conformance/tests/legacy.rs** — `eval_let_const_runs`
+  - **How:** Run `es/legacy/eval_let_const` on declared js (no `with`).
+  - **Why:** Locks `language.ecma:eval` lexical eval instantiation (E17.02.171) so `let`/`const` do not inject into the caller VariableEnvironment.
 - **tests/conformance/tests/legacy.rs** — `with_basic_runs`
   - **How:** Run `es/legacy/with_basic` on declared targets.
   - **Why:** Locks `language.ecma:legacy-with`. Filed E17.02 children have more `with_*` fixtures; untracked remainder is out of scope.

@@ -1,0 +1,144 @@
+// E17.02.171: Direct eval of let/const does not inject into the caller's
+// VariableEnvironment. Lexical eval bindings live in a distinct environment
+// (shadow, not caller inject). TDZ holds. Duplicate lexical names in eval
+// source, and eval("var") through a caller let/const, are SyntaxError.
+// eval("var") still injects (E17.02.11).
+
+// Non-strict: let from direct eval is not visible in the caller.
+function sloppyLet() {
+  eval("let x = 1");
+  return typeof x;
+}
+let a = sloppyLet();
+
+// Non-strict: const from direct eval is not visible in the caller.
+function sloppyConst() {
+  eval("const x = 1");
+  return typeof x;
+}
+let b = sloppyConst();
+
+// Inside eval, let is visible after init (completion value).
+function innerLet() {
+  return eval("let x = 1; x");
+}
+let c = innerLet();
+
+// Inside eval, const is visible after init (completion value).
+function innerConst() {
+  return eval("const x = 1; x");
+}
+let d = innerConst();
+
+// Access before init is a TDZ ReferenceError (let).
+function tdzLet() {
+  try {
+    eval("x; let x = 1");
+    return false;
+  } catch (e) {
+    return e instanceof ReferenceError;
+  }
+}
+let e = tdzLet();
+
+// Access before init is a TDZ ReferenceError (const).
+function tdzConst() {
+  try {
+    eval("x; const x = 1");
+    return false;
+  } catch (e) {
+    return e instanceof ReferenceError;
+  }
+}
+let f = tdzConst();
+
+// Caller var x is unchanged by eval("let x") (shadow, not inject).
+function varThenLetShadow() {
+  var x = 1;
+  eval("let x = 2");
+  return x === 1;
+}
+let g = varThenLetShadow();
+
+// Caller let x is unchanged; eval's let is its own binding.
+function letThenLetShadow() {
+  let x = 1;
+  let inner = eval("let x = 2; x");
+  return inner === 2 && x === 1;
+}
+let h = letThenLetShadow();
+
+// "use strict" eval source still does not inject let.
+function strictSourceLet() {
+  eval("'use strict'; let y = 1");
+  return typeof y;
+}
+let i = strictSourceLet();
+
+// "use strict" eval source still does not inject const.
+function strictSourceConst() {
+  eval("'use strict'; const y = 1");
+  return typeof y;
+}
+let j = strictSourceConst();
+
+// Indirect eval of let does not create a globalThis property.
+function indirectLet() {
+  (0, eval)("let e1702171_ind = 1");
+  return (
+    typeof globalThis.e1702171_ind === "undefined" &&
+    !Object.prototype.hasOwnProperty.call(globalThis, "e1702171_ind")
+  );
+}
+let k = indirectLet();
+
+// eval("var x") still injects so E17.02.11 does not regress.
+function varStillInjects() {
+  eval("var e1702171_v = 42");
+  return e1702171_v === 42;
+}
+let l = varStillInjects();
+
+// eval("var x") when the caller already has let x is a SyntaxError.
+function letThenVarEval() {
+  let x = 1;
+  try {
+    eval("var x = 2");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let m = letThenVarEval();
+
+// Duplicate let in eval source is a SyntaxError.
+function dupLetEval() {
+  try {
+    eval("let x = 1; let x = 2");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let n = dupLetEval();
+
+// let and var of the same name in one eval source is a SyntaxError.
+function letVarSameEval() {
+  try {
+    eval("let x = 1; var x = 2");
+    return false;
+  } catch (e) {
+    return e instanceof SyntaxError;
+  }
+}
+let o = letVarSameEval();
+
+// Top-level direct eval let is not a global property (contrast var).
+eval("var e1702171_topvar = 55");
+let p = e1702171_topvar === 55 && globalThis.e1702171_topvar === 55;
+eval("let e1702171_toplet = 66");
+let q =
+  typeof e1702171_toplet === "undefined" &&
+  !Object.prototype.hasOwnProperty.call(globalThis, "e1702171_toplet");
+
+delete globalThis.e1702171_topvar;

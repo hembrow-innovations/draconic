@@ -1748,3 +1748,13 @@ fn arguments_iterator_fixture_present() {
 fn arguments_iterator_runs() {
     assert_fixture_runs_declared_targets("es/legacy/arguments_iterator");
 }
+
+#[test]
+fn eval_let_const_fixture_present() {
+    assert_fixture_present("es/legacy/eval_let_const");
+}
+
+#[test]
+fn eval_let_const_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/eval_let_const");
+}

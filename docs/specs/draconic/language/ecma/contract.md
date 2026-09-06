@@ -88,6 +88,8 @@ These promises are the shipped clusters, not the whole of ECMA-262.
   test: es/eval/new_function
   test: es/eval/indirect_eval
   test: indirect_eval_runs
+  test: es/legacy/eval_let_const
+  test: eval_let_const_runs
 - `language.ecma:builtins`: A Program sees global `undefined`/`globalThis`, fundamental constructors, Error constructors, global functions, URI encode/decode, `JSON`, `Date`, `RegExp`, and ArrayBuffer/TypedArray/DataView basics on declared targets.
   test: es/builtins/global_basics
   test: global_basics_runs

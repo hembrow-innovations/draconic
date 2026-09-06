@@ -2,14 +2,13 @@
 id: "slice-583-e17-02-171-eval-let-const"
 title: "E17.02.171 direct eval of let/const without caller inject"
 kind: slice
-status: frozen
+status: active
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-06T11:49:42Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-06T23:45:00Z"
 ---
-
 # E17.02.171 direct eval of let/const without caller inject
 
 ## Why
@@ -37,10 +36,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: E17.02.171 fixtures run on the declared js target through the legacy harness
+- [x] O1: E17.02.171 fixtures run on the declared js target through the legacy harness
   CHECK: cargo test -p draconic-conformance --test legacy
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 346 passed; 0 failed (eval_let_const_runs)
 
 ## Pool
 
