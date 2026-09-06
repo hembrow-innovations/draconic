@@ -21,6 +21,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website_pipeline_renders_markdown_subset
 - `public-site.ia:learn-walkable`: Learn is walkable as Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, and packages, and the two landings join at Dual worlds.
   test: website_pipeline_learn_skeleton_is_walkable
+  test: website/src/tests/learn-hub-nav.test.ts
 - `public-site.ia:reference-walkable`: Reference is walkable as CLI, types, Dual-world rules, host I/O, and packages.
   test: website_pipeline_reference_skeleton_is_walkable
 - `public-site.fences:shipped-must-build`: A shipped page's copy-paste Draconic fence builds.

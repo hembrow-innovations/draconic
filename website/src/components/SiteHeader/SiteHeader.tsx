@@ -54,10 +54,7 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
           id={primaryNavId}
           className={siteHeaderClusterVariants({ open })}
         >
-          {
-            // @ts-expect-error Learn hub route is registered in a later sitting
-            <Link to="/learn" className={siteHeaderLinkVariants()}>Learn</Link>
-          }
+          <Link to="/learn" className={siteHeaderLinkVariants()}>Learn</Link>
           {
             // @ts-expect-error Reference hub route is registered in a later sitting
             <Link to="/reference" className={siteHeaderLinkVariants()}>Reference</Link>

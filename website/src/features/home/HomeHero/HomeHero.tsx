@@ -31,10 +31,7 @@ export function HomeHero({ className, ...props }: HomeHeroProps) {
           // @ts-expect-error Install route is registered in a later sitting
           <Link to="/install" className={homeHeroCtaVariants({ variant: "primary" })}>Install</Link>
         }
-        {
-          // @ts-expect-error Learn hub route is registered in a later sitting
-          <Link to="/learn" className={homeHeroCtaVariants({ variant: "secondary" })}>Learn</Link>
-        }
+        <Link to="/learn" className={homeHeroCtaVariants({ variant: "secondary" })}>Learn</Link>
       </div>
     </section>
   );

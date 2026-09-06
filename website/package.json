@@ -6,7 +6,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run docs-shell",
+    "test": "vitest run learn-hub-nav",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

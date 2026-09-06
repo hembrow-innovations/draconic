@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **task-620-learn-hub-nav** — website Learn hub route and aside nav in hub order
+- **task-619-docs-shell** — website handbook chrome with aside, article, and status Badge
 - **task-618-markdown-render** — website public markdown subset renderer with Install body as proof
 - **task-617-markdown-loader** — website markdown content loader from website/*.md frontmatter
 - **task-626-mobile-a11y** — website small-viewport primary nav disclosure with keyboard and visible focus

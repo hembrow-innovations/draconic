@@ -17,7 +17,7 @@ Purpose: [[Public site purpose]]. Contract: [[Public site — Contract]].
 
 ## Coverage
 
-Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-site.markdown:subset`, `public-site.ia:learn-walkable`, `public-site.ia:reference-walkable`, `public-site.fences:shipped-must-build`, `public-site.fences:forbid-not-yet-fences`, and `public-site.nav:learn-reference-status`. Related fence cases in the same file support those locks. `website/src/tests/mobile-a11y.test.ts` locks `public-site.a11y:keyboard-small` for primary-nav disclosure, visible focus, and skip-link order. `website/src/tests/docs-shell.test.ts` locks `public-site.chrome:docs-sidebar` for handbook aside, article, and status Badge chrome that is not the home hero. Asserted with no test yet: `public-site.home:landing`, `public-site.chrome:primary-nav`, `public-site.search:titles-headings`, `public-site.forbid-vault-as-site`, `public-site.forbid-playground`.
+Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-site.markdown:subset`, `public-site.ia:learn-walkable`, `public-site.ia:reference-walkable`, `public-site.fences:shipped-must-build`, `public-site.fences:forbid-not-yet-fences`, and `public-site.nav:learn-reference-status`. Related fence cases in the same file support those locks. `website/src/tests/learn-hub-nav.test.ts` also locks `public-site.ia:learn-walkable` for the Start Learn hub and aside sequence. `website/src/tests/mobile-a11y.test.ts` locks `public-site.a11y:keyboard-small` for primary-nav disclosure, visible focus, and skip-link order. `website/src/tests/docs-shell.test.ts` locks `public-site.chrome:docs-sidebar` for handbook aside, article, and status Badge chrome that is not the home hero. Asserted with no test yet: `public-site.home:landing`, `public-site.chrome:primary-nav`, `public-site.search:titles-headings`, `public-site.forbid-vault-as-site`, `public-site.forbid-playground`.
 
 ## Tests
 
@@ -27,6 +27,9 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
 - **tests/integration/tests/website_pipeline.rs** — `website_pipeline_learn_skeleton_is_walkable`
   - **How:** Repo Learn pages generate; each chapter is linked; from JavaScript and from systems join at Dual worlds.
   - **Why:** Locks `public-site.ia:learn-walkable`.
+- **website/src/tests/learn-hub-nav.test.ts** — `learn hub nav`
+  - **How:** Learn hub file route loads `website/learn.md` in DocsShell; aside lists Install through packages in hub order; the two landings join at Dual worlds.
+  - **Why:** Locks `public-site.ia:learn-walkable` for the Start hub and aside.
 - **tests/integration/tests/website_pipeline.rs** — `website_pipeline_reference_skeleton_is_walkable`
   - **How:** Repo Reference pages generate; CLI, types, Dual-world rules, host I/O, and packages are linked.
   - **Why:** Locks `public-site.ia:reference-walkable`.
