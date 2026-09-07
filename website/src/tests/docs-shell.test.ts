@@ -115,6 +115,9 @@ test("docs shell", () => {
   expect(variants).toContain("docsShellFooterVariants");
   expect(variants).toContain("bg-code");
   expect(variants).toContain("[&_pre]");
+  expect(variants).toContain("[&_pre]:overflow-x-auto");
+  expect(variants).not.toContain("[&_pre]:overflow-visible");
+  expect(variants).not.toContain("[&_pre]:overflow-x-visible");
   expect(variants).toContain("[&_code]");
   expect(variants).toContain("[&_h2]:mt-8");
   expect(variants).toContain("[&_h2]:border-t");
