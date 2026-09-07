@@ -2,12 +2,12 @@
 id: "slice-673-search-below-nav-fold"
 title: "Search above the nav fold"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:00:00Z"
 ---
 
 # Search above the nav fold
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: search and theme toggle remain in the sticky side nav and are not ordered after the chapter lists
+- [x] O1: search and theme toggle remain in the sticky side nav and are not ordered after the chapter lists
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav search
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest site-header-primary-nav search — Test Files  2 passed (2 tests)
 
 ## Pool
 
