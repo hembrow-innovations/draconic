@@ -2,7 +2,7 @@
 id: "task-684-badge-before-heading"
 title: "Paint the status badge after the article heading"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-683-badge-before-heading"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:55:00Z"
 ---
 
 # Paint the status badge after the article heading
@@ -67,10 +67,10 @@ Article column is section kicker, page heading, status badge, remaining markdown
 - Badge from frontmatter `shipped` / `not-yet`
 
 **Acceptance criteria:**
-- [ ] Tests fail if Badge is rendered before the article heading
-- [ ] Kicker, badge, and footer still exist
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Home still does not use DocsShell
+- [x] Tests fail if Badge is rendered before the article heading
+- [x] Kicker, badge, and footer still exist
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Home still does not use DocsShell
 
 **Out of scope:**
 - First `h2` border ([[task-690-first-h2-border]]); changing status words; playground
@@ -80,4 +80,4 @@ Purpose already names the order. This sitting implements that order; it does not
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run docs-shell` — expect `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run docs-shell` — win. Output `Test Files  1 passed (1)`. `tsc --noEmit` exit 0. Diff vs `public-site.chrome:docs-article-order` and `public-site.chrome:docs-sidebar`: article children are kicker, heading, badge, remaining markdown, footer; badge still from frontmatter; home still omits DocsShell; first-h2 border and status words unchanged.

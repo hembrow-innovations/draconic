@@ -80,6 +80,18 @@ test("docs shell", () => {
   expect(shell).toContain("status");
   expect(shell).toContain("shipped");
   expect(shell).toContain("not-yet");
+  expect(shell).toContain("public-site.chrome:docs-article-order");
+
+  const article = shell.slice(shell.indexOf("<article"));
+  const kickerAt = article.indexOf("docsShellKickerVariants");
+  const headingAt = article.indexOf("<h1");
+  const badgeAt = article.indexOf("<Badge");
+  const footerAt = article.indexOf("<footer");
+  expect(kickerAt).toBeGreaterThan(-1);
+  expect(headingAt).toBeGreaterThan(kickerAt);
+  expect(badgeAt).toBeGreaterThan(headingAt);
+  expect(footerAt).toBeGreaterThan(badgeAt);
+  expect(article.slice(badgeAt, footerAt)).toContain("dangerouslySetInnerHTML");
   expect(shell).not.toContain("HomeHero");
   expect(shell).not.toContain("JavaScript you already know");
   expect(shell).not.toMatch(/playground/i);
@@ -105,7 +117,7 @@ test("docs shell", () => {
   expect(variants).toContain("[&_code]");
   expect(variants).toContain("[&_h2]");
   expect(variants).toContain("[&_h2:first-of-type]");
-  expect(variants).toContain("[&_h1+p]");
+  expect(variants).toContain("[&>div>p:first-child]");
   expect(variants).toContain("border-t");
   expect(variants).toContain("border-line");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);

@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-684-badge-before-heading** — website docs articles paint kicker, heading, then shipped or not-yet badge
 - **task-680-unescaped-angle-placeholders** — website markdown lists encode angle-bracket placeholders as visible text
 - **task-676-search-results-clipped** — website search result list is in-flow, not absolute inside overflowing aside clip
 - **task-674-search-below-nav-fold** — website search and theme toggle sit above Learn and Reference chapter lists
