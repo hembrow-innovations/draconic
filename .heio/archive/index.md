@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-655-ui-audit-closeout** — public-site UI audit walk recorded; findings promoted separately
 - **task-670-e17-02-121-arg-idents** — E17.02.121 accessor-legacy arg idents hit the with object, else outer
 - **task-668-e17-02-127-skipped-block** — E17.02.127 skipped block-level function inside `with` is not assigned through the object environment
 - **task-666-e17-02-129-accessor-get-this** — E17.02.129 accessor get this on for-heads is the with object
