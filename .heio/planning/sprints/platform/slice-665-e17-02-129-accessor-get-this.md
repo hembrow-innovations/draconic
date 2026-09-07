@@ -2,12 +2,12 @@
 id: "slice-665-e17-02-129-accessor-get-this"
 title: "E17.02.129 accessor get this is with object"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-07T06:34:01Z"
-updated_at: "2026-09-07T23:59:00Z"
+updated_at: "2026-09-07T12:55:00Z"
 ---
 
 # E17.02.129 accessor get this is with object
