@@ -37,3 +37,5 @@ examples/types/types-bin.dSYM
 editors/zed/grammars/
 
 .stitch
+.playwright-cli
+docs/99_scribble
