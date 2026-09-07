@@ -8,7 +8,7 @@ domain: draconic
 area: ecma
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-07"
 ---
 
 # ECMA tests
@@ -86,6 +86,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/legacy.rs** — `with_block_function_runs`
   - **How:** Run `es/legacy/with_block_function` on declared js, including a skipped `{ function k(){…} }` inside `with` (not around it).
   - **Why:** Locks `language.ecma:legacy-with` so a skipped block-level function is not assigned through the object environment while `with` is on the stack (E17.02.127).
+- **tests/conformance/tests/legacy.rs** — `with_object_accessor_legacy_runs`
+  - **How:** Run `es/legacy/with_object_accessor_legacy` on declared js, including args-hit-object and args-miss-uses-outer for `__defineGetter__` / `__defineSetter__` / `__lookupGetter__` / `__lookupSetter__`.
+  - **Why:** Locks `language.ecma:legacy-with` so argument IdentifierReferences to those methods HasBinding on the with object, else outer (E17.02.121). Unresolvable `e1702121_arg` is not this lock.
 - **tests/conformance/tests/legacy.rs** — `html_comments_runs`
   - **How:** Run `es/legacy/html_comments` on declared js (no `with`).
   - **Why:** Locks `language.ecma:annex-b` HTML-like comments (E17.02.169) without wrapping the program in `with`.

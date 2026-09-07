@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **task-670-e17-02-121-arg-idents** — E17.02.121 accessor-legacy arg idents hit the with object, else outer
+- **task-668-e17-02-127-skipped-block** — E17.02.127 skipped block-level function inside `with` is not assigned through the object environment
 - **task-666-e17-02-129-accessor-get-this** — E17.02.129 accessor get this on for-heads is the with object
 - **task-664-e17-02-129-const-for-head** — E17.02.129 const for-heads inside `with` do not write the with object
 - **task-662-b03-parse-cli-spawn** — CLI crate spawn test for `draconic parse` locking `toolchain.cli:parse-ast`

@@ -1265,3 +1265,119 @@ function nonFunctionSetterTypeError() {
   }
 }
 let dh = nonFunctionSetterTypeError();
+
+function argsHitObjectDefineGetter() {
+  let env = {
+    o: {},
+    k: "x",
+    g: function () {
+      return 42;
+    }
+  };
+  with (env) {
+    o.__defineGetter__(k, g);
+    return o.x === 42 && o.__lookupGetter__("x") === g;
+  }
+}
+let dj = argsHitObjectDefineGetter();
+
+function argsMissUsesOuterDefineGetter() {
+  let k = "x";
+  function g() {
+    return 7;
+  }
+  let env = { o: {} };
+  with (env) {
+    o.__defineGetter__(k, g);
+    return o.x === 7 && o.__lookupGetter__("x") === g;
+  }
+}
+let dk = argsMissUsesOuterDefineGetter();
+
+function argsHitObjectDefineSetter() {
+  let n = 0;
+  let env = {
+    o: {},
+    k: "y",
+    s: function (v) {
+      n = v;
+    }
+  };
+  with (env) {
+    o.__defineSetter__(k, s);
+    o.y = 8;
+    return n === 8 && o.__lookupSetter__("y") === s;
+  }
+}
+let dl = argsHitObjectDefineSetter();
+
+function argsMissUsesOuterDefineSetter() {
+  let n = 0;
+  let k = "y";
+  function s(v) {
+    n = v;
+  }
+  let env = { o: {} };
+  with (env) {
+    o.__defineSetter__(k, s);
+    o.y = 9;
+    return n === 9 && o.__lookupSetter__("y") === s;
+  }
+}
+let dm = argsMissUsesOuterDefineSetter();
+
+function argsHitObjectLookupGetter() {
+  function getX() {
+    return 3;
+  }
+  let env = { o: {}, k: "x" };
+  env.o.__defineGetter__("x", getX);
+  with (env) {
+    return o.__lookupGetter__(k) === getX && o.x === 3;
+  }
+}
+let dn = argsHitObjectLookupGetter();
+
+function argsMissUsesOuterLookupGetter() {
+  function getX() {
+    return 4;
+  }
+  let k = "x";
+  let env = { o: {} };
+  env.o.__defineGetter__("x", getX);
+  with (env) {
+    return o.__lookupGetter__(k) === getX && o.x === 4;
+  }
+}
+let dp = argsMissUsesOuterLookupGetter();
+
+function argsHitObjectLookupSetter() {
+  let n = 0;
+  function setY(v) {
+    n = v;
+  }
+  let env = { o: {}, k: "y" };
+  env.o.__defineSetter__("y", setY);
+  with (env) {
+    let s = o.__lookupSetter__(k);
+    s.call(o, 5);
+    return s === setY && n === 5;
+  }
+}
+let dq = argsHitObjectLookupSetter();
+
+function argsMissUsesOuterLookupSetter() {
+  let n = 0;
+  function setY(v) {
+    n = v;
+  }
+  let k = "y";
+  let env = { o: {} };
+  env.o.__defineSetter__("y", setY);
+  with (env) {
+    let s = o.__lookupSetter__(k);
+    s.call(o, 6);
+    return s === setY && n === 6;
+  }
+}
+let dr = argsMissUsesOuterLookupSetter();
