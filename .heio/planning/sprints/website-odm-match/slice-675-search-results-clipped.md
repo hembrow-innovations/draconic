@@ -2,15 +2,14 @@
 id: "slice-675-search-results-clipped"
 title: "Unclipped search results"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-673-search-below-nav-fold
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:50:00Z"
 ---
-
 # Unclipped search results
 
 ## Why
@@ -33,10 +32,10 @@ Typing Dual worlds into in-site search shows the matching result without clippin
 
 ## Oracle checklist
 
-- [ ] O1: Dual worlds search still hits `/dual-worlds` and the result list is not `absolute` inside overflowing aside clip
+- [x] O1: Dual worlds search still hits `/dual-worlds` and the result list is not `absolute` inside overflowing aside clip
   CHECK: pnpm --dir website exec vitest run search
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest search — Test Files  1 passed (1); Dual worlds hits `/dual-worlds`; result list is not `absolute` inside overflowing aside clip
 
 ## Pool
 
