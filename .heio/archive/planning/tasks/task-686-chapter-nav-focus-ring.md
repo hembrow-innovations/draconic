@@ -2,17 +2,16 @@
 id: "task-686-chapter-nav-focus-ring"
 title: "Add token focus rings to chapter nav links"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-odm-match"
 slice: "slice-685-chapter-nav-focus-ring"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:40:00Z"
 ---
-
 # Add token focus rings to chapter nav links
 
 ## Blocked by
@@ -67,10 +66,10 @@ Keyboard focus on those chapter links shows the same token ring as Learn, Refere
 - Existing hub `siteHeaderLinkVariants` ring pattern
 
 **Acceptance criteria:**
-- [ ] Tests fail if chapter link variants omit `focus-visible:ring-2` and `focus-visible:ring-accent`
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] `public-site.a11y:keyboard-small` still holds
-- [ ] No hamburger restored
+- [x] Tests fail if chapter link variants omit `focus-visible:ring-2` and `focus-visible:ring-accent`
+- [x] Named vitest files pass and typecheck exits 0
+- [x] `public-site.a11y:keyboard-small` still holds
+- [x] No hamburger restored
 
 **Out of scope:**
 - Tap targets ([[task-688-chapter-nav-touch-target]]); current-page color; IA changes
@@ -80,4 +79,4 @@ Chapter lists joined primary nav in the docs-nav-groups slice. Keyboard-small al
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y learn-hub-nav reference-hub-pages` — expect `Test Files  3 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y learn-hub-nav reference-hub-pages` — win. `Test Files  3 passed`. Typecheck exits 0.

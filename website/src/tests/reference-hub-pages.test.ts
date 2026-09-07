@@ -238,6 +238,9 @@ test("reference hub pages", () => {
   expect(variants).toContain('from "class-variance-authority"');
   expect(variants).toContain("cva(");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("referenceNavLinkVariants");
+  expect(variants).toContain("focus-visible:ring-2");
+  expect(variants).toContain("focus-visible:ring-accent");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 

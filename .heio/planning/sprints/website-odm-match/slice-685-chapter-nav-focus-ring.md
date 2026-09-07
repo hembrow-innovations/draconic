@@ -2,14 +2,13 @@
 id: "slice-685-chapter-nav-focus-ring"
 title: "Chapter nav focus rings"
 kind: slice
-status: frozen
+status: active
 sprint: "website-odm-match"
 blocked_by: []
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T20:00:00Z"
 ---
-
 # Chapter nav focus rings
 
 ## Why
@@ -32,10 +31,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: Learn and Reference chapter link variants include token `focus-visible` ring classes
+- [x] O1: Learn and Reference chapter link variants include token `focus-visible` ring classes
   CHECK: pnpm --dir website exec vitest run mobile-a11y learn-hub-nav reference-hub-pages
   EXPECT: Test Files  3 passed
-  EVIDENCE: pending
+  EVIDENCE: `Test Files  3 passed` (3 tests). `pnpm --dir website exec tsc --noEmit` exits 0.
 
 ## Pool
 

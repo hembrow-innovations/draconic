@@ -6,6 +6,8 @@ import { expect, test } from "vitest";
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const headerDir = join(srcDir, "components", "SiteHeader");
 const skipDir = join(srcDir, "components", "SkipLink");
+const learnNavDir = join(srcDir, "features", "learn", "LearnNav");
+const referenceNavDir = join(srcDir, "features", "reference", "ReferenceNav");
 const stylesDir = join(srcDir, "styles");
 const githubUrl = "https://github.com/hembrow-innovations/draconic";
 
@@ -35,6 +37,14 @@ test("mobile a11y", () => {
   const variants = readFileSync(join(headerDir, "SiteHeader.variants.ts"), "utf8");
   const skip = readFileSync(join(skipDir, "SkipLink.tsx"), "utf8");
   const skipVariants = readFileSync(join(skipDir, "SkipLink.variants.ts"), "utf8");
+  const learnNavVariants = readFileSync(
+    join(learnNavDir, "LearnNav.variants.ts"),
+    "utf8",
+  );
+  const referenceNavVariants = readFileSync(
+    join(referenceNavDir, "ReferenceNav.variants.ts"),
+    "utf8",
+  );
   const root = readFileSync(join(srcDir, "routes", "__root.tsx"), "utf8");
   const css = readdirSync(stylesDir)
     .filter((name) => name.endsWith(".css"))
@@ -87,6 +97,12 @@ test("mobile a11y", () => {
   expect(skip).toContain("Skip to content");
   expect(skipVariants).toContain("focus-visible:ring-2");
   expect(skipVariants).toContain("focus-visible:ring-accent");
+  expect(learnNavVariants).toContain("learnNavLinkVariants");
+  expect(learnNavVariants).toContain("focus-visible:ring-2");
+  expect(learnNavVariants).toContain("focus-visible:ring-accent");
+  expect(referenceNavVariants).toContain("referenceNavLinkVariants");
+  expect(referenceNavVariants).toContain("focus-visible:ring-2");
+  expect(referenceNavVariants).toContain("focus-visible:ring-accent");
 
   for (const file of walkProductFiles(srcDir)) {
     const source = readFileSync(file, "utf8");
