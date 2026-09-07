@@ -2,12 +2,12 @@
 id: "slice-671-e17-02-120-arg-idents"
 title: "E17.02.120 arg idents hit object"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-07T08:32:15Z"
-updated_at: "2026-09-07T12:00:00Z"
+updated_at: "2026-09-07T14:10:00Z"
 ---
 
 # E17.02.120 arg idents hit object
