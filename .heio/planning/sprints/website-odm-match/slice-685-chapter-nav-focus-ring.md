@@ -2,12 +2,12 @@
 id: "slice-685-chapter-nav-focus-ring"
 title: "Chapter nav focus rings"
 kind: slice
-status: active
+status: met
 sprint: "website-odm-match"
 blocked_by: []
 tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T20:00:00Z"
+updated_at: "2026-09-07T23:45:00Z"
 ---
 # Chapter nav focus rings
 
