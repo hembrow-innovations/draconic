@@ -2,12 +2,12 @@
 id: "slice-679-unescaped-angle-placeholders"
 title: "Escape angle placeholders"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:15:00Z"
 ---
 
 # Escape angle placeholders
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: CLI Commands list HTML keeps `<file>` and `<out>` as text, not tags
+- [x] O1: CLI Commands list HTML keeps `<file>` and `<out>` as text, not tags
   CHECK: pnpm --dir website exec vitest run markdown-render
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest markdown-render — Test Files  1 passed (1); Tests  2 passed; CLI Commands HTML contains `draconic parse &lt;file&gt;` and `[-o &lt;out&gt;]`
 
 ## Pool
 
