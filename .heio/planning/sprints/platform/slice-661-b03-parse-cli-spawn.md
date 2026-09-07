@@ -2,12 +2,12 @@
 id: "slice-661-b03-parse-cli-spawn"
 title: "B03 CLI parse spawn in Tests column"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-07T06:25:24Z"
-updated_at: "2026-09-07T20:15:00Z"
+updated_at: "2026-09-07T20:20:00Z"
 ---
 
 # B03 CLI parse spawn in Tests column
