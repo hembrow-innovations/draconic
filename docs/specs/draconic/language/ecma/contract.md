@@ -100,6 +100,8 @@ These promises are the shipped clusters, not the whole of ECMA-262.
   test: es/legacy/with_basic
   test: with_basic_runs
   test: es/legacy/with_nested
+  test: es/legacy/with_var_for
+  test: with_var_for_runs
 - `language.ecma:annex-b`: A Program evaluates shipped Annex B and related residual syntax (legacy octal, HTML comments, `__proto__`, `var` hoist, `escape`/`unescape`, and filed E18 fixtures) on declared targets.
   test: es/annex-b/escape_unescape
   test: escape_unescape_runs

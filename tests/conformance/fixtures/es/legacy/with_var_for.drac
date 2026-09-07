@@ -621,3 +621,27 @@ function forInRightUnscopablesUsesOuter() {
   return k === "a";
 }
 let bh = forInRightUnscopablesUsesOuter();
+
+function constForInDoesNotWriteObject() {
+  let obj = { k: 0 };
+  let n = 0;
+  with (obj) {
+    for (const k in { a: 1, b: 2 }) {
+      n = n + 1;
+    }
+  }
+  return obj.k === 0 && n === 2;
+}
+let bi = constForInDoesNotWriteObject();
+
+function constForOfDoesNotWriteObject() {
+  let obj = { v: 0 };
+  let n = 0;
+  with (obj) {
+    for (const v of [7, 8]) {
+      n = n + 1;
+    }
+  }
+  return obj.v === 0 && n === 2;
+}
+let bj = constForOfDoesNotWriteObject();
