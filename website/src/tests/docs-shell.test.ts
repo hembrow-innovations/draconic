@@ -80,6 +80,7 @@ test("docs shell", () => {
   expect(shell).toContain("status");
   expect(shell).toContain("shipped");
   expect(shell).toContain("not-yet");
+  expect(shell).toContain("public-site.chrome:docs-sidebar");
   expect(shell).toContain("public-site.chrome:docs-article-order");
 
   const article = shell.slice(shell.indexOf("<article"));
@@ -115,8 +116,11 @@ test("docs shell", () => {
   expect(variants).toContain("bg-code");
   expect(variants).toContain("[&_pre]");
   expect(variants).toContain("[&_code]");
-  expect(variants).toContain("[&_h2]");
-  expect(variants).toContain("[&_h2:first-of-type]");
+  expect(variants).toContain("[&_h2]:mt-8");
+  expect(variants).toContain("[&_h2]:border-t");
+  expect(variants).toContain("[&_h2]:border-line");
+  expect(variants).toContain("[&_h2]:pt-8");
+  expect(variants).not.toContain("[&_h2:first-of-type]");
   expect(variants).toContain("[&>div>p:first-child]");
   expect(variants).toContain("border-t");
   expect(variants).toContain("border-line");

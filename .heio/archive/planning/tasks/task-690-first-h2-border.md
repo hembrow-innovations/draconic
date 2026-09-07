@@ -2,18 +2,17 @@
 id: "task-690-first-h2-border"
 title: "Give the first article h2 the section rule"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-684-badge-before-heading
 sprint: "website-odm-match"
 slice: "slice-689-first-h2-border"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:50:00Z"
 ---
-
 # Give the first article h2 the section rule
 
 ## Blocked by
@@ -68,10 +67,10 @@ Section `h2`s, including the first one after the article `h1`, use the existing 
 - Existing `border-line` section rule
 
 **Acceptance criteria:**
-- [ ] Tests fail if `h2:first-of-type` zeroes the section border when an `h1` exists
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Home still does not use DocsShell
-- [ ] No hex
+- [x] Tests fail if `h2:first-of-type` zeroes the section border when an `h1` exists
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Home still does not use DocsShell
+- [x] No hex
 
 **Out of scope:**
 - Fence overflow ([[task-678-fence-horizontal-overflow]]); changing heading copy; playground
@@ -81,4 +80,4 @@ The restyle already intended bordered section headings. The first-of-type select
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run docs-shell` — expect `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run docs-shell` — win. Output `Test Files  1 passed (1)`. `tsc --noEmit` exit 0. Diff vs `public-site.chrome:docs-sidebar`: article CVA keeps token `h2` top border, margin, and padding for every section heading after `h1`; `h2:first-of-type` no longer zeroes that rule; home still omits DocsShell; no hex; fence overflow and heading copy unchanged.
