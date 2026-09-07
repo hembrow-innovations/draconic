@@ -2,17 +2,16 @@
 id: "task-674-search-below-nav-fold"
 title: "Keep search and theme toggle above the side-nav fold"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-odm-match"
 slice: "slice-673-search-below-nav-fold"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T12:30:00Z"
 ---
-
 # Keep search and theme toggle above the side-nav fold
 
 ## Blocked by
@@ -68,10 +67,10 @@ At that desktop height, the search field and theme toggle sit inside the sticky 
 - Sticky aside overflow chrome already on the shell
 
 **Acceptance criteria:**
-- [ ] Tests fail if SiteSearch and ThemeToggle are ordered after LearnNav and ReferenceNav
-- [ ] Search and theme toggle still render in the side nav
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] Promise ids listed above still hold
+- [x] Tests fail if SiteSearch and ThemeToggle are ordered after LearnNav and ReferenceNav
+- [x] Search and theme toggle still render in the side nav
+- [x] Named vitest files pass and typecheck exits 0
+- [x] Promise ids listed above still hold
 
 **Out of scope:**
 - Result-list clipping ([[task-676-search-results-clipped]]); playground; vault-as-site; dropping search
@@ -81,4 +80,4 @@ Purpose already keeps search in the side nav. This sitting only makes that field
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav search` — expect `Test Files  2 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav search` — win. Test Files  2 passed. Typecheck exits 0.

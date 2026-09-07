@@ -47,6 +47,7 @@ test("site header primary nav", () => {
 
   expect(header).toContain("public-site.chrome:primary-nav");
   expect(header).toContain("public-site.chrome:odm-shell");
+  expect(header).toContain("public-site.search:titles-headings");
 
   expect(root).toContain("SiteHeader");
   expect(root).toMatch(/<SiteHeader\s*\/>/);
@@ -84,6 +85,14 @@ test("site header primary nav", () => {
   expect(header).toContain('"aria-current": "page"');
   expect(header).toContain("<SiteSearch");
   expect(header).toContain("<ThemeToggle");
+  expect(header.indexOf("<SiteSearch")).toBeLessThan(header.indexOf("<LearnNav"));
+  expect(header.indexOf("<SiteSearch")).toBeLessThan(
+    header.indexOf("<ReferenceNav"),
+  );
+  expect(header.indexOf("<ThemeToggle")).toBeLessThan(header.indexOf("<LearnNav"));
+  expect(header.indexOf("<ThemeToggle")).toBeLessThan(
+    header.indexOf("<ReferenceNav"),
+  );
 
   expect(header).not.toMatch(/playground/i);
   expect(header).not.toContain("docs/");

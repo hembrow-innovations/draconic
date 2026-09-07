@@ -56,6 +56,8 @@ test("search", () => {
 
   expect(header).toContain("SiteSearch");
   expect(header).toMatch(/<SiteSearch\s*\/>/);
+  expect(header.indexOf("<SiteSearch")).toBeLessThan(header.indexOf("<LearnNav"));
+  expect(header.indexOf("<ThemeToggle")).toBeLessThan(header.indexOf("<LearnNav"));
   expect(header).not.toContain("Dual worlds");
   expect(root).toMatch(/<SiteHeader\s*\/>/);
   expect(root).toContain("buildSearchIndex");

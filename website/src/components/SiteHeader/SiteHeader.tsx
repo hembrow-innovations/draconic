@@ -20,8 +20,9 @@ const currentPage = { "aria-current": "page" as const };
  * Sticky side nav for every page: wordmark, Learn pages, Reference pages, GitHub.
  *
  * Locks `public-site.chrome:odm-shell`, `public-site.chrome:primary-nav`,
- * `public-site.chrome:docs-sidebar`, `public-site.ia:learn-walkable`,
- * `public-site.ia:reference-walkable`, and `public-site.a11y:keyboard-small`.
+ * `public-site.search:titles-headings`, `public-site.chrome:docs-sidebar`,
+ * `public-site.ia:learn-walkable`, `public-site.ia:reference-walkable`,
+ * and `public-site.a11y:keyboard-small`.
  * Small viewports stack this nav above main and wrap its links; no hamburger.
  *
  * @param props - Native aside attributes
@@ -34,6 +35,8 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
         <Link to="/" className={siteHeaderWordmarkVariants()} activeProps={currentPage}>Draconic</Link>
         <p className={siteHeaderTaglineVariants()}>One language, two backends.</p>
         <div className={siteHeaderClusterVariants()}>
+          <SiteSearch />
+          <ThemeToggle />
           <div className={siteHeaderGroupVariants()}>
             <Link to="/learn" className={siteHeaderLinkVariants()} activeProps={currentPage}>Learn</Link>
             <LearnNav />
@@ -43,8 +46,6 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
             <ReferenceNav />
           </div>
           <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
-          <SiteSearch />
-          <ThemeToggle />
         </div>
       </nav>
     </aside>
