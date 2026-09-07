@@ -548,6 +548,25 @@ function skippedOuterIfNotAssigned() {
 }
 let aq = skippedOuterIfNotAssigned();
 
+function skippedInsideWithNotAssigned() {
+  let obj = {};
+  with (obj) {
+    if (false) {
+      {
+        function k() {
+          return 1;
+        }
+      }
+    }
+  }
+  return (
+    typeof k === "undefined" &&
+    Object.prototype.hasOwnProperty.call(obj, "k") === false &&
+    obj.k === undefined
+  );
+}
+let ay = skippedInsideWithNotAssigned();
+
 function missAssignFromBodyFallsThrough() {
   let z = 0;
   with ({}) {

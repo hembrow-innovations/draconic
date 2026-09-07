@@ -83,6 +83,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/legacy.rs** — `with_var_for_runs`
   - **How:** Run `es/legacy/with_var_for` on declared js, including `for (const …)` for-in and for-of heads inside `with`, and getter `this` on for-in/for-of right idents and Annex B initializer RHS.
   - **Why:** Locks `language.ecma:legacy-with` so lexical `const` for-heads do not HasBinding-assign onto the with object, and accessor get `this` is the with object (E17.02.129).
+- **tests/conformance/tests/legacy.rs** — `with_block_function_runs`
+  - **How:** Run `es/legacy/with_block_function` on declared js, including a skipped `{ function k(){…} }` inside `with` (not around it).
+  - **Why:** Locks `language.ecma:legacy-with` so a skipped block-level function is not assigned through the object environment while `with` is on the stack (E17.02.127).
 - **tests/conformance/tests/legacy.rs** — `html_comments_runs`
   - **How:** Run `es/legacy/html_comments` on declared js (no `with`).
   - **Why:** Locks `language.ecma:annex-b` HTML-like comments (E17.02.169) without wrapping the program in `with`.
