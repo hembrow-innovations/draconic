@@ -20,9 +20,9 @@ const currentPage = { "aria-current": "page" as const };
  * Sticky side nav for every page: wordmark, Learn pages, Reference pages, GitHub.
  *
  * Locks `public-site.chrome:odm-shell`, `public-site.chrome:primary-nav`,
- * `public-site.search:titles-headings`, `public-site.chrome:docs-sidebar`,
- * `public-site.ia:learn-walkable`, `public-site.ia:reference-walkable`,
- * and `public-site.a11y:keyboard-small`.
+ * `public-site.chrome:current-page`, `public-site.search:titles-headings`,
+ * `public-site.chrome:docs-sidebar`, `public-site.ia:learn-walkable`,
+ * `public-site.ia:reference-walkable`, and `public-site.a11y:keyboard-small`.
  * Small viewports stack this nav above main and wrap its links; no hamburger.
  *
  * @param props - Native aside attributes

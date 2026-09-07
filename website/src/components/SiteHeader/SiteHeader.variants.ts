@@ -21,7 +21,7 @@ export const siteHeaderVariants = cva(
  * Wordmark uses the display type role from the theme scale.
  */
 export const siteHeaderWordmarkVariants = cva(
-  "font-display text-ink no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  "font-display text-ink no-underline aria-[current=page]:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 );
 
 /**
@@ -50,5 +50,5 @@ export const siteHeaderClusterVariants = cva(
  * In-app and GitHub items share the body type role.
  */
 export const siteHeaderLinkVariants = cva(
-  "inline-flex items-center min-h-11 font-body text-body text-muted no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  "inline-flex items-center min-h-11 font-body text-body text-muted no-underline hover:text-ink aria-[current=page]:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 );

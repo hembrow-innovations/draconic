@@ -132,10 +132,14 @@ test("learn hub nav", () => {
   expect(shell).not.toContain("from systems");
   expect(shell).not.toContain("Dual worlds");
 
+  expect(nav).toContain("public-site.chrome:current-page");
   expect(nav).toContain("from \"@tanstack/react-router\"");
   expect(nav).toContain("Link");
   expect(nav).toContain("activeProps");
   expect(nav).toContain('"aria-current": "page"');
+  expect(variants).toContain("aria-[current=page]:text-accent-2");
+  expect(variants).toContain("text-muted");
+  expect(variants).not.toMatch(/aria-\[current=page\]:text-muted/);
   expect(nav).not.toContain(".html");
   expect(nav).not.toMatch(/playground/i);
   expect(nav).not.toContain("docs/");

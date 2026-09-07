@@ -10,7 +10,8 @@ const currentPage = { "aria-current": "page" as const };
 /**
  * Learn sequence matching `website/learn.md`, grouped in the site side nav.
  *
- * Locks `public-site.ia:learn-walkable` and `public-site.nav:learn-reference-status`.
+ * Locks `public-site.ia:learn-walkable`, `public-site.nav:learn-reference-status`,
+ * and `public-site.chrome:current-page`.
  * Two landings join at Dual worlds. The open page gets aria-current.
  *
  * @param props - Native list attributes

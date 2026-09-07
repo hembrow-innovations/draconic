@@ -39,6 +39,10 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:primary-nav`: Every page's side nav has wordmark plus Learn, Reference, and GitHub.
   test: website/src/tests/site-header-primary-nav.test.ts
+- `public-site.chrome:current-page`: The side-nav item for the open page is visually distinct from sibling links using an existing semantic token, and still uses aria-current="page".
+  test: website/src/tests/site-header-primary-nav.test.ts
+  test: website/src/tests/learn-hub-nav.test.ts
+  test: website/src/tests/reference-hub-pages.test.ts
 - `public-site.chrome:docs-sidebar`: Learn and Reference article pages have a section sidebar and a shipped or not-yet badge from frontmatter.
   test: website/src/tests/docs-shell.test.ts
 - `public-site.chrome:docs-article-order`: Learn and Reference article columns render a section kicker, then the page heading, then a shipped or not-yet badge, then remaining markdown, then a related-link footer.

@@ -47,6 +47,7 @@ test("site header primary nav", () => {
 
   expect(header).toContain("public-site.chrome:primary-nav");
   expect(header).toContain("public-site.chrome:odm-shell");
+  expect(header).toContain("public-site.chrome:current-page");
   expect(header).toContain("public-site.search:titles-headings");
 
   expect(root).toContain("SiteHeader");
@@ -83,6 +84,12 @@ test("site header primary nav", () => {
   expect(header).toContain(">GitHub<");
   expect(header).toMatch(/<a\s[^>]*href="https:\/\/github.com\/hembrow-innovations\/draconic"/);
   expect(header).toContain('"aria-current": "page"');
+  expect(variants).toContain("aria-[current=page]:text-accent-2");
+  expect(variants).toContain("text-muted");
+  expect(variants).not.toMatch(/aria-\[current=page\]:text-muted/);
+  expect(
+    variants.match(/aria-\[current=page\]:text-accent-2/g)?.length,
+  ).toBeGreaterThanOrEqual(2);
   expect(header).toContain("<SiteSearch");
   expect(header).toContain("<ThemeToggle");
   expect(header.indexOf("<SiteSearch")).toBeLessThan(header.indexOf("<LearnNav"));

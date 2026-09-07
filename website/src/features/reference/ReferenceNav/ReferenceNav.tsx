@@ -10,7 +10,8 @@ const currentPage = { "aria-current": "page" as const };
 /**
  * Reference sequence matching `website/reference.md`, grouped in the site side nav.
  *
- * Locks `public-site.ia:reference-walkable` and `public-site.nav:learn-reference-status`.
+ * Locks `public-site.ia:reference-walkable`, `public-site.nav:learn-reference-status`,
+ * and `public-site.chrome:current-page`.
  * Working pages kept open while writing a Program. The open page gets aria-current.
  *
  * @param props - Native list attributes
