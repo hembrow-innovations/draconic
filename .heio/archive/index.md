@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-672-e17-02-120-arg-idents** — E17.02.120 trimLeft/trimRight arg idents hit the with object, else outer
 - **ticket-655-ui-audit-closeout** — public-site UI audit walk recorded; findings promoted separately
 - **task-670-e17-02-121-arg-idents** — E17.02.121 accessor-legacy arg idents hit the with object, else outer
 - **task-668-e17-02-127-skipped-block** — E17.02.127 skipped block-level function inside `with` is not assigned through the object environment

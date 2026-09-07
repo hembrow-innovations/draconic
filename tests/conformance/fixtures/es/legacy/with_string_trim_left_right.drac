@@ -1010,3 +1010,53 @@ function withProtoCallBoth() {
   }
 }
 let dc = withProtoCallBoth();
+
+function argsHitObjectTrimLeft() {
+  let n = 0;
+  let extra = 99;
+  let env = {
+    s: "  hi  ",
+    get extra() {
+      n = n + 1;
+      return 0;
+    }
+  };
+  with (env) {
+    return s.trimLeft(extra) === "hi  " && n === 1;
+  }
+}
+let dd = argsHitObjectTrimLeft();
+
+function argsMissUsesOuterTrimLeft() {
+  let extra = 0;
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimLeft(extra) === "hi  ";
+  }
+}
+let de = argsMissUsesOuterTrimLeft();
+
+function argsHitObjectTrimRight() {
+  let n = 0;
+  let extra = 99;
+  let env = {
+    s: "  hi  ",
+    get extra() {
+      n = n + 1;
+      return 0;
+    }
+  };
+  with (env) {
+    return s.trimRight(extra) === "  hi" && n === 1;
+  }
+}
+let df = argsHitObjectTrimRight();
+
+function argsMissUsesOuterTrimRight() {
+  let extra = 0;
+  let env = { s: "  hi  " };
+  with (env) {
+    return s.trimRight(extra) === "  hi";
+  }
+}
+let dg = argsMissUsesOuterTrimRight();
