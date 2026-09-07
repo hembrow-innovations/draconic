@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-07"
 ---
 
 # Toolchain tests
@@ -24,6 +24,9 @@ These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `tool
 - **crates/draconic-cli/src/main.rs** — `parse_sample_program`
   - **How:** Dumps `let x = 1 + 2;` and asserts a `Program` AST with binding `x`.
   - **Why:** Locks `toolchain.cli:parse-ast` at the parse dump used by `draconic parse`.
+- **crates/draconic-cli/tests/parse.rs** — `parse_valid_program_exits_zero_dump_starts_with_program`
+  - **How:** Spawns the `draconic` binary with `parse` on a tiny valid Program file; exit 0; stdout starts with `Program`.
+  - **Why:** Locks `toolchain.cli:parse-ast` through the CLI verb so deleting `cmd_parse` cannot stay green.
 - **tests/integration/tests/install_smoke.rs** — `fresh_path_draconic_parse_hello`
   - **How:** After install, a fresh PATH runs `draconic parse` on a hello Program.
   - **Why:** Same promise end-to-end on the shipped binary.
@@ -84,4 +87,4 @@ Support tests (not extra promises): `verbose_version_contains_required_fields`, 
 ## Gaps
 
 - No test yet for promise `toolchain.cli:forbid-learn-site-content`. Public site generation is covered under `website_pipeline` tests and [[0010-public-docs-draconic-ssg]]; this folder does not point at those titles so the fence stays asserted.
-- `draconic parse` has dump and install-smoke coverage; there is no `help_lists_parse` title. Usage text in `print_usage` is not a test title.
+- `draconic parse` has dump, CLI spawn, and install-smoke coverage; there is no `help_lists_parse` title. Usage text in `print_usage` is not a test title.

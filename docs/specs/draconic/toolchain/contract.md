@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [contract]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-07"
 ---
 
 # Toolchain — Contract
@@ -19,6 +19,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 
 - `toolchain.cli:parse-ast`: `draconic parse` accepts a Program file and prints an AST dump for a valid Program.
   test: parse_sample_program
+  test: parse_valid_program_exits_zero_dump_starts_with_program
   test: fresh_path_draconic_parse_hello
 - `toolchain.cli:check-no-emit`: `draconic check` typechecks and binds a Program with no emit, exits zero on success, and exits non-zero on parse, bind, or type errors.
   test: help_lists_check_command
