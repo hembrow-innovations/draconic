@@ -2,13 +2,13 @@
 id: "slice-687-chapter-nav-touch-target"
 title: "Chapter nav tap targets"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-685-chapter-nav-focus-ring
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:56:00Z"
 ---
 
 # Chapter nav tap targets
@@ -33,10 +33,10 @@ Learn and Reference chapter links in the side nav use the same `min-h-11` tap ta
 
 ## Oracle checklist
 
-- [ ] O1: chapter link variants include `min-h-11`; mobile-a11y still passes
+- [x] O1: chapter link variants include `min-h-11`; mobile-a11y still passes
   CHECK: pnpm --dir website exec vitest run mobile-a11y
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed (1); task-688 completed as 0a69c531
 
 ## Pool
 
