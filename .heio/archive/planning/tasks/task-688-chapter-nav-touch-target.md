@@ -2,18 +2,17 @@
 id: "task-688-chapter-nav-touch-target"
 title: "Match chapter nav tap targets to hub links"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-686-chapter-nav-focus-ring
 sprint: "website-odm-match"
 slice: "slice-687-chapter-nav-touch-target"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:55:00Z"
 ---
-
 # Match chapter nav tap targets to hub links
 
 ## Blocked by
@@ -68,10 +67,10 @@ Chapter and working-page links in the side nav use the same `min-h-11` as hub li
 - Existing hub `min-h-11` on SiteHeader links
 
 **Acceptance criteria:**
-- [ ] Tests fail if chapter link variants omit `min-h-11`
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Focus-visible rings from the prior task still hold
-- [ ] No new size token
+- [x] Tests fail if chapter link variants omit `min-h-11`
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Focus-visible rings from the prior task still hold
+- [x] No new size token
 
 **Out of scope:**
 - Current-page color ([[task-682-current-page-visual]]); changing chapter order; playground
@@ -81,4 +80,4 @@ This is consistency with chrome the hub already ships, not a new a11y product ru
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y` — expect `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y` — win. `Test Files  1 passed`. Typecheck exits 0. Critic: diff matches hub `min-h-11` plus `inline-flex items-center` so the height applies; focus rings stay; no new token; `public-site.a11y:keyboard-small` holds; purpose out-of-scope untouched.

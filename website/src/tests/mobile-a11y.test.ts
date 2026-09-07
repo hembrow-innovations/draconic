@@ -98,9 +98,11 @@ test("mobile a11y", () => {
   expect(skipVariants).toContain("focus-visible:ring-2");
   expect(skipVariants).toContain("focus-visible:ring-accent");
   expect(learnNavVariants).toContain("learnNavLinkVariants");
+  expect(learnNavVariants).toContain("min-h-11");
   expect(learnNavVariants).toContain("focus-visible:ring-2");
   expect(learnNavVariants).toContain("focus-visible:ring-accent");
   expect(referenceNavVariants).toContain("referenceNavLinkVariants");
+  expect(referenceNavVariants).toContain("min-h-11");
   expect(referenceNavVariants).toContain("focus-visible:ring-2");
   expect(referenceNavVariants).toContain("focus-visible:ring-accent");
 

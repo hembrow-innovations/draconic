@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-688-chapter-nav-touch-target** — website Learn and Reference chapter nav links use the same min-h-11 tap target as hub primary nav
 - **task-686-chapter-nav-focus-ring** — website Learn and Reference chapter nav links use the same token focus-visible ring as hub primary nav
 - **task-684-badge-before-heading** — website docs articles paint kicker, heading, then shipped or not-yet badge
 - **task-680-unescaped-angle-placeholders** — website markdown lists encode angle-bracket placeholders as visible text
