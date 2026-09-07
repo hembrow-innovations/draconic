@@ -645,3 +645,48 @@ function constForOfDoesNotWriteObject() {
   return obj.v === 0 && n === 2;
 }
 let bj = constForOfDoesNotWriteObject();
+
+function forInRightIdentGetterThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get src() {
+      seen = this;
+      return { a: 1 };
+    }
+  };
+  with (obj) {
+    for (var k in src) {}
+  }
+  return seen === obj && k === "a";
+}
+let bk = forInRightIdentGetterThisIsWithObject();
+
+function forOfRightIdentGetterThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get arr() {
+      seen = this;
+      return [7];
+    }
+  };
+  with (obj) {
+    for (var v of arr) {}
+  }
+  return seen === obj && v === 7;
+}
+let bl = forOfRightIdentGetterThisIsWithObject();
+
+function annexBInitRhsGetterThisIsWithObject() {
+  let seen = null;
+  let obj = {
+    get y() {
+      seen = this;
+      return "seed";
+    }
+  };
+  with (obj) {
+    for (var k = y in {}) {}
+  }
+  return seen === obj && k === "seed";
+}
+let bm = annexBInitRhsGetterThisIsWithObject();

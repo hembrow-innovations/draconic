@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **task-666-e17-02-129-accessor-get-this** — E17.02.129 accessor get this on for-heads is the with object
+- **task-664-e17-02-129-const-for-head** — E17.02.129 const for-heads inside `with` do not write the with object
 - **task-662-b03-parse-cli-spawn** — CLI crate spawn test for `draconic parse` locking `toolchain.cli:parse-ast`
 - **task-645-ui-audit** — public-site UI audit closeout plus finding tickets
 - **task-642-mobile-odm-wrap** — website small-viewport side nav stacks and wraps without a hamburger
