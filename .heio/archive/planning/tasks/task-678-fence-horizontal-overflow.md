@@ -2,7 +2,7 @@
 id: "task-678-fence-horizontal-overflow"
 title: "Contain code fences in the small viewport"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-690-first-h2-border
@@ -11,7 +11,7 @@ slice: "slice-677-fence-horizontal-overflow"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:58:00Z"
 ---
 
 # Contain code fences in the small viewport
@@ -68,10 +68,10 @@ Article reading at a small viewport does not require horizontal page scroll beca
 - Small-viewport shell already stacked by mobile wrap
 
 **Acceptance criteria:**
-- [ ] Tests fail if fence `pre` chrome leaves overflow visible
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] Promise ids listed above still hold
-- [ ] No playground and no vault-as-site
+- [x] Tests fail if fence `pre` chrome leaves overflow visible
+- [x] Named vitest files pass and typecheck exits 0
+- [x] Promise ids listed above still hold
+- [x] No playground and no vault-as-site
 
 **Out of scope:**
 - Markdown subset escaping ([[task-680-unescaped-angle-placeholders]]); fence compile pipeline; playground
@@ -81,4 +81,4 @@ Keyboard-small already promises article reading at a small viewport. This sittin
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run docs-shell mobile-a11y` — expect `Test Files  2 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run docs-shell mobile-a11y` — win. Output `Test Files  2 passed (2)`. `tsc --noEmit` exit 0. Diff vs `public-site.a11y:keyboard-small` and `public-site.fences:shipped-must-build`: article CVA fence `pre` uses `overflow-x-auto`; tests fail on visible overflow; fence compile untouched; no playground or vault-as-site.

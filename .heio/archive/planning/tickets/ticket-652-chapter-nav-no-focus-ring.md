@@ -2,16 +2,15 @@
 id: "ticket-652-chapter-nav-no-focus-ring"
 title: "Grouped chapter links have no focus-visible ring"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 blocked_by: []
-tags: [website, public-site]
+tags: [ website, public-site ]
 sprint: "website-odm-match"
 created_at: "2026-09-07T21:30:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T12:00:00Z"
 ---
-
 # Grouped chapter links have no focus-visible ring
 
 ## Signal

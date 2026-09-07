@@ -2,15 +2,14 @@
 id: "ticket-653-chapter-nav-touch-target"
 title: "Grouped chapter links have a zero min-height tap target"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 blocked_by: []
-tags: [website, public-site]
+tags: [ website, public-site ]
 sprint: "website-odm-match"
 created_at: "2026-09-07T21:30:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T12:00:00Z"
 ---
-
 # Grouped chapter links have a zero min-height tap target
 
 ## Signal

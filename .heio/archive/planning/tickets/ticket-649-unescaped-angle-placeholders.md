@@ -2,16 +2,15 @@
 id: "ticket-649-unescaped-angle-placeholders"
 title: "Article lists drop angle-bracket placeholders as leftover HTML"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 blocked_by: []
-tags: [website, public-site]
+tags: [ website, public-site ]
 sprint: "website-odm-match"
 created_at: "2026-09-07T21:30:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T12:00:00Z"
 ---
-
 # Article lists drop angle-bracket placeholders as leftover HTML
 
 ## Signal

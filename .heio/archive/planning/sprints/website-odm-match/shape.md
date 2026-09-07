@@ -2,12 +2,11 @@
 id: "website-odm-match"
 title: "Public site ODM chrome"
 kind: sprint
-status: active
-tags: [website, public-site]
+status: closed
+tags: [ website, public-site ]
 created_at: "2026-09-07T18:00:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T12:00:00Z"
 ---
-
 # Public site ODM chrome
 
 ## Grouping

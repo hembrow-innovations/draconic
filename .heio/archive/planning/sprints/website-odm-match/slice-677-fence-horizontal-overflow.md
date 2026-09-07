@@ -2,13 +2,13 @@
 id: "slice-677-fence-horizontal-overflow"
 title: "Fences stay in the small viewport"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-689-first-h2-border
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:52:00Z"
 ---
 
 # Fences stay in the small viewport
@@ -33,10 +33,10 @@ At 375 by 812, a docs article with long fences does not widen the document past 
 
 ## Oracle checklist
 
-- [ ] O1: docs article fence chrome includes horizontal containment; docs-shell tests still pass
+- [x] O1: docs article fence chrome includes horizontal containment; docs-shell tests still pass
   CHECK: pnpm --dir website exec vitest run docs-shell mobile-a11y
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest docs-shell mobile-a11y — Test Files  2 passed (2); Tests  2 passed; article pre uses overflow-x-auto; commit 724dcba9
 
 ## Pool
 

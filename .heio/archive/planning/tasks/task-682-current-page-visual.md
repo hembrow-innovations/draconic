@@ -2,7 +2,7 @@
 id: "task-682-current-page-visual"
 title: "Give the current side-nav page a visible treatment"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-688-chapter-nav-touch-target
@@ -11,7 +11,7 @@ slice: "slice-681-current-page-visual"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T23:55:00Z"
 ---
 
 # Give the current side-nav page a visible treatment
@@ -68,10 +68,10 @@ The current side-nav item is visually distinct from siblings via an existing sem
 - Existing `accent-2` token; CVA variants; no hex
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.chrome:current-page` with a test pointer
-- [ ] Tests fail if current-page chrome is only aria-current with muted ink
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] No new color token and no ODM product copy
+- [x] Contract lists `public-site.chrome:current-page` with a test pointer
+- [x] Tests fail if current-page chrome is only aria-current with muted ink
+- [x] Named vitest files pass and typecheck exits 0
+- [x] No new color token and no ODM product copy
 
 **Out of scope:**
 - Focus rings and tap size (prior tasks); changing IA; playground
@@ -81,4 +81,4 @@ The audit found a visual gap with no promise. This sitting is allowed to assert 
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages` — expect `Test Files  3 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages` — win. `Test Files  3 passed`. Typecheck exits 0. Critic: hub and chapter current items use existing `accent-2` with `aria-current`; `public-site.chrome:current-page` locked; `public-site.chrome:primary-nav` kept; no new token; coverage "same promise" wording tightened.

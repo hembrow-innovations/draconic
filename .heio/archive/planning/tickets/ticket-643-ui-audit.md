@@ -2,15 +2,14 @@
 id: "ticket-643-ui-audit"
 title: "Full public-site UI audit"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: feature-request
 blocked_by: []
-tags: [website, public-site]
+tags: [ website, public-site ]
 sprint: "website-odm-match"
 created_at: "2026-09-07T19:00:00Z"
-updated_at: "2026-09-07T19:00:00Z"
+updated_at: "2026-09-08T12:00:00Z"
 ---
-
 # Full public-site UI audit
 
 ## Signal

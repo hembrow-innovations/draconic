@@ -2,13 +2,13 @@
 id: "slice-681-current-page-visual"
 title: "Current page nav treatment"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-687-chapter-nav-touch-target
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:40:00Z"
 ---
 
 # Current page nav treatment
@@ -33,10 +33,10 @@ The current side-nav item is visually distinct from sibling links, using an exis
 
 ## Oracle checklist
 
-- [ ] O1: current-page treatment is locked on contract and tests; aria-current still holds
+- [x] O1: current-page treatment is locked on contract and tests; aria-current still holds
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages
   EXPECT: Test Files  3 passed
-  EVIDENCE: pending
+  EVIDENCE: `Test Files  3 passed (3)` Duration 178ms; task-682 completed; commit c8f217d1
 
 ## Pool
 

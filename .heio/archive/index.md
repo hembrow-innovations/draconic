@@ -2,7 +2,10 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — archived 6 met platform slices; closed website-odm-match sprint (17 met slices) and 16 tickets; 14 tickets remain; platform sprint stays active
+- **task-678-fence-horizontal-overflow** — website docs fence pre chrome contains horizontal overflow at small viewport
 - **task-690-first-h2-border** — website first article h2 after h1 keeps the token section rule
+- **task-682-current-page-visual** — website current side-nav page uses accent-2 with aria-current
 - **task-688-chapter-nav-touch-target** — website Learn and Reference chapter nav links use the same min-h-11 tap target as hub primary nav
 - **task-686-chapter-nav-focus-ring** — website Learn and Reference chapter nav links use the same token focus-visible ring as hub primary nav
 - **task-684-badge-before-heading** — website docs articles paint kicker, heading, then shipped or not-yet badge

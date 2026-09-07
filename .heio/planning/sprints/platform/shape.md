@@ -5,7 +5,7 @@ kind: "sprint"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-updated_at: "2026-09-06T11:49:42Z"
+updated_at: "2026-09-07T08:32:15Z"
 ---
 
 # platform
@@ -22,6 +22,12 @@ Location: remaining platform-capability and leftover conformance after the langu
 - [[slice-581-e17-02-170-arguments-iterator]]: E17.02.170 arguments @@iterator residual without with. blocked_by: none
 - [[slice-583-e17-02-171-eval-let-const]]: E17.02.171 direct eval of let/const without caller inject. blocked_by: none
 - [[slice-585-e17-02-172-implicit-global-compound]]: E17.02.172 unresolvable compound/update does not create a global. blocked_by: none
+- [[slice-661-b03-parse-cli-spawn]]: B03 Tests column spawns `draconic parse`. blocked_by: none
+- [[slice-663-e17-02-129-const-for-head]]: E17.02.129 const for-head does not write object. blocked_by: none
+- [[slice-665-e17-02-129-accessor-get-this]]: E17.02.129 accessor get this is with object. blocked_by: none
+- [[slice-667-e17-02-127-skipped-block]]: E17.02.127 skipped block not assigned through with. blocked_by: none
+- [[slice-669-e17-02-121-arg-idents]]: E17.02.121 arg idents hit object. blocked_by: none
+- [[slice-671-e17-02-120-arg-idents]]: E17.02.120 arg idents hit object. blocked_by: none
 
 ## Slices out
 
