@@ -2,15 +2,14 @@
 id: "slice-689-first-h2-border"
 title: "First section heading rule"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by:
   - slice-683-badge-before-heading
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:46:00Z"
 ---
-
 # First section heading rule
 
 ## Why
@@ -33,10 +32,10 @@ Every article `h2` after the page `h1`, including the first section heading, has
 
 ## Oracle checklist
 
-- [ ] O1: docs article CVA no longer zeroes the first `h2` after `h1`; docs-shell tests still pass
+- [x] O1: docs article CVA no longer zeroes the first `h2` after `h1`; docs-shell tests still pass
   CHECK: pnpm --dir website exec vitest run docs-shell
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest docs-shell — Test Files  1 passed (1); Tests  1 passed; commit c98d6cef
 
 ## Pool
 
