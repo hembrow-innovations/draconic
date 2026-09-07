@@ -2,12 +2,12 @@
 id: "slice-683-badge-before-heading"
 title: "Badge after the heading"
 kind: slice
-status: frozen
+status: met
 sprint: "website-odm-match"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-08T19:20:00Z"
 ---
 
 # Badge after the heading
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: docs article source order is kicker, heading, badge; docs-shell tests still pass
+- [x] O1: docs article source order is kicker, heading, badge; docs-shell tests still pass
   CHECK: pnpm --dir website exec vitest run docs-shell
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: vitest docs-shell — Test Files  1 passed (1); Tests  1 passed; commit 0da25482
 
 ## Pool
 
