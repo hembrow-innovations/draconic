@@ -83,6 +83,14 @@ test("search", () => {
   expect(variants).toContain("font-body");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
+  expect(variants).not.toMatch(/\babsolute\b/);
+
+  const headerVariants = readFileSync(
+    join(srcDir, "components", "SiteHeader", "SiteHeader.variants.ts"),
+    "utf8",
+  );
+  expect(headerVariants).toMatch(/\boverflow-y-auto\b/);
+  expect(search).not.toMatch(/\babsolute\b/);
 
   expect(lib).toContain("listMarkdownPages");
   expect(lib).not.toContain("docs/specs");

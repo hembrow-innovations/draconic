@@ -3,7 +3,7 @@ import { cva } from "class-variance-authority";
 /**
  * Finder cluster in site chrome.
  */
-export const siteSearchVariants = cva("relative font-body text-body");
+export const siteSearchVariants = cva("font-body text-body");
 
 /**
  * Query field. Token roles only.
@@ -16,7 +16,7 @@ export const siteSearchInputVariants = cva(
  * Result list under the field.
  */
 export const siteSearchResultsVariants = cva(
-  "absolute z-10 mt-1 w-full border border-line bg-canvas",
+  "mt-1 w-full border border-line bg-canvas",
 );
 
 /**

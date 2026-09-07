@@ -2,18 +2,17 @@
 id: "task-676-search-results-clipped"
 title: "Stop clipping in-site search results"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-674-search-below-nav-fold
 sprint: "website-odm-match"
 slice: "slice-675-search-results-clipped"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-07T23:15:00Z"
 updated_at: "2026-09-07T23:15:00Z"
 ---
-
 # Stop clipping in-site search results
 
 ## Blocked by
@@ -69,10 +68,10 @@ The matching result is visible and keyboard-activatable at 1280 by 720 and 375 b
 - `querySearchIndex` / Dual worlds hit
 
 **Acceptance criteria:**
-- [ ] Tests fail if the result list is absolutely positioned inside overflowing aside clip
-- [ ] Dual worlds still resolves to `/dual-worlds`
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] `public-site.search:titles-headings` still holds
+- [x] Tests fail if the result list is absolutely positioned inside overflowing aside clip
+- [x] Dual worlds still resolves to `/dual-worlds`
+- [x] Named vitest file passes and typecheck exits 0
+- [x] `public-site.search:titles-headings` still holds
 
 **Out of scope:**
 - Reordering search above the fold (previous task); vault search; playground
@@ -81,5 +80,4 @@ The matching result is visible and keyboard-activatable at 1280 by 720 and 375 b
 The promise is find-by-title-or-heading. A clipped hit is a miss for the visitor.
 
 ## Gauntlet
-
-- **Round 1**: `pnpm --dir website exec vitest run search` — expect `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run search` — win. Test Files  1 passed. Typecheck exits 0.
