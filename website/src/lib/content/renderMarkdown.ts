@@ -112,10 +112,32 @@ export function renderMarkdown(body: string): string {
 }
 
 /**
+ * Encode markup-sensitive characters so placeholders stay visible text.
+ *
+ * @param text - Heading, paragraph, list, or link-label text
+ * @returns The same text with `&`, `<`, and `>` encoded
+ */
+function escapeHtml(text: string): string {
+  let html = "";
+  for (const char of text) {
+    if (char === "&") {
+      html += "&amp;";
+    } else if (char === "<") {
+      html += "&lt;";
+    } else if (char === ">") {
+      html += "&gt;";
+    } else {
+      html += char;
+    }
+  }
+  return html;
+}
+
+/**
  * Expand `[text](href)` links inside a heading, paragraph, or list item.
  *
  * @param text - One line of markdown inline content
- * @returns HTML with anchors for complete markdown links
+ * @returns HTML with encoded text and anchors for complete markdown links
  */
 function renderInline(text: string): string {
   let html = "";
@@ -123,7 +145,7 @@ function renderInline(text: string): string {
   while (index < text.length) {
     const char = text[index];
     if (char !== "[") {
-      html += char;
+      html += escapeHtml(char);
       index += 1;
       continue;
     }
@@ -146,9 +168,9 @@ function renderInline(text: string): string {
       if (index < text.length && text[index] === ")") {
         index += 1;
       }
-      html += `<a href="${toAppHref(href)}">${label}</a>`;
+      html += `<a href="${toAppHref(href)}">${escapeHtml(label)}</a>`;
     } else {
-      html += `[${label}]`;
+      html += `[${escapeHtml(label)}]`;
     }
   }
   return html;

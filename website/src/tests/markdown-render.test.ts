@@ -32,3 +32,16 @@ test("markdown render install subset", () => {
   expect(html).not.toMatch(/playground/i);
   expect(html).not.toContain("docs/");
 });
+
+test("markdown render cli commands keep angle placeholders as text", () => {
+  const page = loadMarkdownPage("cli");
+  const html = renderMarkdown(page.body);
+
+  expect(html).toContain("draconic parse &lt;file&gt;");
+  expect(html).toContain("[-o &lt;out&gt;]");
+  expect(html).not.toContain("<file>");
+  expect(html).not.toContain("<out>");
+  expect(html).toContain('<a href="/reference-packages">packages</a>');
+  expect(html).toContain("<pre>");
+  expect(html).toContain("<code>");
+});

@@ -2,7 +2,7 @@
 id: "task-680-unescaped-angle-placeholders"
 title: "Escape angle-bracket placeholders in article lists"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-odm-match"
@@ -10,7 +10,7 @@ slice: "slice-679-unescaped-angle-placeholders"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-07T23:15:00Z"
-updated_at: "2026-09-07T23:15:00Z"
+updated_at: "2026-09-07T19:15:00Z"
 ---
 
 # Escape angle-bracket placeholders in article lists
@@ -67,10 +67,10 @@ Headings, paragraphs, and list items encode `<`, `>`, and `&` so placeholders st
 - CLI page body as the proof source
 
 **Acceptance criteria:**
-- [ ] Tests fail if `renderMarkdown` of CLI Commands drops `<file>` or `<out>`
-- [ ] Link rendering still produces anchors
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] `public-site.markdown:subset` still holds
+- [x] Tests fail if `renderMarkdown` of CLI Commands drops `<file>` or `<out>`
+- [x] Link rendering still produces anchors
+- [x] Named vitest file passes and typecheck exits 0
+- [x] `public-site.markdown:subset` still holds
 
 **Out of scope:**
 - Fence overflow chrome; changing CLI teaching copy unless required to keep placeholders; playground
@@ -80,4 +80,4 @@ The subset already promises lists from `website/` sources. Visible placeholders 
 
 ## Gauntlet
 
-- **Round 1**: `pnpm --dir website exec vitest run markdown-render` — expect `Test Files  1 passed`. Typecheck holds.
+- **Round 1**: `pnpm --dir website exec vitest run markdown-render` — win. Output `Test Files  1 passed (1)`. `tsc --noEmit` exit 0. Diff vs `public-site.markdown:subset`: lists and paragraphs still render; placeholders encoded as text; links still anchors; fences still `pre`/`code`; subset syntax unchanged.
