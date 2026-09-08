@@ -2,16 +2,15 @@
 id: "task-732-ir-split-lower"
 title: "Split IR lower until every file ≤1000"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-731-ir-extract-types"]
+blocked_by: [ "task-731-ir-extract-types" ]
 sprint: "rust-dev-audit"
 slice: "slice-710-ir-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T14:00:00Z"
 ---
-
 # Split IR lower until every file ≤1000
 
 ## Blocked by
@@ -60,9 +59,9 @@ max-loc-ok. No process-global lower state.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O1 max-loc-ok
-- [ ] pub fn lower still the entry
-- [ ] cargo test -p draconic-ir
+- [x] Slice O1 max-loc-ok
+- [x] pub fn lower still the entry
+- [x] cargo test -p draconic-ir
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows

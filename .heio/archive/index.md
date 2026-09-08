@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-732-ir-split-lower** — split IR lowering until every crates/draconic-ir .rs file is ≤1000
 - **task-731-ir-extract-types** — extract IR Module/stmt/expr types from lib.rs
 - **task-730-ir-dump-pub-crate** — make dump_module pub(crate)
 - **task-725-linker-err-codes** — attach stable diagnostic codes on linker failures
