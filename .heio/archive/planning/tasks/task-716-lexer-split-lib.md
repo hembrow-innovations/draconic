@@ -2,14 +2,14 @@
 id: "task-716-lexer-split-lib"
 title: "Split lexer lib.rs by feature seam"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-705-lexer-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:30:00Z"
 ---
 
 # Split lexer lib.rs by feature seam
@@ -60,10 +60,17 @@ Feature files plus a thin lib.rs. Target ≤1000, never leave a file over 1250.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] lib.rs ≤1000
-- [ ] no new lexer .rs file over 1000
-- [ ] cargo test -p draconic-lexer
-- [ ] No crate-level tests/ for these units
+- [x] lib.rs ≤1000
+- [x] no new lexer .rs file over 1000
+- [x] cargo test -p draconic-lexer
+- [x] No crate-level tests/ for these units
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python3 O1 max-loc on crates/draconic-lexer; cargo test -p draconic-lexer --offline
+- **win/lose**: win
+- **gap**: none
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
