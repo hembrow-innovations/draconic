@@ -2,14 +2,14 @@
 id: "task-722-ast-split-lib"
 title: "Split ast lib.rs types vs dump"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-707-ast-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:00:00Z"
 ---
 
 # Split ast lib.rs types vs dump
@@ -60,10 +60,10 @@ Feature files ≤1000, Box AST unchanged.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] lib.rs ≤1000
-- [ ] no new file over 1000
-- [ ] cargo test -p draconic-ast
-- [ ] recursive Stmt/Expr still Box
+- [x] lib.rs ≤1000
+- [x] no new file over 1000
+- [x] cargo test -p draconic-ast
+- [x] recursive Stmt/Expr still Box
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows

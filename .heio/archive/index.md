@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-722-ast-split-lib** — split ast lib.rs types and dump into stmt/expr/type_ann/dump modules
 - **task-721-parser-finish-budget** — split remaining parser lib.rs so every crates/draconic-parser .rs file is ≤1000
 - **task-720-parser-extract-module** — extract parser import/export, type, and binding-pattern parsing into sibling modules
 - **task-719-parser-extract-expr** — extract parser expression parsing into expr*.rs sibling modules
