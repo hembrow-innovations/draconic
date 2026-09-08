@@ -9,7 +9,7 @@ sprint: "opt-in-bench"
 slice: "slice-691-opt-in-cli-timings"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-09T00:00:00Z"
+updated_at: "2026-09-09T12:05:00Z"
 ---
 
 # Add tests/perf compile-heavy and run-heavy programs
@@ -85,9 +85,9 @@ Hyperfine will time build versus execute separately. These files must actually r
 
 ## Blocked
 
-O1 cannot hold with fixtures-only scope.
+O1 cannot hold with fixtures-only scope. Re-verified 2026-09-09 (temp programs under `/tmp`, always `-o`).
 
-- **JS**: `let console = globalThis.console; console.log("perf-ok");` builds and prints (verified).
-- **Native**: the same print (and `examples/shebang/hello.drac`) fails with unsupported IR. LLVM adapters are disjoint subsets. `console.log` is not in any of them. Native programs print observed `let` slots instead.
-- **Dual stdout that actually writes**: `stdoutWrite("perf-ok\n")` works on both, but the host stdio adapter rejects function decls and `for` loops, so it cannot host compile-heavy or run-heavy.
-- **Unblock**: LLVM lowering for `globalThis.console.log` (or one adapter that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope.
+- **JS**: `let console = globalThis.console; console.log("perf-ok");` builds and prints `perf-ok` (exit 0).
+- **Native**: the same print, and `examples/shebang/hello.drac`, still fail with `error: native target: unsupported IR (no LLVM lowering for this program; … empty hello) at 0..0`. LLVM adapters remain disjoint subsets. `console.log` is not in any of them.
+- **Dual stdout that actually writes**: `stdoutWrite("perf-ok\n")` still prints on native. Combining it with function decls or a `for` loop still hits the same unsupported-IR error, so it cannot host compile-heavy or run-heavy. Not used as a workaround.
+- **Unblock**: LLVM lowering for `globalThis.console.log` (or one adapter that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope. See [[ticket-773-native-console-log]] (still open).
