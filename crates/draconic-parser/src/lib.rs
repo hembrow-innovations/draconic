@@ -8,7 +8,10 @@ use draconic_ast::{
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_lexer::{JsString, Lexer, Token, TokenKind};
 
+mod context;
 mod fuzz;
+
+use context::ParserContext;
 
 pub use draconic_ast::dump_program as dump_ast;
 pub use fuzz::fuzz_parse;
@@ -23,40 +26,14 @@ pub fn parse_module(source: &str) -> Result<Program, Diagnostic> {
     // E19.67: Module goal rejects Annex B HTML-like comments.
     let tokens = Lexer::new_module(source).tokenize()?;
     let mut parser = Parser::new(tokens, true);
-    parser.in_strict = true;
+    parser.ctx.in_strict = true;
     parser.parse_program()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
-    /// When false, relational `in` is not parsed (for-header left-hand side).
-    allow_in: bool,
-    /// YieldExpression context (`function*`, generator methods). When false and
-    /// non-strict, `yield` is an IdentifierReference / BindingIdentifier (E19.37).
-    in_generator: bool,
-    /// `[+Await]` grammar parameter: modules, async functions, class static blocks.
-    /// When false, `await` is IdentifierReference / BindingIdentifier (E19.52).
-    in_await_context: bool,
-    /// Strict mode (directive prologue, class bodies). `yield` is reserved.
-    in_strict: bool,
-    /// Module goal (top-level `using` / `await using` allowed).
-    is_module: bool,
-    /// Nesting depth of Block / function body (Script `using` early error).
-    using_container_depth: u32,
-    /// True while parsing a CaseClause/DefaultClause StatementList directly
-    /// (nested blocks clear this; using is forbidden in the case list itself).
-    forbid_direct_using: bool,
-    /// Stack of private names for nested classes (E19.36 / E19.39 inheritance).
-    /// Outer class names are visible inside nested class bodies.
-    class_private_stack: Vec<Vec<String>>,
-    /// Depth of non-arrow functions / methods / static blocks (E19.67 `new.target`).
-    /// Arrows are transparent for Contains NewTarget.
-    new_target_depth: u32,
-    /// Depth of method/constructor bodies where SuperProperty is allowed (E19.67).
-    super_property_depth: u32,
-    /// Directive prologue saw a string with Annex B legacy octal escape (E19.69).
-    prologue_had_legacy_escape: bool,
+    ctx: ParserContext,
 }
 
 impl Parser {
@@ -64,24 +41,25 @@ impl Parser {
         Self {
             tokens,
             pos: 0,
-            allow_in: true,
-            in_generator: false,
-            // Module goal is [+Await] (top-level await); scripts start [~Await].
-            in_await_context: is_module,
-            in_strict: false,
-            is_module,
-            using_container_depth: 0,
-            forbid_direct_using: false,
-            class_private_stack: Vec::new(),
-            new_target_depth: 0,
-            super_property_depth: 0,
-            prologue_had_legacy_escape: false,
+            ctx: ParserContext::new(is_module),
         }
+    }
+
+    fn with_ctx<T>(
+        &mut self,
+        mutate: impl FnOnce(&mut ParserContext),
+        f: impl FnOnce(&mut Self) -> Result<T, Diagnostic>,
+    ) -> Result<T, Diagnostic> {
+        let saved = self.ctx.clone();
+        mutate(&mut self.ctx);
+        let result = f(self);
+        self.ctx = saved;
+        result
     }
 
     /// Reject Annex B legacy octal / NonOctalDecimal when already in strict mode (E19.69).
     fn reject_legacy_octal_token(&self, tok: &Token) -> Result<(), Diagnostic> {
-        if tok.legacy_octal && self.in_strict {
+        if tok.legacy_octal && self.ctx.in_strict {
             return Err(Diagnostic::new(
                 "legacy octal literals and escapes are not allowed in strict mode".to_string(),
                 tok.span,
@@ -92,13 +70,13 @@ impl Parser {
 
     /// When `"use strict"` activates, prior prologue strings must not use legacy escapes.
     fn activate_strict_from_directive(&mut self) -> Result<(), Diagnostic> {
-        if self.prologue_had_legacy_escape {
+        if self.ctx.prologue_had_legacy_escape {
             return Err(Diagnostic::new(
                 "legacy octal escape in directive prologue before use strict".to_string(),
                 self.current_span(),
             ));
         }
-        self.in_strict = true;
+        self.ctx.in_strict = true;
         Ok(())
     }
 
@@ -117,25 +95,30 @@ impl Parser {
     }
 
     fn using_allowed_here(&self) -> bool {
-        if self.forbid_direct_using {
+        if self.ctx.forbid_direct_using {
             return false;
         }
-        self.is_module || self.using_container_depth > 0
+        self.ctx.is_module || self.ctx.using_container_depth > 0
     }
 
     fn all_class_private_names(&self) -> Vec<String> {
-        self.class_private_stack.iter().flatten().cloned().collect()
+        self.ctx
+            .class_private_stack
+            .iter()
+            .flatten()
+            .cloned()
+            .collect()
     }
 
     /// `yield` as IdentifierReference / BindingIdentifier (non-strict, non-generator).
     fn yield_is_ident(&self) -> bool {
-        !self.in_generator && !self.in_strict
+        !self.ctx.in_generator && !self.ctx.in_strict
     }
 
     /// `await` as IdentifierReference / BindingIdentifier when [~Await] and not Module
     /// (E19.52). Modules always reserve `await` regardless of nesting (goal-symbol early error).
     fn await_is_ident(&self) -> bool {
-        !self.is_module && !self.in_await_context
+        !self.ctx.is_module && !self.ctx.in_await_context
     }
 
     /// True when `name` cannot be a BindingIdentifier / IdentifierReference here.
@@ -152,7 +135,7 @@ impl Parser {
             return true;
         }
         // Strict FutureReservedWord (E19.39).
-        if self.in_strict && is_strict_future_reserved_word(name) {
+        if self.ctx.in_strict && is_strict_future_reserved_word(name) {
             return true;
         }
         false
@@ -168,7 +151,7 @@ impl Parser {
         let start = self.current_span().start.0;
         let mut body = Vec::new();
         let mut directive_prologue = true;
-        self.prologue_had_legacy_escape = false;
+        self.ctx.prologue_had_legacy_escape = false;
         while !self.check(&TokenKind::Eof) {
             let upcoming_legacy_string =
                 self.current().legacy_octal && matches!(self.current().kind, TokenKind::String(_));
@@ -177,7 +160,7 @@ impl Parser {
                 match body.last() {
                     Some(stmt) if stmt_is_directive(stmt) => {
                         if upcoming_legacy_string {
-                            self.prologue_had_legacy_escape = true;
+                            self.ctx.prologue_had_legacy_escape = true;
                         }
                         if stmt_is_use_strict_directive(stmt) {
                             self.activate_strict_from_directive()?;
@@ -267,7 +250,7 @@ impl Parser {
     /// `await using` starts AwaitUsingDeclaration (no LineTerminator between tokens).
     fn await_using_starts_declaration(&self) -> bool {
         // Only when `await` is the keyword ([+Await]), not IdentifierReference.
-        if !self.in_await_context || !self.check(&TokenKind::Await) {
+        if !self.ctx.in_await_context || !self.check(&TokenKind::Await) {
             return false;
         }
         let Some(using_tok) = self.tokens.get(self.pos + 1) else {
@@ -492,7 +475,10 @@ impl Parser {
     /// Statement, or Annex B plain FunctionDeclaration in non-strict (if / label only).
     /// E19.67: Annex B does not allow `async function` / `function*` here.
     fn parse_stmt_or_annex_b_function(&mut self) -> Result<Stmt, Diagnostic> {
-        if !self.in_strict && self.check(&TokenKind::Function) && !self.peek_is(&TokenKind::Star) {
+        if !self.ctx.in_strict
+            && self.check(&TokenKind::Function)
+            && !self.peek_is(&TokenKind::Star)
+        {
             return self.parse_function_decl();
         }
         // Async / generator declarations are never valid Annex B statement forms.
@@ -529,43 +515,42 @@ impl Parser {
 
     fn parse_block_inner(&mut self, allow_directives: bool) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::LBrace)?.span.start.0;
-        let mut body = Vec::new();
-        let prev_strict = self.in_strict;
-        let prev_forbid_using = self.forbid_direct_using;
-        let prev_prologue_legacy = self.prologue_had_legacy_escape;
-        let mut directive_prologue = allow_directives;
-        if allow_directives {
-            self.prologue_had_legacy_escape = false;
-        }
-        self.using_container_depth += 1;
-        self.forbid_direct_using = false;
-        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
-            let upcoming_legacy_string =
-                self.current().legacy_octal && matches!(self.current().kind, TokenKind::String(_));
-            self.parse_stmt_list_item_into(&mut body)?;
-            if directive_prologue {
-                match body.last() {
-                    Some(stmt) if stmt_is_directive(stmt) => {
-                        if upcoming_legacy_string {
-                            self.prologue_had_legacy_escape = true;
-                        }
-                        if stmt_is_use_strict_directive(stmt) {
-                            self.activate_strict_from_directive()?;
+        self.with_ctx(
+            |c| {
+                if allow_directives {
+                    c.prologue_had_legacy_escape = false;
+                }
+                c.using_container_depth += 1;
+                c.forbid_direct_using = false;
+            },
+            |p| {
+                let mut body = Vec::new();
+                let mut directive_prologue = allow_directives;
+                while !p.check(&TokenKind::RBrace) && !p.check(&TokenKind::Eof) {
+                    let upcoming_legacy_string = p.current().legacy_octal
+                        && matches!(p.current().kind, TokenKind::String(_));
+                    p.parse_stmt_list_item_into(&mut body)?;
+                    if directive_prologue {
+                        match body.last() {
+                            Some(stmt) if stmt_is_directive(stmt) => {
+                                if upcoming_legacy_string {
+                                    p.ctx.prologue_had_legacy_escape = true;
+                                }
+                                if stmt_is_use_strict_directive(stmt) {
+                                    p.activate_strict_from_directive()?;
+                                }
+                            }
+                            _ => directive_prologue = false,
                         }
                     }
-                    _ => directive_prologue = false,
                 }
-            }
-        }
-        self.using_container_depth -= 1;
-        self.forbid_direct_using = prev_forbid_using;
-        let end = self.expect(&TokenKind::RBrace)?.span.end.0;
-        self.in_strict = prev_strict;
-        self.prologue_had_legacy_escape = prev_prologue_legacy;
-        Ok(Stmt::Block {
-            body,
-            span: Span::new(start, end),
-        })
+                let end = p.expect(&TokenKind::RBrace)?.span.end.0;
+                Ok(Stmt::Block {
+                    body,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     /// `using` / `await using` BindingList (ident only; required initializer).
@@ -741,7 +726,7 @@ impl Parser {
     fn parse_for(&mut self) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::For)?.span.start.0;
         // `for await (… of …)` — async iteration (E18.42); only when [+Await].
-        let is_await = if self.in_await_context && self.check(&TokenKind::Await) {
+        let is_await = if self.ctx.in_await_context && self.check(&TokenKind::Await) {
             self.bump();
             true
         } else {
@@ -821,11 +806,7 @@ impl Parser {
                 ));
             }
             self.bump();
-            let prev_allow_in = self.allow_in;
-            self.allow_in = false;
-            let init_expr = self.parse_assignment();
-            self.allow_in = prev_allow_in;
-            let init_expr = init_expr?;
+            let init_expr = self.with_ctx(|c| c.allow_in = false, Self::parse_assignment)?;
             if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
                 return Err(Diagnostic::new(
                     "for-of binding cannot have an initializer".to_string(),
@@ -921,11 +902,7 @@ impl Parser {
             };
             let init_expr = if self.check(&TokenKind::Eq) {
                 self.bump();
-                let prev_allow_in = self.allow_in;
-                self.allow_in = false;
-                let e = self.parse_assignment();
-                self.allow_in = prev_allow_in;
-                Some(e?)
+                Some(self.with_ctx(|c| c.allow_in = false, Self::parse_assignment)?)
             } else if matches!(
                 binding,
                 BindingPattern::Array { .. } | BindingPattern::Object { .. }
@@ -961,7 +938,7 @@ impl Parser {
                         binding.span(),
                     ));
                 }
-                if self.in_strict {
+                if self.ctx.in_strict {
                     return Err(Diagnostic::new(
                         "for-in binding cannot have an initializer in strict mode".to_string(),
                         binding.span(),
@@ -1024,11 +1001,7 @@ impl Parser {
 
         // Expression left: `for (lhs in/of right)` or classic `for (expr; …)`.
         // Disable relational `in` so `for (z in obj)` does not consume `in` here.
-        let prev_allow_in = self.allow_in;
-        self.allow_in = false;
-        let expr = self.parse_expr();
-        self.allow_in = prev_allow_in;
-        let expr = expr?;
+        let expr = self.with_ctx(|c| c.allow_in = false, Self::parse_expr)?;
         let mut left_span = expr_span(&expr);
         if self.check(&TokenKind::In) || self.check(&TokenKind::Of) {
             let is_in = self.check(&TokenKind::In);
@@ -1275,69 +1248,66 @@ impl Parser {
         };
         // Generator BindingIdentifier has [+Yield]: name cannot be `yield`.
         // FunctionDeclaration name inherits outer [Await]; params/body use function's [Await].
-        let prev_gen = self.in_generator;
-        self.in_generator = is_generator;
-        let name_tok = self.expect_ident()?;
-        let name = Ident {
-            name: name_tok.ident_name(),
-            span: name_tok.span,
-        };
-        // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
-        if self.in_strict && is_strict_forbidden_binding_name(&name.name) {
-            return Err(Diagnostic::new(
-                format!("binding `{}` is invalid in strict mode", name.name),
-                name.span,
-            ));
-        }
-        let type_params = self.parse_optional_type_params()?;
-        let prev_await = self.in_await_context;
-        self.in_await_context = is_async;
-        self.expect(&TokenKind::LParen)?;
-        let params = self.parse_param_list()?;
-        self.expect(&TokenKind::RParen)?;
-        // E19.58: FormalParameters of a generator must not contain YieldExpression.
-        if is_generator && params_contain_yield_expr(&params) {
-            self.in_await_context = prev_await;
-            self.in_generator = prev_gen;
-            return Err(Diagnostic::new(
-                "generator parameters cannot contain yield".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        // E19.67: FormalParameters of an async function must not contain AwaitExpression.
-        if is_async && params_contain_await_expr(&params) {
-            self.in_await_context = prev_await;
-            self.in_generator = prev_gen;
-            return Err(Diagnostic::new(
-                "async function parameters cannot contain await".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        let return_type = self.parse_optional_type_ann()?;
-        // E19.67: non-arrow functions introduce NewTarget.
-        self.new_target_depth += 1;
-        let body = Box::new(self.parse_function_body_block()?);
-        self.new_target_depth -= 1;
-        self.in_await_context = prev_await;
-        self.in_generator = prev_gen;
-        // Name is also invalid when FunctionBody ContainsUseStrict (even if outer is sloppy).
-        if is_strict_forbidden_binding_name(&name.name) && block_has_use_strict_directive(&body) {
-            return Err(Diagnostic::new(
-                format!("binding `{}` is invalid in strict mode", name.name),
-                name.span,
-            ));
-        }
-        let end = stmt_span(&body).end.0;
-        Ok(Stmt::FunctionDeclaration {
-            name,
-            type_params,
-            params,
-            return_type,
-            body,
-            is_async,
-            is_generator,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| c.in_generator = is_generator,
+            |p| {
+                let name_tok = p.expect_ident()?;
+                let name = Ident {
+                    name: name_tok.ident_name(),
+                    span: name_tok.span,
+                };
+                // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+                if p.ctx.in_strict && is_strict_forbidden_binding_name(&name.name) {
+                    return Err(Diagnostic::new(
+                        format!("binding `{}` is invalid in strict mode", name.name),
+                        name.span,
+                    ));
+                }
+                let type_params = p.parse_optional_type_params()?;
+                p.ctx.in_await_context = is_async;
+                p.expect(&TokenKind::LParen)?;
+                let params = p.parse_param_list()?;
+                p.expect(&TokenKind::RParen)?;
+                // E19.58: FormalParameters of a generator must not contain YieldExpression.
+                if is_generator && params_contain_yield_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "generator parameters cannot contain yield".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                // E19.67: FormalParameters of an async function must not contain AwaitExpression.
+                if is_async && params_contain_await_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "async function parameters cannot contain await".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                let return_type = p.parse_optional_type_ann()?;
+                // E19.67: non-arrow functions introduce NewTarget.
+                p.ctx.new_target_depth += 1;
+                let body = Box::new(p.parse_function_body_block()?);
+                // Name is also invalid when FunctionBody ContainsUseStrict (even if outer is sloppy).
+                if is_strict_forbidden_binding_name(&name.name)
+                    && block_has_use_strict_directive(&body)
+                {
+                    return Err(Diagnostic::new(
+                        format!("binding `{}` is invalid in strict mode", name.name),
+                        name.span,
+                    ));
+                }
+                let end = stmt_span(&body).end.0;
+                Ok(Stmt::FunctionDeclaration {
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                    is_generator,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     /// E19.78: parse and discard DecoratorList (`@dec …`). Syntax only for now.
@@ -1378,13 +1348,13 @@ impl Parser {
                 name,
                 span: start_tok.span,
             })
-        } else if self.check(&TokenKind::Yield) && !self.in_generator {
+        } else if self.check(&TokenKind::Yield) && !self.ctx.in_generator {
             let sp = self.bump().span;
             Expr::Ident(Ident {
                 name: "yield".into(),
                 span: sp,
             })
-        } else if self.check(&TokenKind::Await) && !self.in_await_context {
+        } else if self.check(&TokenKind::Await) && !self.ctx.in_await_context {
             let sp = self.bump().span;
             Expr::Ident(Ident {
                 name: "await".into(),
@@ -1441,73 +1411,75 @@ impl Parser {
     fn parse_class_decl_inner(&mut self, default_export: bool) -> Result<Stmt, Diagnostic> {
         let start = self.expect(&TokenKind::Class)?.span.start.0;
         // Entire class is strict mode code (incl. BindingIdentifier name).
-        let prev_strict = self.in_strict;
-        self.in_strict = true;
-        let name = if default_export
-            && (self.check(&TokenKind::Extends) || self.check(&TokenKind::LBrace))
-        {
-            // [+Default] class ClassTail — synthetic binding for ExportDefault local.
-            Ident {
-                name: "__class".into(),
-                span: Span::new(start, start),
-            }
-        } else {
-            let name_tok = self.expect_ident()?;
-            let name = Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
-            };
-            // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
-            if is_strict_forbidden_binding_name(&name.name) {
-                self.in_strict = prev_strict;
-                return Err(Diagnostic::new(
-                    format!("binding `{}` is invalid in strict mode", name.name),
-                    name.span,
-                ));
-            }
-            name
-        };
-        let (super_class, body, end) = self.parse_class_tail()?;
-        self.in_strict = prev_strict;
-        Ok(Stmt::ClassDeclaration {
-            name,
-            super_class,
-            body,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| c.in_strict = true,
+            |p| {
+                let name = if default_export
+                    && (p.check(&TokenKind::Extends) || p.check(&TokenKind::LBrace))
+                {
+                    // [+Default] class ClassTail — synthetic binding for ExportDefault local.
+                    Ident {
+                        name: "__class".into(),
+                        span: Span::new(start, start),
+                    }
+                } else {
+                    let name_tok = p.expect_ident()?;
+                    let name = Ident {
+                        name: name_tok.ident_name(),
+                        span: name_tok.span,
+                    };
+                    // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
+                    if is_strict_forbidden_binding_name(&name.name) {
+                        return Err(Diagnostic::new(
+                            format!("binding `{}` is invalid in strict mode", name.name),
+                            name.span,
+                        ));
+                    }
+                    name
+                };
+                let (super_class, body, end) = p.parse_class_tail()?;
+                Ok(Stmt::ClassDeclaration {
+                    name,
+                    super_class,
+                    body,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     /// `class Name? extends Super? { … }` in expression position (E18.33).
     fn parse_class_expression(&mut self) -> Result<Expr, Diagnostic> {
         let start = self.expect(&TokenKind::Class)?.span.start.0;
-        let prev_strict = self.in_strict;
-        self.in_strict = true;
-        let name = if self.check(&TokenKind::Extends) || self.check(&TokenKind::LBrace) {
-            None
-        } else {
-            let name_tok = self.expect_ident()?;
-            let id = Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
-            };
-            // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
-            if is_strict_forbidden_binding_name(&id.name) {
-                self.in_strict = prev_strict;
-                return Err(Diagnostic::new(
-                    format!("binding `{}` is invalid in strict mode", id.name),
-                    id.span,
-                ));
-            }
-            Some(id)
-        };
-        let (super_class, body, end) = self.parse_class_tail()?;
-        self.in_strict = prev_strict;
-        Ok(Expr::ClassExpression {
-            name,
-            super_class,
-            body,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| c.in_strict = true,
+            |p| {
+                let name = if p.check(&TokenKind::Extends) || p.check(&TokenKind::LBrace) {
+                    None
+                } else {
+                    let name_tok = p.expect_ident()?;
+                    let id = Ident {
+                        name: name_tok.ident_name(),
+                        span: name_tok.span,
+                    };
+                    // E19.49: class BindingIdentifier cannot be `eval`/`arguments`.
+                    if is_strict_forbidden_binding_name(&id.name) {
+                        return Err(Diagnostic::new(
+                            format!("binding `{}` is invalid in strict mode", id.name),
+                            id.span,
+                        ));
+                    }
+                    Some(id)
+                };
+                let (super_class, body, end) = p.parse_class_tail()?;
+                Ok(Expr::ClassExpression {
+                    name,
+                    super_class,
+                    body,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     /// `extends Super? { elements… }` shared by class declaration and expression.
@@ -1521,53 +1493,55 @@ impl Parser {
             None
         };
         self.expect(&TokenKind::LBrace)?;
-        // Class bodies are always strict (ECMA-262).
-        let prev_strict = self.in_strict;
-        self.in_strict = true;
-        // Nested classes inherit outer private names (E19.36). Push a frame so
-        // nested class validation sees names declared so far in this class.
-        self.class_private_stack.push(Vec::new());
-        let mut body = Vec::new();
-        while !self.check(&TokenKind::RBrace) && !self.check(&TokenKind::Eof) {
-            // Empty ClassElement: lone `;` (ECMA-262 ClassElement → `;`).
-            if self.check(&TokenKind::Semi) {
-                self.bump();
-                continue;
-            }
-            let el = self.parse_class_element()?;
-            // Register private names immediately so nested classes in later
-            // initializers can reference them.
-            if let Some(frame) = self.class_private_stack.last_mut() {
-                register_private_names_from_element(&el, frame);
-            }
-            let needs_field_semi = matches!(&el, ClassElement::Field { .. });
-            body.push(el);
-            // FieldDefinition requires `;` (explicit or ASI). Methods end at `}`.
-            if needs_field_semi {
-                if self.check(&TokenKind::Semi) {
-                    self.bump();
-                } else if self.check(&TokenKind::RBrace) || self.check(&TokenKind::Eof) {
-                    // ASI before `}` / EOF
-                } else if self.current().preceded_by_line_terminator {
-                    // ASI across LineTerminator
-                } else {
-                    self.class_private_stack.pop();
-                    return Err(Diagnostic::new(
-                        "expected ';' after class field".to_string(),
-                        self.current_span(),
-                    ));
+        let (body, end) = self.with_ctx(
+            |c| {
+                // Class bodies are always strict (ECMA-262).
+                c.in_strict = true;
+                // Nested classes inherit outer private names (E19.36). Push a frame so
+                // nested class validation sees names declared so far in this class.
+                c.class_private_stack.push(Vec::new());
+            },
+            |p| {
+                let mut body = Vec::new();
+                while !p.check(&TokenKind::RBrace) && !p.check(&TokenKind::Eof) {
+                    // Empty ClassElement: lone `;` (ECMA-262 ClassElement → `;`).
+                    if p.check(&TokenKind::Semi) {
+                        p.bump();
+                        continue;
+                    }
+                    let el = p.parse_class_element()?;
+                    // Register private names immediately so nested classes in later
+                    // initializers can reference them.
+                    if let Some(frame) = p.ctx.class_private_stack.last_mut() {
+                        register_private_names_from_element(&el, frame);
+                    }
+                    let needs_field_semi = matches!(&el, ClassElement::Field { .. });
+                    body.push(el);
+                    // FieldDefinition requires `;` (explicit or ASI). Methods end at `}`.
+                    if needs_field_semi {
+                        if p.check(&TokenKind::Semi) {
+                            p.bump();
+                        } else if p.check(&TokenKind::RBrace) || p.check(&TokenKind::Eof) {
+                            // ASI before `}` / EOF
+                        } else if p.current().preceded_by_line_terminator {
+                            // ASI across LineTerminator
+                        } else {
+                            return Err(Diagnostic::new(
+                                "expected ';' after class field".to_string(),
+                                p.current_span(),
+                            ));
+                        }
+                    } else if p.check(&TokenKind::Semi) {
+                        p.bump();
+                    }
                 }
-            } else if self.check(&TokenKind::Semi) {
-                self.bump();
-            }
-        }
-        let end = self.expect(&TokenKind::RBrace)?.span.end.0;
-        self.in_strict = prev_strict;
-        let has_heritage = super_class.is_some();
-        let inherited = self.all_class_private_names();
-        let result = validate_class_body(&body, has_heritage, &inherited);
-        self.class_private_stack.pop();
-        result?;
+                let end = p.expect(&TokenKind::RBrace)?.span.end.0;
+                let has_heritage = super_class.is_some();
+                let inherited = p.all_class_private_names();
+                validate_class_body(&body, has_heritage, &inherited)?;
+                Ok((body, end))
+            },
+        )?;
         Ok((super_class, body, end))
     }
 
@@ -1578,13 +1552,13 @@ impl Parser {
             return Ok(None);
         }
         self.bump();
-        let prev_await = self.in_await_context;
-        self.in_await_context = false;
-        self.super_property_depth += 1;
-        let value = self.parse_assignment()?;
-        self.super_property_depth -= 1;
-        self.in_await_context = prev_await;
-        Ok(Some(value))
+        self.with_ctx(
+            |c| {
+                c.in_await_context = false;
+                c.super_property_depth += 1;
+            },
+            |p| Ok(Some(p.parse_assignment()?)),
+        )
     }
 
     fn parse_class_element(&mut self) -> Result<ClassElement, Diagnostic> {
@@ -1609,15 +1583,15 @@ impl Parser {
         };
         // `static { … }` static initialization block (E18.41). Body is [+Await] (E19.52).
         if is_static && self.check(&TokenKind::LBrace) {
-            let prev_await = self.in_await_context;
-            self.in_await_context = true;
-            // E19.67: static blocks introduce NewTarget and allow SuperProperty.
-            self.new_target_depth += 1;
-            self.super_property_depth += 1;
-            let body = Box::new(self.parse_block()?);
-            self.super_property_depth -= 1;
-            self.new_target_depth -= 1;
-            self.in_await_context = prev_await;
+            let body = Box::new(self.with_ctx(
+                |c| {
+                    c.in_await_context = true;
+                    // E19.67: static blocks introduce NewTarget and allow SuperProperty.
+                    c.new_target_depth += 1;
+                    c.super_property_depth += 1;
+                },
+                Self::parse_block,
+            )?);
             let end = stmt_span(&body).end.0;
             return Ok(ClassElement::StaticBlock {
                 body,
@@ -1683,41 +1657,39 @@ impl Parser {
             let key_span = object_key_span(&key);
             self.expect(&TokenKind::LParen)?;
             // Accessors are ordinary methods: [~Await] params/body (E19.52).
-            let prev_await = self.in_await_context;
-            self.in_await_context = false;
-            let params = self.parse_param_list()?;
-            self.expect(&TokenKind::RParen)?;
-            if kind == AccessorKind::Get && !params.is_empty() {
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    "getter must have zero parameters".to_string(),
-                    key_span,
-                ));
-            }
-            if kind == AccessorKind::Set && params.len() != 1 {
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    "setter must have exactly one parameter".to_string(),
-                    key_span,
-                ));
-            }
-            // E19.67: accessors introduce NewTarget and allow SuperProperty.
-            self.new_target_depth += 1;
-            self.super_property_depth += 1;
-            let body = Box::new(self.parse_function_body_block()?);
-            self.super_property_depth -= 1;
-            self.new_target_depth -= 1;
-            self.in_await_context = prev_await;
-            let end = stmt_span(&body).end.0;
-            return Ok(ClassElement::Accessor {
-                kind,
-                key,
-                params,
-                body,
-                is_static,
-                is_private,
-                span: Span::new(start, end),
-            });
+            return self.with_ctx(
+                |c| c.in_await_context = false,
+                |p| {
+                    let params = p.parse_param_list()?;
+                    p.expect(&TokenKind::RParen)?;
+                    if kind == AccessorKind::Get && !params.is_empty() {
+                        return Err(Diagnostic::new(
+                            "getter must have zero parameters".to_string(),
+                            key_span,
+                        ));
+                    }
+                    if kind == AccessorKind::Set && params.len() != 1 {
+                        return Err(Diagnostic::new(
+                            "setter must have exactly one parameter".to_string(),
+                            key_span,
+                        ));
+                    }
+                    // E19.67: accessors introduce NewTarget and allow SuperProperty.
+                    p.ctx.new_target_depth += 1;
+                    p.ctx.super_property_depth += 1;
+                    let body = Box::new(p.parse_function_body_block()?);
+                    let end = stmt_span(&body).end.0;
+                    Ok(ClassElement::Accessor {
+                        kind,
+                        key,
+                        params,
+                        body,
+                        is_static,
+                        is_private,
+                        span: Span::new(start, end),
+                    })
+                },
+            );
         }
         // `async m()` / `async *m()` / `async #m()` / `async [e]()` — not method/field named `async`.
         // No LineTerminator between `async` and the method name (E19.39).
@@ -1749,46 +1721,42 @@ impl Parser {
             };
             if is_async || is_generator || self.check(&TokenKind::LParen) {
                 self.expect(&TokenKind::LParen)?;
-                let prev_gen = self.in_generator;
-                let prev_await = self.in_await_context;
-                self.in_generator = is_generator;
-                self.in_await_context = is_async;
-                let params = self.parse_param_list()?;
-                self.expect(&TokenKind::RParen)?;
-                if is_generator && params_contain_yield_expr(&params) {
-                    self.in_generator = prev_gen;
-                    self.in_await_context = prev_await;
-                    return Err(Diagnostic::new(
-                        "generator parameters cannot contain yield".to_string(),
-                        Span::new(start, self.current_span().end.0),
-                    ));
-                }
-                if is_async && params_contain_await_expr(&params) {
-                    self.in_generator = prev_gen;
-                    self.in_await_context = prev_await;
-                    return Err(Diagnostic::new(
-                        "async function parameters cannot contain await".to_string(),
-                        Span::new(start, self.current_span().end.0),
-                    ));
-                }
-                self.new_target_depth += 1;
-                self.super_property_depth += 1;
-                let body = Box::new(self.parse_function_body_block()?);
-                self.super_property_depth -= 1;
-                self.new_target_depth -= 1;
-                self.in_generator = prev_gen;
-                self.in_await_context = prev_await;
-                let end = stmt_span(&body).end.0;
-                return Ok(ClassElement::Method {
-                    key: ObjectKey::Ident(name),
-                    params,
-                    body,
-                    is_static,
-                    is_async,
-                    is_generator,
-                    is_private: true,
-                    span: Span::new(start, end),
-                });
+                return self.with_ctx(
+                    |c| {
+                        c.in_generator = is_generator;
+                        c.in_await_context = is_async;
+                    },
+                    |p| {
+                        let params = p.parse_param_list()?;
+                        p.expect(&TokenKind::RParen)?;
+                        if is_generator && params_contain_yield_expr(&params) {
+                            return Err(Diagnostic::new(
+                                "generator parameters cannot contain yield".to_string(),
+                                Span::new(start, p.current_span().end.0),
+                            ));
+                        }
+                        if is_async && params_contain_await_expr(&params) {
+                            return Err(Diagnostic::new(
+                                "async function parameters cannot contain await".to_string(),
+                                Span::new(start, p.current_span().end.0),
+                            ));
+                        }
+                        p.ctx.new_target_depth += 1;
+                        p.ctx.super_property_depth += 1;
+                        let body = Box::new(p.parse_function_body_block()?);
+                        let end = stmt_span(&body).end.0;
+                        Ok(ClassElement::Method {
+                            key: ObjectKey::Ident(name),
+                            params,
+                            body,
+                            is_static,
+                            is_async,
+                            is_generator,
+                            is_private: true,
+                            span: Span::new(start, end),
+                        })
+                    },
+                );
             }
             let value = self.parse_optional_class_field_init()?;
             let end = value
@@ -1829,68 +1797,64 @@ impl Parser {
             });
         }
         self.expect(&TokenKind::LParen)?;
-        let prev_gen = self.in_generator;
-        let prev_await = self.in_await_context;
-        self.in_generator = is_generator;
-        self.in_await_context = is_async;
-        let params = self.parse_param_list()?;
-        self.expect(&TokenKind::RParen)?;
-        // E19.39: generator FormalParameters cannot contain YieldExpression.
-        if is_generator && params_contain_yield_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "generator parameters cannot contain yield".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        // E19.67: async method FormalParameters cannot contain AwaitExpression.
-        if is_async && params_contain_await_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "async function parameters cannot contain await".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        self.new_target_depth += 1;
-        self.super_property_depth += 1;
-        let body = Box::new(self.parse_function_body_block()?);
-        self.super_property_depth -= 1;
-        self.new_target_depth -= 1;
-        self.in_generator = prev_gen;
-        self.in_await_context = prev_await;
-        let end = stmt_span(&body).end.0;
-        let span = Span::new(start, end);
-        // Only non-static literal IdentifierName `constructor` is the constructor.
-        // `static constructor` / `static *constructor` / `static async constructor` are ordinary methods (E19.53).
-        // computed/`"constructor"` are always methods.
-        if class_key_is_literal_constructor(&key) && !is_static {
-            if is_async {
-                return Err(Diagnostic::new(
-                    "class constructor cannot be async".to_string(),
-                    span,
-                ));
-            }
-            if is_generator {
-                return Err(Diagnostic::new(
-                    "class constructor cannot be a generator".to_string(),
-                    span,
-                ));
-            }
-            Ok(ClassElement::Constructor { params, body, span })
-        } else {
-            Ok(ClassElement::Method {
-                key,
-                params,
-                body,
-                is_static,
-                is_async,
-                is_generator,
-                is_private: false,
-                span,
-            })
-        }
+        self.with_ctx(
+            |c| {
+                c.in_generator = is_generator;
+                c.in_await_context = is_async;
+            },
+            |p| {
+                let params = p.parse_param_list()?;
+                p.expect(&TokenKind::RParen)?;
+                // E19.39: generator FormalParameters cannot contain YieldExpression.
+                if is_generator && params_contain_yield_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "generator parameters cannot contain yield".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                // E19.67: async method FormalParameters cannot contain AwaitExpression.
+                if is_async && params_contain_await_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "async function parameters cannot contain await".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                p.ctx.new_target_depth += 1;
+                p.ctx.super_property_depth += 1;
+                let body = Box::new(p.parse_function_body_block()?);
+                let end = stmt_span(&body).end.0;
+                let span = Span::new(start, end);
+                // Only non-static literal IdentifierName `constructor` is the constructor.
+                // `static constructor` / `static *constructor` / `static async constructor` are ordinary methods (E19.53).
+                // computed/`"constructor"` are always methods.
+                if class_key_is_literal_constructor(&key) && !is_static {
+                    if is_async {
+                        return Err(Diagnostic::new(
+                            "class constructor cannot be async".to_string(),
+                            span,
+                        ));
+                    }
+                    if is_generator {
+                        return Err(Diagnostic::new(
+                            "class constructor cannot be a generator".to_string(),
+                            span,
+                        ));
+                    }
+                    Ok(ClassElement::Constructor { params, body, span })
+                } else {
+                    Ok(ClassElement::Method {
+                        key,
+                        params,
+                        body,
+                        is_static,
+                        is_async,
+                        is_generator,
+                        is_private: false,
+                        span,
+                    })
+                }
+            },
+        )
     }
 
     /// `async? function *? name? (params) { body }` in expression position.
@@ -1910,76 +1874,73 @@ impl Parser {
         };
         // Generator BindingIdentifier has [+Yield]: optional name cannot be `yield`.
         // Non-async FunctionExpression name/params/body are [~Await]; async are [+Await] (E19.52).
-        let prev_gen = self.in_generator;
-        let prev_await = self.in_await_context;
-        self.in_generator = is_generator;
-        self.in_await_context = is_async;
-        let name = if self.at_binding_ident() {
-            let name_tok = self.expect_ident()?;
-            let id = Ident {
-                name: name_tok.ident_name(),
-                span: name_tok.span,
-            };
-            // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
-            if self.in_strict && is_strict_forbidden_binding_name(&id.name) {
-                self.in_generator = prev_gen;
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    format!("binding `{}` is invalid in strict mode", id.name),
-                    id.span,
-                ));
-            }
-            Some(id)
-        } else {
-            None
-        };
-        self.expect(&TokenKind::LParen)?;
-        let params = self.parse_param_list()?;
-        self.expect(&TokenKind::RParen)?;
-        // E19.58: FormalParameters of a generator must not contain YieldExpression.
-        if is_generator && params_contain_yield_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "generator parameters cannot contain yield".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        // E19.67: FormalParameters of an async function must not contain AwaitExpression.
-        if is_async && params_contain_await_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "async function parameters cannot contain await".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        let return_type = self.parse_optional_type_ann()?;
-        // E19.67: non-arrow functions introduce NewTarget.
-        self.new_target_depth += 1;
-        let body = Box::new(self.parse_function_body_block()?);
-        self.new_target_depth -= 1;
-        self.in_generator = prev_gen;
-        self.in_await_context = prev_await;
-        if let Some(ref id) = name {
-            if is_strict_forbidden_binding_name(&id.name) && block_has_use_strict_directive(&body) {
-                return Err(Diagnostic::new(
-                    format!("binding `{}` is invalid in strict mode", id.name),
-                    id.span,
-                ));
-            }
-        }
-        let end = stmt_span(&body).end.0;
-        Ok(Expr::FunctionExpression {
-            name,
-            params,
-            return_type,
-            body,
-            is_async,
-            is_generator,
-            is_method: false,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| {
+                c.in_generator = is_generator;
+                c.in_await_context = is_async;
+            },
+            |p| {
+                let name = if p.at_binding_ident() {
+                    let name_tok = p.expect_ident()?;
+                    let id = Ident {
+                        name: name_tok.ident_name(),
+                        span: name_tok.span,
+                    };
+                    // E19.49: strict BindingIdentifier cannot be `eval`/`arguments`.
+                    if p.ctx.in_strict && is_strict_forbidden_binding_name(&id.name) {
+                        return Err(Diagnostic::new(
+                            format!("binding `{}` is invalid in strict mode", id.name),
+                            id.span,
+                        ));
+                    }
+                    Some(id)
+                } else {
+                    None
+                };
+                p.expect(&TokenKind::LParen)?;
+                let params = p.parse_param_list()?;
+                p.expect(&TokenKind::RParen)?;
+                // E19.58: FormalParameters of a generator must not contain YieldExpression.
+                if is_generator && params_contain_yield_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "generator parameters cannot contain yield".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                // E19.67: FormalParameters of an async function must not contain AwaitExpression.
+                if is_async && params_contain_await_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "async function parameters cannot contain await".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                let return_type = p.parse_optional_type_ann()?;
+                // E19.67: non-arrow functions introduce NewTarget.
+                p.ctx.new_target_depth += 1;
+                let body = Box::new(p.parse_function_body_block()?);
+                if let Some(ref id) = name {
+                    if is_strict_forbidden_binding_name(&id.name)
+                        && block_has_use_strict_directive(&body)
+                    {
+                        return Err(Diagnostic::new(
+                            format!("binding `{}` is invalid in strict mode", id.name),
+                            id.span,
+                        ));
+                    }
+                }
+                let end = stmt_span(&body).end.0;
+                Ok(Expr::FunctionExpression {
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                    is_generator,
+                    is_method: false,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<Param>, Diagnostic> {
@@ -2401,7 +2362,7 @@ impl Parser {
 
     fn parse_with(&mut self) -> Result<Stmt, Diagnostic> {
         // E19.39: `with` is early SyntaxError in strict mode (incl. class extends / body).
-        if self.in_strict {
+        if self.ctx.in_strict {
             return Err(Diagnostic::new(
                 "'with' statements are not allowed in strict mode".to_string(),
                 self.current_span(),
@@ -2845,82 +2806,80 @@ impl Parser {
             } else {
                 false
             };
-            let prev_gen = self.in_generator;
-            let prev_await = self.in_await_context;
-            self.in_generator = is_generator;
-            // Default export function declaration name inherits outer [Await]; body uses is_async.
-            let (name, is_synthetic) = if self.at_binding_ident() {
-                let name_tok = self.expect_ident()?;
-                (
-                    Ident {
-                        name: name_tok.ident_name(),
-                        span: name_tok.span,
-                    },
-                    false,
-                )
-            } else {
-                (
-                    Ident {
-                        name: "__default".into(),
-                        span: Span::new(fn_start, fn_start),
-                    },
-                    true,
-                )
-            };
-            self.in_await_context = is_async;
-            self.expect(&TokenKind::LParen)?;
-            let params = self.parse_param_list()?;
-            self.expect(&TokenKind::RParen)?;
-            // E19.58: FormalParameters of a generator must not contain YieldExpression.
-            if is_generator && params_contain_yield_expr(&params) {
-                self.in_generator = prev_gen;
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    "generator parameters cannot contain yield".to_string(),
-                    Span::new(fn_start, self.current_span().end.0),
-                ));
-            }
-            let return_type = self.parse_optional_type_ann()?;
-            let body = Box::new(self.parse_function_body_block()?);
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            let end = stmt_span(&body).end.0;
-            let local = name.clone();
-            let declaration = if is_synthetic {
-                // Anonymous default function → `let __default = async? function *? (…) {…}`
-                Stmt::Let {
-                    kind: BindingKind::Let,
-                    binding: BindingPattern::Ident(local.clone()),
-                    type_ann: None,
-                    init: Some(Expr::FunctionExpression {
-                        name: None,
-                        params,
-                        return_type,
-                        body,
-                        is_async,
-                        is_generator,
-                        is_method: false,
-                        span: Span::new(fn_start, end),
-                    }),
-                    span: Span::new(fn_start, end),
-                }
-            } else {
-                Stmt::FunctionDeclaration {
-                    name,
-                    type_params: Vec::new(),
-                    params,
-                    return_type,
-                    body,
-                    is_async,
-                    is_generator,
-                    span: Span::new(fn_start, end),
-                }
-            };
-            return Ok(Stmt::ExportDefaultDeclaration {
-                declaration: Box::new(declaration),
-                local,
-                span: Span::new(start, end),
-            });
+            return self.with_ctx(
+                |c| c.in_generator = is_generator,
+                |p| {
+                    // Default export function declaration name inherits outer [Await]; body uses is_async.
+                    let (name, is_synthetic) = if p.at_binding_ident() {
+                        let name_tok = p.expect_ident()?;
+                        (
+                            Ident {
+                                name: name_tok.ident_name(),
+                                span: name_tok.span,
+                            },
+                            false,
+                        )
+                    } else {
+                        (
+                            Ident {
+                                name: "__default".into(),
+                                span: Span::new(fn_start, fn_start),
+                            },
+                            true,
+                        )
+                    };
+                    p.ctx.in_await_context = is_async;
+                    p.expect(&TokenKind::LParen)?;
+                    let params = p.parse_param_list()?;
+                    p.expect(&TokenKind::RParen)?;
+                    // E19.58: FormalParameters of a generator must not contain YieldExpression.
+                    if is_generator && params_contain_yield_expr(&params) {
+                        return Err(Diagnostic::new(
+                            "generator parameters cannot contain yield".to_string(),
+                            Span::new(fn_start, p.current_span().end.0),
+                        ));
+                    }
+                    let return_type = p.parse_optional_type_ann()?;
+                    let body = Box::new(p.parse_function_body_block()?);
+                    let end = stmt_span(&body).end.0;
+                    let local = name.clone();
+                    let declaration = if is_synthetic {
+                        // Anonymous default function → `let __default = async? function *? (…) {…}`
+                        Stmt::Let {
+                            kind: BindingKind::Let,
+                            binding: BindingPattern::Ident(local.clone()),
+                            type_ann: None,
+                            init: Some(Expr::FunctionExpression {
+                                name: None,
+                                params,
+                                return_type,
+                                body,
+                                is_async,
+                                is_generator,
+                                is_method: false,
+                                span: Span::new(fn_start, end),
+                            }),
+                            span: Span::new(fn_start, end),
+                        }
+                    } else {
+                        Stmt::FunctionDeclaration {
+                            name,
+                            type_params: Vec::new(),
+                            params,
+                            return_type,
+                            body,
+                            is_async,
+                            is_generator,
+                            span: Span::new(fn_start, end),
+                        }
+                    };
+                    Ok(Stmt::ExportDefaultDeclaration {
+                        declaration: Box::new(declaration),
+                        local,
+                        span: Span::new(start, end),
+                    })
+                },
+            );
         }
         // E19.78: `export default` DecoratorList_opt `class` …
         if self.check(&TokenKind::At) || self.check(&TokenKind::Class) {
@@ -3000,19 +2959,7 @@ impl Parser {
             let start = self.bump().span.start.0;
             let test = self.parse_expr()?;
             let colon_end = self.expect(&TokenKind::Colon)?.span.end.0;
-            let mut body = Vec::new();
-            let prev_forbid = self.forbid_direct_using;
-            self.forbid_direct_using = true;
-            while !self.check(&TokenKind::Case)
-                && !self.check(&TokenKind::Default)
-                && !self.check(&TokenKind::RBrace)
-                && !self.check(&TokenKind::Eof)
-            {
-                // Case clause body is StatementList (allows LexicalDeclaration / class).
-                // Direct `using` in the clause list is a SyntaxError (E19.44).
-                self.parse_stmt_list_item_into(&mut body)?;
-            }
-            self.forbid_direct_using = prev_forbid;
+            let body = self.parse_switch_case_body()?;
             let end = body.last().map(|s| stmt_span(s).end.0).unwrap_or(colon_end);
             Ok(SwitchCase {
                 test: Some(test),
@@ -3022,17 +2969,7 @@ impl Parser {
         } else if self.check(&TokenKind::Default) {
             let start = self.bump().span.start.0;
             let colon_end = self.expect(&TokenKind::Colon)?.span.end.0;
-            let mut body = Vec::new();
-            let prev_forbid = self.forbid_direct_using;
-            self.forbid_direct_using = true;
-            while !self.check(&TokenKind::Case)
-                && !self.check(&TokenKind::Default)
-                && !self.check(&TokenKind::RBrace)
-                && !self.check(&TokenKind::Eof)
-            {
-                self.parse_stmt_list_item_into(&mut body)?;
-            }
-            self.forbid_direct_using = prev_forbid;
+            let body = self.parse_switch_case_body()?;
             let end = body.last().map(|s| stmt_span(s).end.0).unwrap_or(colon_end);
             Ok(SwitchCase {
                 test: None,
@@ -3045,6 +2982,25 @@ impl Parser {
                 self.current().span,
             ))
         }
+    }
+
+    fn parse_switch_case_body(&mut self) -> Result<Vec<Stmt>, Diagnostic> {
+        self.with_ctx(
+            |c| c.forbid_direct_using = true,
+            |p| {
+                let mut body = Vec::new();
+                while !p.check(&TokenKind::Case)
+                    && !p.check(&TokenKind::Default)
+                    && !p.check(&TokenKind::RBrace)
+                    && !p.check(&TokenKind::Eof)
+                {
+                    // Case clause body is StatementList (allows LexicalDeclaration / class).
+                    // Direct `using` in the clause list is a SyntaxError (E19.44).
+                    p.parse_stmt_list_item_into(&mut body)?;
+                }
+                Ok(body)
+            },
+        )
     }
 
     /// One or more lexical declarators (`let a, b = 1;`), each as its own `Stmt::Let`.
@@ -3351,7 +3307,7 @@ impl Parser {
             return self.parse_arrow_function();
         }
         // YieldExpression only in generator bodies/params; else IdentifierReference (E19.37).
-        if self.check(&TokenKind::Yield) && self.in_generator {
+        if self.check(&TokenKind::Yield) && self.ctx.in_generator {
             return self.parse_yield();
         }
         let left = self.parse_conditional()?;
@@ -3530,60 +3486,63 @@ impl Parser {
         // Arrows inherit [Yield] from the surrounding context (not a new generator).
         // Params inherit outer [Await] for non-async; async params/body are [+Await].
         // Non-async ConciseBody is always [~Await] (E19.52).
-        let prev_await = self.in_await_context;
-        if is_async {
-            self.in_await_context = true;
-        }
-        let (params, return_type) = if self.at_binding_ident() {
-            let p = self.expect_ident()?;
-            (
-                vec![Param {
-                    binding: BindingPattern::Ident(Ident {
-                        name: p.ident_name(),
-                        span: p.span,
-                    }),
-                    type_ann: None,
-                    default: None,
-                    rest: false,
-                }],
-                None,
-            )
-        } else {
-            self.expect(&TokenKind::LParen)?;
-            let params = self.parse_param_list()?;
-            self.expect(&TokenKind::RParen)?;
-            let return_type = self.parse_optional_type_ann()?;
-            (params, return_type)
-        };
-        // E19.58: no LineTerminator between ArrowParameters and `=>`.
-        if self.current().preceded_by_line_terminator && self.check(&TokenKind::Arrow) {
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "line terminator not allowed before '=>'".to_string(),
-                self.current_span(),
-            ));
-        }
-        self.expect(&TokenKind::Arrow)?;
-        if !is_async {
-            self.in_await_context = false;
-        }
-        let body = if self.check(&TokenKind::LBrace) {
-            ArrowBody::Block(Box::new(self.parse_function_body_block()?))
-        } else {
-            ArrowBody::Expr(Box::new(self.parse_assignment()?))
-        };
-        self.in_await_context = prev_await;
-        let end = match &body {
-            ArrowBody::Block(s) => stmt_span(s).end.0,
-            ArrowBody::Expr(e) => expr_span(e).end.0,
-        };
-        Ok(Expr::ArrowFunction {
-            params,
-            return_type,
-            body,
-            is_async,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| {
+                if is_async {
+                    c.in_await_context = true;
+                }
+            },
+            |p| {
+                let (params, return_type) = if p.at_binding_ident() {
+                    let ident = p.expect_ident()?;
+                    (
+                        vec![Param {
+                            binding: BindingPattern::Ident(Ident {
+                                name: ident.ident_name(),
+                                span: ident.span,
+                            }),
+                            type_ann: None,
+                            default: None,
+                            rest: false,
+                        }],
+                        None,
+                    )
+                } else {
+                    p.expect(&TokenKind::LParen)?;
+                    let params = p.parse_param_list()?;
+                    p.expect(&TokenKind::RParen)?;
+                    let return_type = p.parse_optional_type_ann()?;
+                    (params, return_type)
+                };
+                // E19.58: no LineTerminator between ArrowParameters and `=>`.
+                if p.current().preceded_by_line_terminator && p.check(&TokenKind::Arrow) {
+                    return Err(Diagnostic::new(
+                        "line terminator not allowed before '=>'".to_string(),
+                        p.current_span(),
+                    ));
+                }
+                p.expect(&TokenKind::Arrow)?;
+                if !is_async {
+                    p.ctx.in_await_context = false;
+                }
+                let body = if p.check(&TokenKind::LBrace) {
+                    ArrowBody::Block(Box::new(p.parse_function_body_block()?))
+                } else {
+                    ArrowBody::Expr(Box::new(p.parse_assignment()?))
+                };
+                let end = match &body {
+                    ArrowBody::Block(s) => stmt_span(s).end.0,
+                    ArrowBody::Expr(e) => expr_span(e).end.0,
+                };
+                Ok(Expr::ArrowFunction {
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     fn peek_assign_op(&self) -> Option<AssignOp> {
@@ -3756,7 +3715,7 @@ impl Parser {
 
     fn parse_relational(&mut self) -> Result<Expr, Diagnostic> {
         // `#name in object` (E18.40) — PrivateIdentifier is only valid as LHS of `in`.
-        if self.allow_in {
+        if self.ctx.allow_in {
             if let TokenKind::PrivateIdent(pname) = &self.current().kind {
                 let name = pname.clone();
                 let name_span = self.bump().span;
@@ -3780,7 +3739,7 @@ impl Parser {
                 TokenKind::LtEq => BinaryOp::LtEq,
                 TokenKind::Gt => BinaryOp::Gt,
                 TokenKind::GtEq => BinaryOp::GtEq,
-                TokenKind::In if self.allow_in => BinaryOp::In,
+                TokenKind::In if self.ctx.allow_in => BinaryOp::In,
                 TokenKind::InstanceOf => BinaryOp::InstanceOf,
                 _ => break,
             };
@@ -3913,7 +3872,7 @@ impl Parser {
             TokenKind::Void => Some(UnaryOp::Void),
             TokenKind::Delete => Some(UnaryOp::Delete),
             // AwaitExpression only when [+Await]; else IdentifierReference (E19.52).
-            TokenKind::Await if self.in_await_context => Some(UnaryOp::Await),
+            TokenKind::Await if self.ctx.in_await_context => Some(UnaryOp::Await),
             // N03.03 native pointers: `&x` address-of, `*p` dereference.
             TokenKind::BitAnd => Some(UnaryOp::Ref),
             TokenKind::Star => Some(UnaryOp::Deref),
@@ -4193,7 +4152,7 @@ impl Parser {
                 prop_span,
             ));
         }
-        if !self.is_module {
+        if !self.ctx.is_module {
             return Err(Diagnostic::new(
                 "'import.meta' is only valid in modules".to_string(),
                 Span::new(start, prop_span.end.0),
@@ -4299,7 +4258,7 @@ impl Parser {
                 ));
             }
             // E19.67: NewTarget only in non-arrow function / method / static block code.
-            if self.new_target_depth == 0 {
+            if self.ctx.new_target_depth == 0 {
                 return Err(Diagnostic::new(
                     "'new.target' is only valid inside functions".to_string(),
                     Span::new(start, prop_span.end.0),
@@ -4461,39 +4420,37 @@ impl Parser {
             self.bump(); // consume get/set
             let key = self.parse_object_key()?;
             self.expect(&TokenKind::LParen)?;
-            let prev_await = self.in_await_context;
-            self.in_await_context = false;
-            let params = self.parse_param_list()?;
-            self.expect(&TokenKind::RParen)?;
-            if kind == AccessorKind::Get && !params.is_empty() {
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    "getter must have zero parameters".to_string(),
-                    self.current_span(),
-                ));
-            }
-            if kind == AccessorKind::Set && params.len() != 1 {
-                self.in_await_context = prev_await;
-                return Err(Diagnostic::new(
-                    "setter must have exactly one parameter".to_string(),
-                    self.current_span(),
-                ));
-            }
-            // E19.67: object accessors introduce NewTarget and allow SuperProperty.
-            self.new_target_depth += 1;
-            self.super_property_depth += 1;
-            let body = Box::new(self.parse_function_body_block()?);
-            self.super_property_depth -= 1;
-            self.new_target_depth -= 1;
-            self.in_await_context = prev_await;
-            let end = stmt_span(&body).end.0;
-            return Ok(ObjectProp::Accessor {
-                kind,
-                key,
-                params,
-                body,
-                span: Span::new(prop_start, end),
-            });
+            return self.with_ctx(
+                |c| c.in_await_context = false,
+                |p| {
+                    let params = p.parse_param_list()?;
+                    p.expect(&TokenKind::RParen)?;
+                    if kind == AccessorKind::Get && !params.is_empty() {
+                        return Err(Diagnostic::new(
+                            "getter must have zero parameters".to_string(),
+                            p.current_span(),
+                        ));
+                    }
+                    if kind == AccessorKind::Set && params.len() != 1 {
+                        return Err(Diagnostic::new(
+                            "setter must have exactly one parameter".to_string(),
+                            p.current_span(),
+                        ));
+                    }
+                    // E19.67: object accessors introduce NewTarget and allow SuperProperty.
+                    p.ctx.new_target_depth += 1;
+                    p.ctx.super_property_depth += 1;
+                    let body = Box::new(p.parse_function_body_block()?);
+                    let end = stmt_span(&body).end.0;
+                    Ok(ObjectProp::Accessor {
+                        kind,
+                        key,
+                        params,
+                        body,
+                        span: Span::new(prop_start, end),
+                    })
+                },
+            );
         }
         // `async m()` / `async *m()` — not property/method named `async`.
         // No LineTerminator between `async` and the method name (E19.39).
@@ -4524,11 +4481,7 @@ impl Parser {
                     key_tok.span.start.0
                 };
                 self.bump();
-                let prev_allow_in = self.allow_in;
-                self.allow_in = true;
-                let key_expr = self.parse_assignment();
-                self.allow_in = prev_allow_in;
-                let key_expr = key_expr?;
+                let key_expr = self.with_ctx(|c| c.allow_in = true, Self::parse_assignment)?;
                 self.expect(&TokenKind::RBracket)?;
                 let key = ObjectKey::Computed(Box::new(key_expr));
                 if self.check(&TokenKind::LParen) {
@@ -4753,50 +4706,46 @@ impl Parser {
         is_generator: bool,
     ) -> Result<Expr, Diagnostic> {
         self.expect(&TokenKind::LParen)?;
-        let prev_gen = self.in_generator;
-        let prev_await = self.in_await_context;
-        self.in_generator = is_generator;
-        self.in_await_context = is_async;
-        let params = self.parse_param_list()?;
-        self.expect(&TokenKind::RParen)?;
-        // E19.39: FormalParameters of a generator must not contain YieldExpression.
-        if is_generator && params_contain_yield_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "generator parameters cannot contain yield".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        // E19.67: async method FormalParameters cannot contain AwaitExpression.
-        if is_async && params_contain_await_expr(&params) {
-            self.in_generator = prev_gen;
-            self.in_await_context = prev_await;
-            return Err(Diagnostic::new(
-                "async function parameters cannot contain await".to_string(),
-                Span::new(start, self.current_span().end.0),
-            ));
-        }
-        let return_type = self.parse_optional_type_ann()?;
-        // E19.67: methods introduce NewTarget and allow SuperProperty.
-        self.new_target_depth += 1;
-        self.super_property_depth += 1;
-        let body = Box::new(self.parse_function_body_block()?);
-        self.super_property_depth -= 1;
-        self.new_target_depth -= 1;
-        self.in_generator = prev_gen;
-        self.in_await_context = prev_await;
-        let end = stmt_span(&body).end.0;
-        Ok(Expr::FunctionExpression {
-            name: None,
-            params,
-            return_type,
-            body,
-            is_async,
-            is_generator,
-            is_method: true,
-            span: Span::new(start, end),
-        })
+        self.with_ctx(
+            |c| {
+                c.in_generator = is_generator;
+                c.in_await_context = is_async;
+            },
+            |p| {
+                let params = p.parse_param_list()?;
+                p.expect(&TokenKind::RParen)?;
+                // E19.39: FormalParameters of a generator must not contain YieldExpression.
+                if is_generator && params_contain_yield_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "generator parameters cannot contain yield".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                // E19.67: async method FormalParameters cannot contain AwaitExpression.
+                if is_async && params_contain_await_expr(&params) {
+                    return Err(Diagnostic::new(
+                        "async function parameters cannot contain await".to_string(),
+                        Span::new(start, p.current_span().end.0),
+                    ));
+                }
+                let return_type = p.parse_optional_type_ann()?;
+                // E19.67: methods introduce NewTarget and allow SuperProperty.
+                p.ctx.new_target_depth += 1;
+                p.ctx.super_property_depth += 1;
+                let body = Box::new(p.parse_function_body_block()?);
+                let end = stmt_span(&body).end.0;
+                Ok(Expr::FunctionExpression {
+                    name: None,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                    is_generator,
+                    is_method: true,
+                    span: Span::new(start, end),
+                })
+            },
+        )
     }
 
     /// True when the next token can start a method name after `async` (`m`, keywords, `"m"`, `0`, `[`, `*`).
@@ -4892,11 +4841,7 @@ impl Parser {
                 self.bump();
                 // ComputedPropertyName AssignmentExpression always allows `in`
                 // (even when the surrounding cover is for-in `allow_in = false`) (E19.78).
-                let prev_allow_in = self.allow_in;
-                self.allow_in = true;
-                let expr = self.parse_assignment();
-                self.allow_in = prev_allow_in;
-                let expr = expr?;
+                let expr = self.with_ctx(|c| c.allow_in = true, Self::parse_assignment)?;
                 self.expect(&TokenKind::RBracket)?;
                 Ok(ObjectKey::Computed(Box::new(expr)))
             }
@@ -4968,7 +4913,7 @@ impl Parser {
             }
             TokenKind::Super => {
                 // E19.67: SuperProperty / SuperCall only in method/constructor/static-block code.
-                if self.super_property_depth == 0 {
+                if self.ctx.super_property_depth == 0 {
                     return Err(Diagnostic::new(
                         "'super' is only valid inside methods".to_string(),
                         tok.span,
@@ -5001,7 +4946,7 @@ impl Parser {
                 tok.span,
             )),
             // Non-strict IdentifierReference `let` (E19.41 statement-position ASI / bare `let`).
-            TokenKind::Let if !self.in_strict => {
+            TokenKind::Let if !self.ctx.in_strict => {
                 self.bump();
                 Ok(Expr::Ident(Ident {
                     name: "let".into(),
@@ -5013,7 +4958,7 @@ impl Parser {
                 tok.span,
             )),
             // E17.02.08: non-strict IdentifierReference `static` (strict FutureReservedWord).
-            TokenKind::Static if !self.in_strict => {
+            TokenKind::Static if !self.ctx.in_strict => {
                 self.bump();
                 Ok(Expr::Ident(Ident {
                     name: "static".into(),
@@ -5242,7 +5187,7 @@ impl Parser {
             TokenKind::Await if self.await_is_ident() => true,
             TokenKind::As | TokenKind::From => true,
             // E17.02.08: strict FutureReservedWord tokens as BindingIdentifier in non-strict.
-            TokenKind::Let | TokenKind::Static if !self.in_strict => true,
+            TokenKind::Let | TokenKind::Static if !self.ctx.in_strict => true,
             _ => false,
         }
     }
@@ -5267,7 +5212,7 @@ impl Parser {
                 tok.span,
             )),
             // E17.02.08: `let` / `static` BindingIdentifier in non-strict only.
-            TokenKind::Let if !self.in_strict => {
+            TokenKind::Let if !self.ctx.in_strict => {
                 self.bump();
                 Ok(tok)
             }
@@ -5275,7 +5220,7 @@ impl Parser {
                 "'let' is a reserved word and cannot be used as an identifier".to_string(),
                 tok.span,
             )),
-            TokenKind::Static if !self.in_strict => {
+            TokenKind::Static if !self.ctx.in_strict => {
                 self.bump();
                 Ok(tok)
             }
@@ -5357,11 +5302,7 @@ impl Parser {
             }
             TokenKind::LBracket => {
                 self.bump();
-                let prev_allow_in = self.allow_in;
-                self.allow_in = true;
-                let expr = self.parse_assignment();
-                self.allow_in = prev_allow_in;
-                let expr = expr?;
+                let expr = self.with_ctx(|c| c.allow_in = true, Self::parse_assignment)?;
                 self.expect(&TokenKind::RBracket)?;
                 Ok((ObjectKey::Computed(Box::new(expr)), false))
             }

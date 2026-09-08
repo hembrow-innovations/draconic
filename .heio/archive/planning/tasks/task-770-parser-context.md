@@ -2,16 +2,15 @@
 id: "task-770-parser-context"
 title: "Parser one context value"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-706-parser-file-budget"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T20:50:00Z"
 ---
-
 # Parser one context value
 
 ## Blocked by
@@ -60,10 +59,17 @@ One context push/pop. Same parse diagnostics and trees.
 - size-file-budget: lib.rs must not grow; a private context.rs ≤1000 is allowed
 
 **Acceptance criteria:**
-- [ ] one context value owns the grammar flags
-- [ ] cargo test -p draconic-parser
-- [ ] parse / parse_module signatures unchanged
-- [ ] lib.rs line count ≤ 10483
+- [x] one context value owns the grammar flags
+- [x] cargo test -p draconic-parser
+- [x] parse / parse_module signatures unchanged
+- [x] lib.rs line count ≤ 10483
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-parser --offline; rg "let prev_" in parser src; lib.rs line count
+- **win/lose**: win
+- **gap**: none
 
 **Out of scope:**
 - Extracting parse_stmt.rs (task-718)
