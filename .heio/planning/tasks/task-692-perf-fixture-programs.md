@@ -9,7 +9,7 @@ sprint: "opt-in-bench"
 slice: "slice-691-opt-in-cli-timings"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-08T18:55:55Z"
+updated_at: "2026-09-09T00:00:00Z"
 ---
 
 # Add tests/perf compile-heavy and run-heavy programs
@@ -82,3 +82,12 @@ Two committed `.drac` files as specified in Context. Both print `perf-ok`. Both 
 
 **Explain this part:**
 Hyperfine will time build versus execute separately. These files must actually run so a slow or failing program is not mistaken for a compiler number.
+
+## Blocked
+
+O1 cannot hold with fixtures-only scope.
+
+- **JS**: `let console = globalThis.console; console.log("perf-ok");` builds and prints (verified).
+- **Native**: the same print (and `examples/shebang/hello.drac`) fails with unsupported IR. LLVM adapters are disjoint subsets. `console.log` is not in any of them. Native programs print observed `let` slots instead.
+- **Dual stdout that actually writes**: `stdoutWrite("perf-ok\n")` works on both, but the host stdio adapter rejects function decls and `for` loops, so it cannot host compile-heavy or run-heavy.
+- **Unblock**: LLVM lowering for `globalThis.console.log` (or one adapter that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope.
