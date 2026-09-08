@@ -425,6 +425,25 @@ impl Parser {
     }
 }
 
+/// True when `expr` is (or chains through) an optional chain (`?.`).
+pub(crate) fn expr_is_optional_chain(expr: &Expr) -> bool {
+    match expr {
+        Expr::MemberExpression { optional: true, .. } | Expr::Call { optional: true, .. } => true,
+        Expr::MemberExpression {
+            optional: false,
+            object,
+            ..
+        } => expr_is_optional_chain(object),
+        Expr::Call {
+            optional: false,
+            callee,
+            ..
+        } => expr_is_optional_chain(callee),
+        Expr::Paren { expr: inner, .. } => expr_is_optional_chain(inner),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;

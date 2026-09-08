@@ -377,6 +377,27 @@ impl Parser {
     }
 }
 
+/// True when `expr` is an unparenthesized UnaryExpression with a unary operator
+/// (not UpdateExpression). Invalid as the left operand of `**` (E19.58).
+pub(crate) fn expr_is_unparenthesized_unary_op(expr: &Expr) -> bool {
+    matches!(
+        expr,
+        Expr::Unary {
+            op: UnaryOp::Plus
+                | UnaryOp::Minus
+                | UnaryOp::Not
+                | UnaryOp::BitNot
+                | UnaryOp::TypeOf
+                | UnaryOp::Void
+                | UnaryOp::Delete
+                | UnaryOp::Await
+                | UnaryOp::Ref
+                | UnaryOp::Deref,
+            ..
+        }
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;

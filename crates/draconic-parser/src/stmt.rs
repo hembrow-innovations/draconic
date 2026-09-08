@@ -640,6 +640,27 @@ impl Parser {
     }
 }
 
+/// Bare FunctionDeclaration or `label: … function` (IsLabelledFunction). E19.49.
+fn stmt_is_function_or_labelled_function(stmt: &Stmt) -> bool {
+    let mut s = stmt;
+    loop {
+        match s {
+            Stmt::FunctionDeclaration { .. } => return true,
+            Stmt::Labeled { body, .. } => s = body,
+            _ => return false,
+        }
+    }
+}
+
+/// ECMA-262 IsLabelledFunction: LabelledStatement whose innermost item is FunctionDeclaration.
+/// E19.67: IterationStatement / IfStatement early error.
+fn stmt_is_labelled_function(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Labeled { body, .. } => stmt_is_function_or_labelled_function(body),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;

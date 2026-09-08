@@ -2,16 +2,15 @@
 id: "task-721-parser-finish-budget"
 title: "Finish parser until every file ≤1000"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-720-parser-extract-module"]
+blocked_by: [ "task-720-parser-extract-module" ]
 sprint: "rust-dev-audit"
 slice: "slice-706-parser-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-10T00:20:00Z"
 ---
-
 # Finish parser until every file ≤1000
 
 ## Blocked by
@@ -60,9 +59,9 @@ max-loc-ok on the crate.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O1 max-loc-ok
-- [ ] cargo test -p draconic-parser
-- [ ] parse and parse_module still public in lib.rs
+- [x] Slice O1 max-loc-ok
+- [x] cargo test -p draconic-parser
+- [x] parse and parse_module still public in lib.rs
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +71,10 @@ max-loc-ok on the crate.
 
 **Explain this part:**
 Helpers that are only used by one seam belong with that seam, not a junk drawer over 1000.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python line-count oracle on crates/draconic-parser; cargo test -p draconic-parser --offline
+- **win/lose**: win
+- **gap**: none

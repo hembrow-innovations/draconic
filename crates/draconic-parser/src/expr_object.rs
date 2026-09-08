@@ -489,6 +489,42 @@ impl Parser {
     }
 }
 
+pub(crate) fn object_prop_is_proto_data(prop: &ObjectProp) -> bool {
+    match prop {
+        ObjectProp::Property {
+            key,
+            shorthand: false,
+            value,
+            ..
+        } => {
+            // Only `PropertyName : AssignmentExpression` form — not methods/shorthand.
+            if matches!(
+                value,
+                Expr::FunctionExpression {
+                    is_method: true,
+                    ..
+                }
+            ) {
+                return false;
+            }
+            match key {
+                ObjectKey::Ident(id) => id.name == "__proto__",
+                ObjectKey::String(s) => s.value.to_string_lossy() == "__proto__",
+                ObjectKey::Computed(_) => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn object_prop_span(prop: &ObjectProp) -> Span {
+    match prop {
+        ObjectProp::Property { span, .. }
+        | ObjectProp::Spread { span, .. }
+        | ObjectProp::Accessor { span, .. } => *span,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
