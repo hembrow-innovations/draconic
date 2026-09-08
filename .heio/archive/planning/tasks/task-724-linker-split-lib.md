@@ -2,14 +2,14 @@
 id: "task-724-linker-split-lib"
 title: "Split linker lib.rs by load/export/json seams"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-708-linker-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:30:00Z"
 ---
 
 # Split linker lib.rs by load/export/json seams
@@ -60,9 +60,9 @@ Feature files ≤1000, thin lib.rs re-exports.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O1 max-loc-ok
-- [ ] cargo test -p draconic-linker
-- [ ] link_entry still public
+- [x] Slice O1 max-loc-ok
+- [x] cargo test -p draconic-linker
+- [x] link_entry still public
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows

@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-724-linker-split-lib** — split linker lib.rs by load/export/json/dynamic/rename seams under file budget
 - **task-723-ast-split-print** — split ast print.rs into stmt/expr/type printer modules under file budget
 - **task-722-ast-split-lib** — split ast lib.rs types and dump into stmt/expr/type_ann/dump modules
 - **task-721-parser-finish-budget** — split remaining parser lib.rs so every crates/draconic-parser .rs file is ≤1000
