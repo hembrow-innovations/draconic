@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-717-lexer-regexp-diagnostic** — regexp validators return Diagnostic instead of String
 - **task-716-lexer-split-lib** — split draconic-lexer lib.rs by feature seam under the 1000-line budget
 - **housekeeping** — archived 6 met platform slices; closed website-odm-match sprint (17 met slices) and 16 tickets; 14 tickets remain; platform sprint stays active
 - **task-678-fence-horizontal-overflow** — website docs fence pre chrome contains horizontal overflow at small viewport

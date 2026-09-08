@@ -1,31 +1,39 @@
 //! RegExp literal early-error checks (ECMA-262 PrimaryExpression : RegularExpressionLiteral).
 
+use draconic_diagnostics::{Diagnostic, Span};
+
 /// Validate pattern + flags for a RegExp literal. Errors are early SyntaxErrors.
-pub fn validate_regexp_literal(pattern: &str, flags: &str) -> Result<(), String> {
+pub fn validate_regexp_literal(pattern: &str, flags: &str) -> Result<(), Diagnostic> {
     validate_regexp_flags(flags)?;
     validate_regexp_pattern(pattern, flags)?;
     Ok(())
 }
 
 /// FlagText: only `d g i m s u v y`, each at most once; `u` and `v` exclusive.
-pub fn validate_regexp_flags(flags: &str) -> Result<(), String> {
+pub fn validate_regexp_flags(flags: &str) -> Result<(), Diagnostic> {
     let mut seen = [false; 128];
     let mut has_u = false;
     let mut has_v = false;
     for c in flags.chars() {
         if !c.is_ascii() || (c as u32) >= 128 {
-            return Err(format!(
-                "invalid regular expression flag '{}'",
-                c.escape_default()
+            return Err(Diagnostic::new(
+                format!("invalid regular expression flag '{}'", c.escape_default()),
+                Span::dummy(),
             ));
         }
         let idx = c as usize;
         let ok = matches!(c, 'd' | 'g' | 'i' | 'm' | 's' | 'u' | 'v' | 'y');
         if !ok {
-            return Err(format!("invalid regular expression flag '{c}'"));
+            return Err(Diagnostic::new(
+                format!("invalid regular expression flag '{c}'"),
+                Span::dummy(),
+            ));
         }
         if seen[idx] {
-            return Err(format!("duplicate regular expression flag '{c}'"));
+            return Err(Diagnostic::new(
+                format!("duplicate regular expression flag '{c}'"),
+                Span::dummy(),
+            ));
         }
         seen[idx] = true;
         if c == 'u' {
@@ -36,13 +44,16 @@ pub fn validate_regexp_flags(flags: &str) -> Result<(), String> {
         }
     }
     if has_u && has_v {
-        return Err("invalid regular expression flags: 'u' and 'v' are mutually exclusive".into());
+        return Err(Diagnostic::new(
+            "invalid regular expression flags: 'u' and 'v' are mutually exclusive",
+            Span::dummy(),
+        ));
     }
     Ok(())
 }
 
 /// BodyText must be a valid Pattern (with flag-dependent grammar, e.g. unicode mode).
-fn validate_regexp_pattern(pattern: &str, flags: &str) -> Result<(), String> {
+fn validate_regexp_pattern(pattern: &str, flags: &str) -> Result<(), Diagnostic> {
     reject_incomplete_unicode_escape_in_uv(pattern, flags)?;
     // Only flags that affect Pattern parse/semantics matter for early errors.
     let mut pattern_flags = String::new();
@@ -56,7 +67,10 @@ fn validate_regexp_pattern(pattern: &str, flags: &str) -> Result<(), String> {
     let normalized = rewrite_script_unknown_for_validate(pattern);
     match regress::Regex::with_flags(normalized.as_str(), pattern_flags.as_str()) {
         Ok(_) => Ok(()),
-        Err(e) => Err(format!("invalid regular expression pattern: {e}")),
+        Err(e) => Err(Diagnostic::new(
+            format!("invalid regular expression pattern: {e}"),
+            Span::dummy(),
+        )),
     }
 }
 
@@ -91,7 +105,7 @@ fn rewrite_script_unknown_for_validate(pattern: &str) -> String {
     out
 }
 
-fn reject_incomplete_unicode_escape_in_uv(pattern: &str, flags: &str) -> Result<(), String> {
+fn reject_incomplete_unicode_escape_in_uv(pattern: &str, flags: &str) -> Result<(), Diagnostic> {
     if !flags.chars().any(|c| c == 'u' || c == 'v') {
         return Ok(());
     }
@@ -114,8 +128,13 @@ fn reject_incomplete_unicode_escape_in_uv(pattern: &str, flags: &str) -> Result<
     Ok(())
 }
 
-fn consume_uv_unicode_escape(chars: &[char], start: usize) -> Result<usize, String> {
-    let err = || "invalid regular expression pattern: Invalid unicode escape".to_string();
+fn consume_uv_unicode_escape(chars: &[char], start: usize) -> Result<usize, Diagnostic> {
+    let err = || {
+        Diagnostic::new(
+            "invalid regular expression pattern: Invalid unicode escape",
+            Span::dummy(),
+        )
+    };
     if start < chars.len() && chars[start] == '{' {
         let mut j = start + 1;
         let hex_start = j;
@@ -127,7 +146,11 @@ fn consume_uv_unicode_escape(chars: &[char], start: usize) -> Result<usize, Stri
         }
         return Ok(j + 1);
     }
-    if start + 4 <= chars.len() && chars[start..start + 4].iter().all(|c| c.is_ascii_hexdigit()) {
+    if start + 4 <= chars.len()
+        && chars[start..start + 4]
+            .iter()
+            .all(|c| c.is_ascii_hexdigit())
+    {
         return Ok(start + 4);
     }
     Err(err())

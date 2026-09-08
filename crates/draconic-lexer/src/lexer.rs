@@ -465,8 +465,9 @@ impl<'a> Lexer<'a> {
             ));
         }
         let flags = self.src[flags_start..self.pos].to_string();
-        if let Err(msg) = crate::regexp::validate_regexp_literal(&pattern, &flags) {
-            return Err(Diagnostic::new(msg, Span::new(start, self.pos as u32)));
+        if let Err(mut err) = crate::regexp::validate_regexp_literal(&pattern, &flags) {
+            err.span = Span::new(start, self.pos as u32);
+            return Err(err);
         }
         self.at_line_start = false;
         Ok(self.finish_token(

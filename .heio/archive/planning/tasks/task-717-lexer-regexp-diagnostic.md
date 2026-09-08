@@ -2,14 +2,14 @@
 id: "task-717-lexer-regexp-diagnostic"
 title: "Regexp validators return Diagnostic"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-716-lexer-split-lib"]
 sprint: "rust-dev-audit"
 slice: "slice-705-lexer-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:45:00Z"
 ---
 
 # Regexp validators return Diagnostic
@@ -60,9 +60,9 @@ Result<(), Diagnostic>. No anyhow.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Both fns return Result<(), Diagnostic>
-- [ ] No Result<(), String> on those fns
-- [ ] cargo test -p draconic-lexer
+- [x] Both fns return Result<(), Diagnostic>
+- [x] No Result<(), String> on those fns
+- [x] cargo test -p draconic-lexer
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +73,7 @@ Result<(), Diagnostic>. No anyhow.
 
 **Explain this part:**
 Keep the re-export. Do not change regexp syntax rules.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-lexer --offline` and `rg` signatures. win. Both fns return `Result<(), Diagnostic>`; 58 tests ok.
