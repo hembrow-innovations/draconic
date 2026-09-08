@@ -2,14 +2,13 @@
 id: "slice-710-ir-file-budget"
 title: "IR split and dump_module visibility"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T16:30:00Z"
 ---
-
 # IR split and dump_module visibility
 
 ## Why
@@ -32,18 +31,18 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: ir rust files ≤1000 lines
+- [x] O1: ir rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-ir"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: ir tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: ir tests green
   CHECK: cargo test -p draconic-ir --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: dump_module is pub(crate)
+  EVIDENCE: test result: ok. 26 passed
+- [x] O3: dump_module is pub(crate)
   CHECK: rg -n "fn dump_module" crates/draconic-ir/src
   EXPECT: pub(crate) fn dump_module
-  EVIDENCE: pending
+  EVIDENCE: crates/draconic-ir/src/dump.rs:7:pub(crate) fn dump_module
 
 ## Pool
 
