@@ -2,14 +2,14 @@
 id: "task-735-pkg-split-lib"
 title: "Split pkg lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-713-pkg-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:00:00Z"
 ---
 
 # Split pkg lib.rs
@@ -60,9 +60,9 @@ lib.rs ≤1000, no new file over 1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] lib.rs ≤1000
-- [ ] cargo test -p draconic-pkg
-- [ ] Error enums still hand-written
+- [x] lib.rs ≤1000
+- [x] cargo test -p draconic-pkg
+- [x] Error enums still hand-written
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +73,10 @@ lib.rs ≤1000, no new file over 1000.
 
 **Explain this part:**
 Do not add serde. toml::Value hand-walk stays.
+
+## Gauntlet
+
+- **round:** 1
+- **command:** cargo test -p draconic-pkg --offline
+- **result:** win
+- **gap:** none. 313 passed. lib.rs 196. New seams manifest.rs, parse.rs, validate.rs, write.rs all under 1000.
