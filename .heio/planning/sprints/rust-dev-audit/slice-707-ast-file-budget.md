@@ -2,12 +2,12 @@
 id: "slice-707-ast-file-budget"
 title: "AST types and printer file budget"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:10:00Z"
 ---
 
 # AST types and printer file budget
@@ -33,14 +33,14 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: ast rust files ≤1000 lines
+- [x] O1: ast rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-ast"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: ast tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: ast tests green
   CHECK: cargo test -p draconic-ast --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 3 passed; 0 failed
 
 ## Pool
 
