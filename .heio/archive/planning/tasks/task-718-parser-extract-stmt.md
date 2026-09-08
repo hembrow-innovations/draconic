@@ -2,14 +2,14 @@
 id: "task-718-parser-extract-stmt"
 title: "Extract parser statement seam"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-770-parser-context"]
 sprint: "rust-dev-audit"
 slice: "slice-706-parser-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:40:00Z"
 ---
 
 # Extract parser statement seam
@@ -60,10 +60,10 @@ stmt*.rs files ≤1000 with same-file tests. No new file over 1250.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] At least one new stmt*.rs
-- [ ] Each new file ≤1000 lines
-- [ ] lib.rs shorter than 10483
-- [ ] cargo test -p draconic-parser
+- [x] At least one new stmt*.rs
+- [x] Each new file ≤1000 lines
+- [x] lib.rs shorter than 10483
+- [x] cargo test -p draconic-parser
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +73,12 @@ stmt*.rs files ≤1000 with same-file tests. No new file over 1250.
 
 **Explain this part:**
 Sibling files are `impl Parser` in extra files, not a new public parse interface. If statement parsing itself exceeds 1000, split for/class/function in the same sitting.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-parser --offline; python line counts on crates/draconic-parser/**/*.rs
+- **win/lose**: win
+- **gap**: none
+
+Parser, ctx, and with_ctx are pub(crate). parse_class_expression moved with the class seam (stmt_class.rs). Function expressions, types, import/export, and expr parsing stay in lib.rs for task-719/720.

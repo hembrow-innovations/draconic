@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-718-parser-extract-stmt** — extract parser statement parsing into stmt*.rs sibling modules
 - **task-770-parser-context** — fold parser grammar flags into one pushed context
 - **task-717-lexer-regexp-diagnostic** — regexp validators return Diagnostic instead of String
 - **task-716-lexer-split-lib** — split draconic-lexer lib.rs by feature seam under the 1000-line budget
