@@ -2,7 +2,7 @@ use draconic_ast::{
     Arg, ArrayElement, ArrowBody, AssignOp, BindingKind, BindingPattern, Expr, Ident, NumberLit,
     ObjectKey, ObjectProp, Stmt,
 };
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::{parse, parse_module};
 
 use crate::load::top_level_names;
@@ -77,8 +77,10 @@ __draconic_mp[{mod_id}] = (async () => {{
             adeps.push_str(&format!("await __draconic_mp[{dep}];\n"));
         }
         // parse_module allows top-level await.
-        let dep_prog = parse_module(&adeps)
-            .map_err(|e| Diagnostic::new(format!("async dep await parse: {e}"), Span::dummy()))?;
+        let dep_prog = parse_module(&adeps).map_err(|e| {
+            Diagnostic::new(format!("async dep await parse: {e}"), Span::dummy())
+                .with_code(codes::LINKER_INTERNAL)
+        })?;
         try_body.extend(dep_prog.body);
     }
     for stmt in body {
@@ -99,8 +101,10 @@ __draconic_mp[{mod_id}] = (async () => {{
     // Entry module evaluation must complete before subsequent host code; await it.
     if is_entry {
         let await_src = format!("await __draconic_mp[{mod_id}];\n");
-        let await_prog = parse_module(&await_src)
-            .map_err(|e| Diagnostic::new(format!("entry await parse: {e}"), Span::dummy()))?;
+        let await_prog = parse_module(&await_src).map_err(|e| {
+            Diagnostic::new(format!("entry await parse: {e}"), Span::dummy())
+                .with_code(codes::LINKER_INTERNAL)
+        })?;
         for mut stmt in await_prog.body {
             uniqueify_stmt_spans(&mut stmt, spans);
             out.push(stmt);

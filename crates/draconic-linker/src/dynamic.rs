@@ -5,7 +5,7 @@ use draconic_ast::{
     Arg, ArrayElement, ArrayPatternElement, ArrowBody, BindingPattern, ClassElement, Expr, Ident,
     ImportPhase, ObjectKey, ObjectPatternProp, ObjectProp, Stmt,
 };
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::parse;
 
 use crate::load::Loader;
@@ -580,16 +580,16 @@ impl RewriteCtx<'_> {
 }})"#
         );
         let program = parse(&src)?;
-        let Stmt::Expression { mut expr, .. } = program
-            .body
-            .into_iter()
-            .next()
-            .ok_or_else(|| Diagnostic::new("eval import rewrite produced no stmt", span))?
+        let Stmt::Expression { mut expr, .. } =
+            program.body.into_iter().next().ok_or_else(|| {
+                Diagnostic::new("eval import rewrite produced no stmt", span)
+                    .with_code(codes::LINKER_INTERNAL)
+            })?
         else {
-            return Err(Diagnostic::new(
-                "eval import rewrite expected expression stmt",
-                span,
-            ));
+            return Err(
+                Diagnostic::new("eval import rewrite expected expression stmt", span)
+                    .with_code(codes::LINKER_INTERNAL),
+            );
         };
         // Fresh spans per rewrite site — binder/IR key symbols by Span.
         uniqueify_expr_spans(&mut expr, self.spans);

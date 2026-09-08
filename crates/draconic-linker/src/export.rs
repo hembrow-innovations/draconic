@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 
 use crate::load::Loader;
 use crate::namespace::{BINDING_DEFERRED_NAMESPACE, BINDING_NAMESPACE};
@@ -47,6 +47,7 @@ impl Loader {
                     format!("module not loaded: {}", re.from.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             return self.resolve_named_export(dep_id, &re.imported, chain);
         }
@@ -56,6 +57,7 @@ impl Loader {
                     format!("module not loaded: {}", dep_path.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             if let Some(binding) = self.resolve_named_export(dep_id, name, chain)? {
                 return Ok(Some(binding));
@@ -96,6 +98,7 @@ impl Loader {
                     format!("module not loaded: {}", ns.from.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             // E19.84.02: re-exporting a deferred namespace keeps deferred identity
             // (distinct shared object from the eager namespace).
@@ -110,6 +113,7 @@ impl Loader {
                     format!("module not loaded: {}", imp.from.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             return self.resolve_export(from_id, &imp.imported, visiting);
         }
@@ -147,6 +151,7 @@ impl Loader {
                     format!("module not loaded: {}", re.from.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             // Named re-exports are exact name lookups — they must resolve even when
             // the target module is mid-expansion (self-import / star cycle), which
@@ -165,7 +170,8 @@ impl Loader {
                             return Err(Diagnostic::new(
                                 format!("duplicate export `{}`", re.exported),
                                 Span::dummy(),
-                            ));
+                            )
+                            .with_code(codes::DUPLICATE_EXPORT));
                         }
                     } else {
                         out.insert(re.exported.clone(), binding);
@@ -185,6 +191,7 @@ impl Loader {
                     format!("module not loaded: {}", dep_path.display()),
                     Span::dummy(),
                 )
+                .with_code(codes::LINKER_INTERNAL)
             })?;
             let (dep_exports, dep_ambiguous) = self.collect_export_maps_rec(dep_id, visiting)?;
             for name in dep_ambiguous {
@@ -239,6 +246,7 @@ impl Loader {
                         format!("module not loaded: {}", re.from.display()),
                         Span::dummy(),
                     )
+                    .with_code(codes::LINKER_INTERNAL)
                 })?;
                 let resolved = self.resolve_export(dep_id, &re.imported, &mut HashSet::new())?;
                 if resolved.is_none() {
@@ -249,7 +257,8 @@ impl Loader {
                             re.imported
                         ),
                         Span::dummy(),
-                    ));
+                    )
+                    .with_code(codes::UNDECLARED_EXPORT));
                 }
             }
         }
@@ -640,6 +649,10 @@ mod tests {
             "got: {}",
             err.message
         );
+        assert_eq!(
+            err.code,
+            Some(draconic_diagnostics::codes::UNDECLARED_EXPORT)
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -661,6 +674,10 @@ mod tests {
             err.message.contains("no export") || err.message.contains("ambiguous"),
             "got: {}",
             err.message
+        );
+        assert_eq!(
+            err.code,
+            Some(draconic_diagnostics::codes::UNDECLARED_EXPORT)
         );
         let _ = fs::remove_dir_all(&dir);
     }

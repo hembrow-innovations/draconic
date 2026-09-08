@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use draconic_ast::Program;
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::parse_module;
 
 /// E19.84.03: JSON modules (`.json`) — ParseJSONModule. The raw JSON source is
@@ -16,6 +16,7 @@ pub(crate) fn parse_json_module(source: &str, path: &Path) -> Result<Program, Di
             format!("failed to synthesize JSON module {}: {e}", path.display()),
             Span::dummy(),
         )
+        .with_code(codes::LINKER_INTERNAL)
     })
 }
 

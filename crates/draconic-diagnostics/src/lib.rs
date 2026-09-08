@@ -126,10 +126,20 @@ impl fmt::Display for ErrorCode {
     }
 }
 
-/// Common checker diagnostic codes (U09). Stable once assigned.
+/// Common diagnostic codes (U09). Stable once assigned.
 pub mod codes {
     use super::ErrorCode;
 
+    /// Failed to read or canonicalize a module file.
+    pub const MODULE_READ: ErrorCode = ErrorCode(200);
+    /// Module specifier cannot be resolved.
+    pub const MODULE_RESOLVE: ErrorCode = ErrorCode(201);
+    /// Import or export names a binding the target does not declare.
+    pub const UNDECLARED_EXPORT: ErrorCode = ErrorCode(202);
+    /// Duplicate export or import binding.
+    pub const DUPLICATE_EXPORT: ErrorCode = ErrorCode(203);
+    /// Linker invariant or synthetic-source failure.
+    pub const LINKER_INTERNAL: ErrorCode = ErrorCode(204);
     /// Type is not assignable to expected type.
     pub const NOT_ASSIGNABLE: ErrorCode = ErrorCode(300);
     /// Value is not callable.
@@ -330,6 +340,12 @@ mod tests {
 
     #[test]
     fn error_code_label_is_stable() {
+        assert_eq!(ErrorCode::new(200).label(), "E0200");
+        assert_eq!(codes::MODULE_READ.label(), "E0200");
+        assert_eq!(codes::MODULE_RESOLVE.label(), "E0201");
+        assert_eq!(codes::UNDECLARED_EXPORT.label(), "E0202");
+        assert_eq!(codes::DUPLICATE_EXPORT.label(), "E0203");
+        assert_eq!(codes::LINKER_INTERNAL.label(), "E0204");
         assert_eq!(ErrorCode::new(300).label(), "E0300");
         assert_eq!(codes::NOT_ASSIGNABLE.label(), "E0300");
         assert_eq!(codes::NOT_CALLABLE.label(), "E0301");

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use draconic_ast::{Program, Stmt};
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::parse;
 
 use crate::eval::{
@@ -56,6 +56,7 @@ impl Loader {
                         format!("module not loaded: {}", bind.from.display()),
                         Span::dummy(),
                     )
+                    .with_code(codes::LINKER_INTERNAL)
                 })?;
                 let (def_id, local_in_exporter) = self
                     .resolve_export(from_id, &bind.imported, &mut HashSet::new())?
@@ -68,6 +69,7 @@ impl Loader {
                             ),
                             Span::dummy(),
                         )
+                        .with_code(codes::UNDECLARED_EXPORT)
                     })?;
                 let remote = final_binding_name(&mangled, def_id, &local_in_exporter)?;
                 if let Some(prev) = import_renames[id].get(&bind.local) {
@@ -75,7 +77,8 @@ impl Loader {
                         return Err(Diagnostic::new(
                             format!("duplicate import binding `{}`", bind.local),
                             Span::dummy(),
-                        ));
+                        )
+                        .with_code(codes::DUPLICATE_EXPORT));
                     }
                 }
                 import_renames[id].insert(bind.local.clone(), remote);
@@ -101,6 +104,7 @@ impl Loader {
                         format!("module not loaded: {}", bind.from.display()),
                         Span::dummy(),
                     )
+                    .with_code(codes::LINKER_INTERNAL)
                 })?;
                 // E19.84.02: every `import defer * as ns` site renames onto one
                 // shared deferred namespace object per target module, distinct from

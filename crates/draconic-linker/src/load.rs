@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use draconic_ast::{ImportPhase, Stmt};
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::parse_module;
 
 use crate::dynamic_collect::{collect_dynamic_defer_targets, collect_dynamic_eval_import_targets};
@@ -117,6 +117,7 @@ impl Loader {
                 format!("failed to read module {}: {e}", path.display()),
                 Span::dummy(),
             )
+            .with_code(codes::MODULE_READ)
         })?;
         // E19.84.03: `.json` files are JSON modules (ParseJSONModule). The raw
         // source is embedded as a JS string and parsed at eval via the runtime's
@@ -156,6 +157,7 @@ impl Loader {
                             "module specifier must be a well-formed string".to_string(),
                             source.span,
                         )
+                        .with_code(codes::MODULE_RESOLVE)
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
@@ -204,6 +206,7 @@ impl Loader {
                                 "module specifier must be a well-formed string".to_string(),
                                 src.span,
                             )
+                            .with_code(codes::MODULE_RESOLVE)
                         })?;
                         let dep = resolve_specifier(parent, &spec, src.span)?;
                         dep_paths.push(dep.clone());
@@ -221,7 +224,8 @@ impl Loader {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
                                     s.exported.span,
-                                ));
+                                )
+                                .with_code(codes::DUPLICATE_EXPORT));
                             }
                             named_reexports.push(NamedReexport {
                                 from: dep.clone(),
@@ -252,7 +256,8 @@ impl Loader {
                                 return Err(Diagnostic::new(
                                     format!("duplicate export `{}`", s.exported.name),
                                     s.exported.span,
-                                ));
+                                )
+                                .with_code(codes::DUPLICATE_EXPORT));
                             }
                             local_export_checks.push((s.local.name.clone(), s.local.span));
                         }
@@ -268,7 +273,8 @@ impl Loader {
                         return Err(Diagnostic::new(
                             "duplicate default export".to_string(),
                             local.span,
-                        ));
+                        )
+                        .with_code(codes::DUPLICATE_EXPORT));
                     }
                     body.push(*declaration);
                 }
@@ -280,6 +286,7 @@ impl Loader {
                             "module specifier must be a well-formed string".to_string(),
                             source.span,
                         )
+                        .with_code(codes::MODULE_RESOLVE)
                     })?;
                     let dep = resolve_specifier(parent, &spec, source.span)?;
                     dep_paths.push(dep.clone());
@@ -293,7 +300,8 @@ impl Loader {
                             return Err(Diagnostic::new(
                                 format!("duplicate export `{}`", ns.name),
                                 ns.span,
-                            ));
+                            )
+                            .with_code(codes::DUPLICATE_EXPORT));
                         }
                         namespace_reexports.push(NamespaceBind {
                             local: ns.name,
@@ -326,7 +334,8 @@ impl Loader {
                     return Err(Diagnostic::new(
                         format!("export of undeclared binding `{name}`"),
                         *span,
-                    ));
+                    )
+                    .with_code(codes::UNDECLARED_EXPORT));
                 }
             }
         }
@@ -405,10 +414,10 @@ pub(crate) fn collect_decl_exports(
                     return;
                 }
                 if exports.insert(id.name.clone(), id.name.clone()).is_some() {
-                    err = Some(Diagnostic::new(
-                        format!("duplicate export `{}`", id.name),
-                        id.span,
-                    ));
+                    err = Some(
+                        Diagnostic::new(format!("duplicate export `{}`", id.name), id.span)
+                            .with_code(codes::DUPLICATE_EXPORT),
+                    );
                 }
             });
             match err {
@@ -424,7 +433,8 @@ pub(crate) fn collect_decl_exports(
                 return Err(Diagnostic::new(
                     format!("duplicate export `{}`", name.name),
                     name.span,
-                ));
+                )
+                .with_code(codes::DUPLICATE_EXPORT));
             }
             Ok(())
         }
@@ -434,10 +444,10 @@ pub(crate) fn collect_decl_exports(
             }
             Ok(())
         }
-        _ => Err(Diagnostic::new(
-            "unsupported export declaration".to_string(),
-            Span::dummy(),
-        )),
+        _ => Err(
+            Diagnostic::new("unsupported export declaration".to_string(), Span::dummy())
+                .with_code(codes::LINKER_INTERNAL),
+        ),
     }
 }
 
@@ -462,7 +472,33 @@ pub(crate) fn top_level_names(body: &[Stmt]) -> HashSet<String> {
 #[cfg(test)]
 mod tests {
     use crate::{link_entry, link_entry_with_packages, PackageLinkContext};
+    use draconic_diagnostics::codes;
     use std::fs;
+
+    #[test]
+    fn link_missing_entry_is_module_read() {
+        let dir = crate::temp_link_dir("missing-entry");
+        let main = dir.join("nope.drac");
+        let err = link_entry(&main).expect_err("missing entry");
+        assert!(err.message.contains("failed to read"), "{}", err.message);
+        assert_eq!(err.code, Some(codes::MODULE_READ));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn link_export_undeclared_binding_is_undeclared_export() {
+        let dir = crate::temp_link_dir("undeclared-export");
+        let main = dir.join("main.drac");
+        fs::write(&main, "export { missing };\n").unwrap();
+        let err = link_entry(&main).expect_err("undeclared export");
+        assert!(
+            err.message.contains("undeclared binding"),
+            "{}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::UNDECLARED_EXPORT));
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// K06.01: `from "github.com/org/pkg"` resolves via lock + cache root.
     #[test]
@@ -639,6 +675,7 @@ mod tests {
                 || msg.contains("escape"),
             "{msg}"
         );
+        assert_eq!(err.code, Some(codes::MODULE_RESOLVE));
         let _ = fs::remove_dir_all(&root);
     }
 

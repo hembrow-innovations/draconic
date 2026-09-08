@@ -2,14 +2,14 @@
 id: "task-725-linker-err-codes"
 title: "Attach codes::* on linker diagnostics"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-724-linker-split-lib"]
 sprint: "rust-dev-audit"
 slice: "slice-708-linker-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
 
 # Attach codes::* on linker diagnostics
@@ -60,9 +60,9 @@ linker-codes-ok on the crate.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O3 linker-codes-ok
-- [ ] cargo test -p draconic-linker
-- [ ] No anyhow
+- [x] Slice O3 linker-codes-ok
+- [x] cargo test -p draconic-linker
+- [x] No anyhow
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows

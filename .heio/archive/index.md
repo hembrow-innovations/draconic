@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-725-linker-err-codes** — attach stable diagnostic codes on linker failures
 - **task-724-linker-split-lib** — split linker lib.rs by load/export/json/dynamic/rename seams under file budget
 - **task-723-ast-split-print** — split ast print.rs into stmt/expr/type printer modules under file budget
 - **task-722-ast-split-lib** — split ast lib.rs types and dump into stmt/expr/type_ann/dump modules

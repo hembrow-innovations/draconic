@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use draconic_ast::{Expr, Ident, Stmt};
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_parser::parse;
 
 use crate::eval::module_body_has_tla;
@@ -37,6 +37,7 @@ pub(crate) fn final_binding_name(
             format!("export local `{local_in_exporter}` missing in defining module {def_id}"),
             Span::dummy(),
         )
+        .with_code(codes::LINKER_INTERNAL)
     })
 }
 
@@ -391,6 +392,7 @@ pub(crate) fn make_deferred_namespace_binding(
     let mut body = parse(&src)?.body;
     let stmt = body.pop().ok_or_else(|| {
         Diagnostic::new("deferred namespace binding parse produced no stmt", span)
+            .with_code(codes::LINKER_INTERNAL)
     })?;
     Ok(stmt)
 }
@@ -422,9 +424,10 @@ pub(crate) fn make_shared_namespace_binding(
         names_lit.join(", ")
     );
     let mut body = parse(&src)?.body;
-    let stmt = body
-        .pop()
-        .ok_or_else(|| Diagnostic::new("shared namespace binding parse produced no stmt", span))?;
+    let stmt = body.pop().ok_or_else(|| {
+        Diagnostic::new("shared namespace binding parse produced no stmt", span)
+            .with_code(codes::LINKER_INTERNAL)
+    })?;
     Ok(stmt)
 }
 
