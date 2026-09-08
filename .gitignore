@@ -23,6 +23,12 @@
 examples/todo/server/server
 examples/types/types-bin
 examples/types/types-bin.dSYM
+
+# Scratch toolchain emit: {stem}.out.js / {stem}.out (+ macOS dSYM)
+*.out.js
+*.out.js.map
+*.out
+*.dSYM
 /third_party/test262/
 /tests/test262/baseline-report.md
 

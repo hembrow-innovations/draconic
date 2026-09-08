@@ -113,7 +113,7 @@ Do not fold these. Load the matching skill and stop:
 
 ### 8–9. CLI, host, product (MEDIUM)
 
-- `cli-run-default-js` `cli-build-requires-target`
+- `cli-run-default-js` `cli-build-requires-target` `cli-scratch-out-name`
 - `host-permissive-default` `host-sockets-first` `pkg-git-modules`
 - `prod-not-tsc` `prod-full-ecma` `prod-rust-host` `vocab-context` `lsp-analysis-only`
 

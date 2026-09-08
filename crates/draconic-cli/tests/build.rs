@@ -146,7 +146,7 @@ fn build_js_default_output_next_to_source() {
 
     run_ok(draconic().arg("build").arg("--target").arg("js").arg(&src));
 
-    let default_out = dir.join("hello.js");
+    let default_out = dir.join("hello.out.js");
     assert!(
         default_out.is_file(),
         "expected default JS output {}",
@@ -167,7 +167,7 @@ fn build_native_default_output_next_to_source() {
             .arg(&src),
     );
 
-    let default_out = dir.join("hello");
+    let default_out = dir.join("hello.out");
     assert!(
         default_out.is_file(),
         "expected default native output {}",

@@ -7,7 +7,7 @@ domain: draconic
 area: guides
 tags: [guide, toolchain, cli]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-08"
 ---
 
 # Using the toolchain
@@ -42,11 +42,11 @@ Native builds fail without an LLVM toolchain on the machine. That is expected, n
 
 5. **Check (optional)**. `draconic check hello.drac` typechecks and binds with no emit. `--watch` re-runs on change.
 
-6. **Build JavaScript**. `draconic build --target js hello.drac -o hello.js`. Run the artifact with `node hello.js` if you want the file on disk.
+6. **Build JavaScript**. Omit `-o` for scratch emit: `hello.drac` writes `hello.out.js` (gitignored). Pass `-o hello.js` only when you want a kept file. Run that artifact with `node`.
 
 7. **Run**. `draconic run hello.drac` builds and executes (default target `js`). Pass `--target native` for the LLVM path. Remaining args after the file go to the Program.
 
-8. **Build native** when LLVM is present. `draconic build --target native hello.drac -o hello` then `./hello`. `--strip` and `--lto` are native-only.
+8. **Build native** when LLVM is present. Omit `-o` for scratch emit (`hello.out`, gitignored). Pass `-o hello` when you want a kept binary, then `./hello`. `--strip` and `--lto` are native-only.
 
 9. **Packages (optional)**. `draconic get <module_path>@<ver>` then `draconic mod tidy`. `draconic build` auto-fetches missing locked deps unless `--offline` ([[0009-go-style-git-packages]]).
 

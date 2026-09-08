@@ -13,4 +13,4 @@ Language semantics pin in `tests/conformance/fixtures/**/*.drac`. A Roadmap item
 
 **Correct:** add `.drac` + `.meta` under the area folder (`es/`, `types/`, `native/`, `host/`, …). Area tests load fixtures via `run_fixture`. Compile always uses `compile_path` so modules link.
 
-**Notes.** Prefer crate unit tests for compiler pieces; Conformance for language meaning; both backends when Targets is `both`. Load **tdd** / **draconic-loop** for the red-green sitting. See `test-meta-sidecar`.
+**Notes.** Prefer crate unit tests for compiler pieces; Conformance for language meaning; both backends when Targets is `both`. Load **tdd** / **draconic-loop** for the red-green sitting. See `test-meta-sidecar`. Do not leave JS or native emit beside fixtures; scratch build names are `{stem}.out.js` / `{stem}.out` (`cli-scratch-out-name`).

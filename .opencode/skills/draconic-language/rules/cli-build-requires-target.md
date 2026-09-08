@@ -19,4 +19,4 @@ draconic build --target native file.drac -o out.bin
 draconic check file.drac
 ```
 
-**Notes.** `--strip` and `--lto` are native-only. `--offline` is package cache only. `--watch` exists on check/build.
+**Notes.** `--strip` and `--lto` are native-only. `--offline` is package cache only. `--watch` exists on check/build. Omit `-o` for gitignored `{stem}.out.js` / `{stem}.out` (see `cli-scratch-out-name`).

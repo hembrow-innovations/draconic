@@ -8,7 +8,7 @@ domain: draconic
 area: architecture
 tags: [architecture, compile-pipeline, toolchain]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-08"
 ---
 
 # Compile pipeline system design
@@ -56,8 +56,8 @@ CLI compile (`build_program` in [[architecture-cli]]):
 - **Pin**: toolchain pin from nearest `draconic.toml` before work (version/help skip).
 - **Packages**: `ensure_locked_for_entry` before link/compile (`--offline` on `build` is cache-only).
 - **IR**: `compile_path(input)`.
-- **JS**: `emit_js`, write `{stem}.js` by default.
-- **Native**: read source for `SourceDebug`, `emit_llvm_ir_with_debug`, `build_native_binary_with_lto`. Default output is the input stem. `--strip` / `--lto` / `--link <lib.a>` are native-only.
+- **JS**: `emit_js`, write `{stem}.out.js` by default.
+- **Native**: read source for `SourceDebug`, `emit_llvm_ir_with_debug`, `build_native_binary_with_lto`. Default output is `{stem}.out`. `--strip` / `--lto` / `--link <lib.a>` are native-only.
 
 CLI surfaces that exist in `main` (do not invent flags):
 

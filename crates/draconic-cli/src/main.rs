@@ -837,8 +837,8 @@ fn default_output(input: &Path, target: Target) -> PathBuf {
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
     let parent = input.parent().unwrap_or_else(|| Path::new("."));
     match target {
-        Target::Js => parent.join(format!("{stem}.js")),
-        Target::Native => parent.join(stem),
+        Target::Js => parent.join(format!("{stem}.out.js")),
+        Target::Native => parent.join(format!("{stem}.out")),
     }
 }
 
@@ -1715,11 +1715,11 @@ mod tests {
         let input = Path::new("/tmp/hello.drac");
         assert_eq!(
             default_output(input, Target::Js),
-            PathBuf::from("/tmp/hello.js")
+            PathBuf::from("/tmp/hello.out.js")
         );
         assert_eq!(
             default_output(input, Target::Native),
-            PathBuf::from("/tmp/hello")
+            PathBuf::from("/tmp/hello.out")
         );
     }
 

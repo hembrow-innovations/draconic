@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-07"
+updated_at: "2026-09-08"
 ---
 
 # Toolchain tests
@@ -17,7 +17,7 @@ Purpose: [[Toolchain purpose]]. Contract: [[Toolchain — Contract]].
 
 ## Coverage
 
-These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
+These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:build-scratch-name`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
 
 ## Tests
 
@@ -51,6 +51,12 @@ These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `tool
 - **crates/draconic-cli/src/main.rs** — `parse_build_args_requires_target`
   - **How:** Build args without `--target` error.
   - **Why:** Target is required, not defaulted in parse.
+- **crates/draconic-cli/src/main.rs** — `default_output_paths`
+  - **How:** JS default is `{stem}.out.js`; native default is `{stem}.out`.
+  - **Why:** Locks `toolchain.cli:build-scratch-name` so in-tree emit matches gitignore.
+- **crates/draconic-cli/tests/build.rs** — `build_js_default_output_next_to_source` / `build_native_default_output_next_to_source`
+  - **How:** `build` without `-o` writes those names beside the Program.
+  - **Why:** Same promise through the CLI binary.
 - **crates/draconic-cli/tests/run.rs** — `run_target_js_executes_console_log` / `run_defaults_to_js` / `run_target_native_executes_scalar`
   - **How:** `run` executes js (default) and native Programs.
   - **Why:** Locks `toolchain.cli:run-execute` (U14).

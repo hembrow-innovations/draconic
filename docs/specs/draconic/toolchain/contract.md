@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [contract]
 created_at: "2026-09-06"
-updated_at: "2026-09-07"
+updated_at: "2026-09-08"
 ---
 
 # Toolchain — Contract
@@ -36,6 +36,10 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: e2e_js_build_artifact_runs
   test: e2e_native_build_artifact_runs
   test: build_watch_rebuilds_on_source_change
+- `toolchain.cli:build-scratch-name`: When `-o` is omitted, `draconic build` writes `{stem}.out.js` for js and `{stem}.out` for native beside the input.
+  test: default_output_paths
+  test: build_js_default_output_next_to_source
+  test: build_native_default_output_next_to_source
 - `toolchain.cli:run-execute`: `draconic run` builds and executes a Program; default target is js; `--target native` runs a native binary; remaining tokens are program argv; a shebang-shaped path invokes run.
   test: help_lists_run
   test: parse_run_args_defaults_js_and_forwards
