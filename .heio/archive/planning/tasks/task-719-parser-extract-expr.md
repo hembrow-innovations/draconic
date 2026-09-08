@@ -2,16 +2,15 @@
 id: "task-719-parser-extract-expr"
 title: "Extract parser expression seam"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-718-parser-extract-stmt"]
+blocked_by: [ "task-718-parser-extract-stmt" ]
 sprint: "rust-dev-audit"
 slice: "slice-706-parser-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:35:00Z"
 ---
-
 # Extract parser expression seam
 
 ## Blocked by
@@ -60,10 +59,10 @@ expr*.rs ≤1000 with same-file tests.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] At least one new expr*.rs
-- [ ] Each new file ≤1000
-- [ ] lib.rs shorter than after stmt extract
-- [ ] cargo test -p draconic-parser
+- [x] At least one new expr*.rs
+- [x] Each new file ≤1000
+- [x] lib.rs shorter than after stmt extract
+- [x] cargo test -p draconic-parser
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +72,12 @@ expr*.rs ≤1000 with same-file tests.
 
 **Explain this part:**
 Keep Parser methods callable across modules via impl Parser in each file.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-parser --offline; python line counts on crates/draconic-parser/src/*.rs
+- **win/lose**: win
+- **gap**: none
+
+Expression parsing moved to expr.rs, expr_ops.rs, expr_lhs.rs, expr_object.rs, expr_primary.rs. parse_class_expression stays in stmt_class.rs. Function expressions, types, import/export, and patterns stay in lib.rs for task-720/721.

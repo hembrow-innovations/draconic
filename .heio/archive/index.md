@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-719-parser-extract-expr** — extract parser expression parsing into expr*.rs sibling modules
 - **task-718-parser-extract-stmt** — extract parser statement parsing into stmt*.rs sibling modules
 - **task-770-parser-context** — fold parser grammar flags into one pushed context
 - **task-717-lexer-regexp-diagnostic** — regexp validators return Diagnostic instead of String
