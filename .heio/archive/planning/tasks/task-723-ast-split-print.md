@@ -2,14 +2,14 @@
 id: "task-723-ast-split-print"
 title: "Split ast print.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-707-ast-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:00:00Z"
 ---
 
 # Split ast print.rs
@@ -60,9 +60,9 @@ Printer files ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no print*.rs over 1000
-- [ ] print_program still public
-- [ ] cargo test -p draconic-ast
+- [x] no print*.rs over 1000
+- [x] print_program still public
+- [x] cargo test -p draconic-ast
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
