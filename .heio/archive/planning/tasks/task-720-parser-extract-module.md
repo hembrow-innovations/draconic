@@ -2,16 +2,15 @@
 id: "task-720-parser-extract-module"
 title: "Extract parser module and type seams"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-719-parser-extract-expr"]
+blocked_by: [ "task-719-parser-extract-expr" ]
 sprint: "rust-dev-audit"
 slice: "slice-706-parser-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:50:00Z"
 ---
-
 # Extract parser module and type seams
 
 ## Blocked by
@@ -60,9 +59,9 @@ New files ≤1000. lib.rs smaller.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] New files for module and/or type and/or pattern
-- [ ] Each new file ≤1000
-- [ ] cargo test -p draconic-parser
+- [x] New files for module and/or type and/or pattern
+- [x] Each new file ≤1000
+- [x] cargo test -p draconic-parser
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +71,10 @@ New files ≤1000. lib.rs smaller.
 
 **Explain this part:**
 Do not change Module vs Script policy. Frontend owns that.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-parser --offline; python line counts on crates/draconic-parser/src/*.rs
+- **win/lose**: win
+- **gap**: none
