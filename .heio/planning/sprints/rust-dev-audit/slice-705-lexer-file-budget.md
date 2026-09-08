@@ -2,12 +2,12 @@
 id: "slice-705-lexer-file-budget"
 title: "Lexer file budget and regexp Diagnostic"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:50:00Z"
 ---
 
 # Lexer file budget and regexp Diagnostic
@@ -33,18 +33,18 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: lexer rust files ≤1000 lines
+- [x] O1: lexer rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-lexer"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: lexer tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: lexer tests green
   CHECK: cargo test -p draconic-lexer --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: regexp helpers return Diagnostic
+  EVIDENCE: test result: ok. 58 passed; 0 failed
+- [x] O3: regexp helpers return Diagnostic
   CHECK: rg -n "fn validate_regexp_literal|fn validate_regexp_flags" crates/draconic-lexer/src -A 1
   EXPECT: Result<(), Diagnostic>
-  EVIDENCE: pending
+  EVIDENCE: regexp.rs:6 and :13 both `Result<(), Diagnostic>`
 
 ## Pool
 
