@@ -2,12 +2,12 @@
 id: "slice-706-parser-file-budget"
 title: "Parser lib.rs feature split"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:45:00Z"
 ---
 
 # Parser lib.rs feature split
@@ -33,14 +33,14 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: parser rust files ≤1000 lines
+- [x] O1: parser rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-parser"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: parser tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: parser tests green
   CHECK: cargo test -p draconic-parser --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 172 passed; 0 failed
 
 ## Pool
 
