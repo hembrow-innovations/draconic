@@ -2,16 +2,15 @@
 id: "task-730-ir-dump-pub-crate"
 title: "Make dump_module pub(crate)"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-710-ir-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T08:45:00Z"
 ---
-
 # Make dump_module pub(crate)
 
 ## Blocked by
@@ -60,8 +59,8 @@ pub(crate) fn dump_module.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] O3 matches pub(crate) fn dump_module
-- [ ] cargo test -p draconic-ir
+- [x] O3 matches pub(crate) fn dump_module
+- [x] cargo test -p draconic-ir
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows

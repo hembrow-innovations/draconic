@@ -6760,7 +6760,7 @@ fn lower_binding_pattern(
 }
 
 /// Stable, indentation-based IR dump for snapshots and debugging.
-pub fn dump_module(module: &Module) -> String {
+pub(crate) fn dump_module(module: &Module) -> String {
     let mut out = String::new();
     out.push_str("Module\n");
     if !module.locals.is_empty() {
