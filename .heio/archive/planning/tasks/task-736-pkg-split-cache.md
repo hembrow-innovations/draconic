@@ -2,14 +2,14 @@
 id: "task-736-pkg-split-cache"
 title: "Split pkg cache.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-713-pkg-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:00:00Z"
 ---
 
 # Split pkg cache.rs
@@ -60,8 +60,8 @@ cache files ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no cache*.rs over 1000
-- [ ] cargo test -p draconic-pkg
+- [x] no cache*.rs over 1000
+- [x] cargo test -p draconic-pkg
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,10 @@ cache files ≤1000.
 
 **Explain this part:**
 Parallel with lib and resolve splits.
+
+## Gauntlet
+
+- **round:** 1
+- **command:** cargo test -p draconic-pkg --offline
+- **result:** win
+- **gap:** none. 313 passed. cache.rs 360, cache_fetch.rs 522, cache_checkout.rs 466.
