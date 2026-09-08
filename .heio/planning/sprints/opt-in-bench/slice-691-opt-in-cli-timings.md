@@ -2,12 +2,12 @@
 id: "slice-691-opt-in-cli-timings"
 title: "Opt-in CLI timings"
 kind: slice
-status: frozen
+status: active
 sprint: "opt-in-bench"
 blocked_by: []
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-08T18:55:55Z"
+updated_at: "2026-09-08T19:49:50Z"
 ---
 
 # Opt-in CLI timings
@@ -65,4 +65,4 @@ Durable links to task ids. Never drop them.
 
 ## See also
 
-[[performance]], [[0012-oracle-check-timeout]], [[api-cli]], [[guides-toolchain]], ROADMAP.md (no new row), Cargo.toml workspace members.
+[[performance]], [[0012-oracle-check-timeout]], [[api-cli]], [[guides-toolchain]], [[ticket-773-native-console-log]], ROADMAP.md (no new row), Cargo.toml workspace members.
