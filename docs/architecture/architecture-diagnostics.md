@@ -64,12 +64,13 @@ Assigned checker and host/FFI codes. Stable once assigned; tests lock labels.
 - **E0400 HOST_API_UNSUPPORTED**: host API not available on the compile target (H00.01)
 - **E0401 EXTERN_UNSUPPORTED**: `extern "C"` / FFI native-only; unsupported on js (F08.01)
 - **E0402 MISSING_DYNAMIC_LIB**: `--link` shared library path does not exist (F05.02)
+- **E0403 POINTER_UNSUPPORTED**: native pointers (`*T`, `&x`, `*p = v`) unsupported on js (N04)
 
 Lexer and parser diagnostics usually omit codes (message + span only).
 
 ### Tests
 
-Inline `#[cfg(test)]` in `lib.rs`: span dummy/len, `Display`, code labels E0300–E0307 and E0400–E0402, `lookup` / `line_text`, pretty-print with caret, code+help, multiline, dummy/empty spans, two-digit gutter.
+Inline `#[cfg(test)]` in `lib.rs`: span dummy/len, `Display`, code labels E0300–E0307 and E0400–E0403, `lookup` / `line_text`, pretty-print with caret, code+help, multiline, dummy/empty spans, two-digit gutter.
 
 ## Trade-offs
 

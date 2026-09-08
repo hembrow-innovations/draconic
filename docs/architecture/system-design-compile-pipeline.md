@@ -104,7 +104,7 @@ No separate schema note. IR shape is [[architecture-ir]].
 - **Propagation**: first diagnostic wins. No retry across backends. CLI prints `error: {d}` and exits 1. Usage mistakes exit 2. `run` forwards the child exit code when 1–255.
 - **I/O**: read/write/create-dir failures become `Diagnostic` with `Span::dummy()`.
 - **Script versus Module**: failed Script parse retries Module only on path load (and fmt/REPL completeness). If Module parse also fails, the Script error is returned.
-- **Native-only / JS-only**: hard `Diagnostic`, never silent wrong code. JS: pointers, pointer ops, `extern "C"` (`codes::EXTERN_UNSUPPORTED` / E0401), host APIs (`codes::HOST_API_UNSUPPORTED` / E0400). Native: unmatched IR uses `unsupported_native_diagnostic` (dummy span). Checker also has `check_for_target`; Frontend `check_path` does not call it today — js host-API refusal is enforced at `emit_js`.
+- **Native-only / JS-only**: hard `Diagnostic`, never silent wrong code. JS: pointers (`codes::POINTER_UNSUPPORTED` / E0403), `extern "C"` (`codes::EXTERN_UNSUPPORTED` / E0401), host APIs (`codes::HOST_API_UNSUPPORTED` / E0400). Native: unmatched IR uses `unsupported_native_diagnostic` (dummy span). Checker also has `check_for_target`; Frontend `check_path` does not call it today — js host-API refusal is enforced at `emit_js`.
 - **Embed limits**: source larger than 1 MiB, alloc budget, or time budget fail closed as diagnostics, not catchable JS exceptions.
 - **Watch**: print the error and keep polling. No process abort on a failed rebuild.
 - **Packages / pin**: lock ensure failures become diagnostics. Required toolchain pin mismatch exits 1 before compile.

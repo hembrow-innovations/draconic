@@ -4,7 +4,7 @@ use draconic_ast::UnaryOp;
 use draconic_check::{
     extern_unsupported_on_js_diagnostic, host_api_unsupported_diagnostic, CompileTarget,
 };
-use draconic_diagnostics::{Diagnostic, Span};
+use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_ir::{
     ArrayPatternEl, AssignTarget, Expr, IrType, Module, ObjectPatternEl, Pattern, Stmt,
     UpdateTarget,
@@ -12,6 +12,8 @@ use draconic_ir::{
 
 pub(crate) fn native_only_diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
+        .with_code(codes::POINTER_UNSUPPORTED)
+        .with_help("compile with the native backend, or remove the pointer")
 }
 
 /// Hard-error free host API names that the H00.01 registry marks unavailable on js.

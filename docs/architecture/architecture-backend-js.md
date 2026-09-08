@@ -44,9 +44,9 @@ Modules in this crate:
 
 From `reject_native_only` and related helpers in `lib.rs`:
 
-- **Pointer types**: a local with `IrType::Ptr(_)` errors (`*T` is native-only).
-- **Pointer operators**: unary `&` / `*` (`UnaryOp::Ref` / `Deref`) error.
-- **Pointer store**: `AssignTarget::Deref` errors (`*p = …`).
+- **Pointer types**: a local with `IrType::Ptr(_)` errors (`*T` is native-only; `codes::POINTER_UNSUPPORTED` / E0403).
+- **Pointer operators**: unary `&` / `*` (`UnaryOp::Ref` / `Deref`) error (`codes::POINTER_UNSUPPORTED` / E0403).
+- **Pointer store**: `AssignTarget::Deref` errors (`*p = …`; `codes::POINTER_UNSUPPORTED` / E0403).
 - **Host APIs unavailable on js**: free `IdentName` / `UpdateTarget::Name` / `AssignTarget::Name` / `Pattern::Name` go through `host_api_unsupported_diagnostic(name, CompileTarget::Js)`. The checker registry (`HostAvailability::NATIVE_ONLY`) is the list; the JS backend re-checks at emit so `draconic check` without a target can still fail at `build --target js`.
 
 Native scalars (`i32` and the rest), layout structs, and fixed arrays are not rejected. Type annotations are already gone at IR. Values lower as ordinary JS numbers, objects, and arrays (N04 polyfill/erase). That is portable erasure, not a hard error.

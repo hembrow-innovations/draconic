@@ -162,6 +162,8 @@ pub mod codes {
     pub const EXTERN_UNSUPPORTED: ErrorCode = ErrorCode(401);
     /// `--link` shared library path does not exist (F05.02).
     pub const MISSING_DYNAMIC_LIB: ErrorCode = ErrorCode(402);
+    /// Native pointers (`*T`, `&x`, `*p = v`) are unsupported on the js target (N04).
+    pub const POINTER_UNSUPPORTED: ErrorCode = ErrorCode(403);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,6 +360,7 @@ mod tests {
         assert_eq!(codes::HOST_API_UNSUPPORTED.label(), "E0400");
         assert_eq!(codes::EXTERN_UNSUPPORTED.label(), "E0401");
         assert_eq!(codes::MISSING_DYNAMIC_LIB.label(), "E0402");
+        assert_eq!(codes::POINTER_UNSUPPORTED.label(), "E0403");
         assert_eq!(codes::NOT_ASSIGNABLE.to_string(), "E0300");
     }
 

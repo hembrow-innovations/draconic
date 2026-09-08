@@ -87,6 +87,7 @@ fn emit_js_full(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use draconic_diagnostics::codes;
     use draconic_frontend::{compile_source, compile_source_module};
 
     fn emit_src(src: &str) -> String {
@@ -531,6 +532,7 @@ class C extends B {
             msg.contains("native-only") || msg.contains("pointer"),
             "{msg}"
         );
+        assert_eq!(err.code, Some(codes::POINTER_UNSUPPORTED));
     }
 
     #[test]
@@ -542,6 +544,7 @@ class C extends B {
             msg.contains("native-only") || msg.contains("pointer"),
             "{msg}"
         );
+        assert_eq!(err.code, Some(codes::POINTER_UNSUPPORTED));
     }
 
     fn emit_mapped(src: &str, name: &str) -> EmittedJs {
