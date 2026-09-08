@@ -2,16 +2,15 @@
 id: "task-731-ir-extract-types"
 title: "Extract IR Module types from lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-730-ir-dump-pub-crate"]
+blocked_by: [ "task-730-ir-dump-pub-crate" ]
 sprint: "rust-dev-audit"
 slice: "slice-710-ir-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T09:05:00Z"
 ---
-
 # Extract IR Module types from lib.rs
 
 ## Blocked by
@@ -60,9 +59,9 @@ Type files ≤1000. Re-export from lib.rs so backends keep compiling.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] new type module files ≤1000
-- [ ] lib.rs shorter
-- [ ] cargo test -p draconic-ir
+- [x] new type module files ≤1000
+- [x] lib.rs shorter
+- [x] cargo test -p draconic-ir
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
