@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-762-llvm-delete-fixture-printers** — deleted LLVM fixture OBS printers; no const OBS; those is_*_module arms gone from emit_llvm_ir_raw
 - **task-761-llvm-fold-classes** — class-builder IR lowers in the LLVM walker; is_es_classes_module gone from emit_llvm_ir_raw
 - **task-760-llvm-fold-functions** — function decl/expr/arrow/return/call lower in the LLVM walker; is_es_functions_module gone from emit_llvm_ir_raw
 - **task-764-llvm-fold-host-fs** — host_fs call-sites lower in the LLVM walker; is_host_fs_module gone from emit_llvm_ir_raw

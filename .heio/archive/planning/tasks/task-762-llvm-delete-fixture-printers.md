@@ -2,14 +2,14 @@
 id: "task-762-llvm-delete-fixture-printers"
 title: "Delete LLVM fixture OBS printers"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-761-llvm-fold-classes"]
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
 
 # Delete LLVM fixture OBS printers
@@ -59,10 +59,10 @@ No const OBS. Programs run through the walker or diagnostic.
 - size-file-budget
 
 **Acceptance criteria:**
-- [ ] python no-obs check from the slice
-- [ ] those is_*_module arms gone from emit_llvm_ir_raw
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] if tests cannot pass without OBS, stop; do not keep the printer; file a ticket
+- [x] python no-obs check from the slice
+- [x] those is_*_module arms gone from emit_llvm_ir_raw
+- [x] cargo test -p draconic-backend-llvm
+- [x] if tests cannot pass without OBS, stop; do not keep the printer; file a ticket
 
 **Out of scope:**
 - host_*
@@ -71,3 +71,10 @@ No const OBS. Programs run through the walker or diagnostic.
 
 **Explain this part:**
 Honest unsupported is better than a green OBS table. Do not add a new fingerprint adapter.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python no-obs; cargo test -p draconic-backend-llvm --offline; rg is_es_private_methods_module|is_es_async_methods_module|is_es_static_private_fields_module crates/draconic-backend-llvm/src/lib.rs
+- **result**: win
+- **gap**: none

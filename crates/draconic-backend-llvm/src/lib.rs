@@ -28,8 +28,6 @@ mod es_new_target;
 mod es_optional_chain;
 mod es_param_dstr;
 mod es_private_accessors;
-mod es_private_methods;
-mod es_static_private_fields;
 mod es_static_private_methods;
 mod es_testing;
 mod hex;
@@ -42,7 +40,6 @@ mod es_objects;
 mod es_static_blocks;
 
 mod cross_compile;
-mod es_async_methods;
 mod es_private_in;
 mod es_promise;
 mod es_proxies;
@@ -113,8 +110,6 @@ use es_new_target::{emit_es_new_target, is_es_new_target_module};
 use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
 use es_param_dstr::{emit_es_param_dstr, is_es_param_dstr_module};
 use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
-use es_private_methods::{emit_es_private_methods, is_es_private_methods_module};
-use es_static_private_fields::{emit_es_static_private_fields, is_es_static_private_fields_module};
 use es_static_private_methods::{
     emit_es_static_private_methods, is_es_static_private_methods_module,
 };
@@ -125,7 +120,6 @@ use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure
 use es_objects::{emit_es_objects, is_es_objects_module};
 use es_static_blocks::{emit_es_static_blocks, is_es_static_blocks_module};
 
-use es_async_methods::{emit_es_async_methods, is_es_async_methods_module};
 use es_private_in::{emit_es_private_in, is_es_private_in_module};
 use es_promise::{emit_es_promise, is_es_promise_module};
 use es_proxies::{emit_es_proxies, is_es_proxies_module};
@@ -345,9 +339,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     if is_host_channels_module(module) {
         return emit_host_channels(module);
     }
-    if is_es_async_methods_module(module) {
-        return emit_es_async_methods(module);
-    }
     if is_es_promise_module(module) {
         return emit_es_promise(module);
     }
@@ -383,9 +374,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_es_instanceof_module(module) {
         return emit_es_instanceof(module);
-    }
-    if is_es_private_methods_module(module) {
-        return emit_es_private_methods(module);
     }
     if is_es_generators_module(module) {
         return emit_es_generators(module);
@@ -431,9 +419,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_es_class_expr_name_module(module) {
         return emit_es_class_expr_name(module);
-    }
-    if is_es_static_private_fields_module(module) {
-        return emit_es_static_private_fields(module);
     }
     if is_es_static_private_methods_module(module) {
         return emit_es_static_private_methods(module);
