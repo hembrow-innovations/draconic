@@ -2,12 +2,12 @@
 id: "slice-715-cli-file-budget"
 title: "CLI main extract header and test split"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:55:00Z"
 ---
 
 # CLI main extract header and test split
@@ -32,14 +32,14 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: cli rust files ≤1000 lines
+- [x] O1: cli rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-cli"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: cli tests green
+  EVIDENCE: max-loc-ok after task-772, task-742, task-743, task-744, task-745
+- [x] O2: cli tests green
   CHECK: cargo test -p draconic-cli --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: cargo test -p draconic-cli --offline: test result: ok. on lib, bin, and every tests/*.rs binary including extract, extract_calls, extract_class
 
 ## Pool
 
