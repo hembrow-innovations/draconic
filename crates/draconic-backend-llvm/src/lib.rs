@@ -4,6 +4,7 @@ mod aead;
 mod base64;
 mod compression;
 mod debug_info;
+mod emitter;
 mod es_arrays;
 mod es_builtins;
 mod es_call_spread;

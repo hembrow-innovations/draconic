@@ -34,6 +34,8 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
 
+use crate::emitter::{escape_llvm_bytes, Emitter as IrEmitter, SlotTy};
+
 const MAX_CAPS: usize = 8;
 /// Max trailing rest arguments packed into the stack buffer (fixture uses ≤3).
 const MAX_REST: usize = 8;
@@ -48,7 +50,7 @@ pub(crate) fn is_es_functions_module(module: &Module) -> bool {
 
 pub(crate) fn emit_es_functions(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not an es_functions module"))?;
-    let mut em = Emitter::new(module, &info);
+    let mut em = Emitter::new_dedicated_labels(module, FnState::new(&info));
     em.emit_module(&info)?;
     Ok(em.finish())
 }
@@ -1884,35 +1886,24 @@ fn returned_fn_idx_in_body(body: &[Stmt], functions: &[FnInfo]) -> Option<usize>
     None
 }
 
-struct Emitter<'a> {
-    module: &'a Module,
+struct FnState<'a> {
     info: &'a ModuleInfo,
-    /// fn idx → LLVM name
     fn_names: HashMap<usize, String>,
     allocas: HashMap<LocalId, String>,
-    /// Rest local → (buf ptr alloca, len i64 alloca).
     rest_slots: HashMap<LocalId, (String, String)>,
-    /// `arguments` local → (args buf ptr alloca, argc i64 alloca).
     arguments_slots: HashMap<LocalId, (String, String)>,
-    /// Annex B if-fn primary → i32 alloca (fn idx or -1).
     if_fn_slot_ptrs: HashMap<LocalId, String>,
-    /// String typeof obs local → i32 alloca (0 = "undefined", 1 = "function").
     typeof_code_ptrs: HashMap<LocalId, String>,
     str_globals: HashMap<String, String>,
-    out: String,
-    body: String,
-    tmp: u32,
-    label: u32,
 }
 
-impl<'a> Emitter<'a> {
-    fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
+impl<'a> FnState<'a> {
+    fn new(info: &'a ModuleInfo) -> Self {
         let mut fn_names = HashMap::new();
         for f in &info.functions {
             fn_names.insert(f.idx, format!("d_fn_{}", f.idx));
         }
         Self {
-            module,
             info,
             fn_names,
             allocas: HashMap::new(),
@@ -1921,32 +1912,16 @@ impl<'a> Emitter<'a> {
             if_fn_slot_ptrs: HashMap::new(),
             typeof_code_ptrs: HashMap::new(),
             str_globals: HashMap::new(),
-            out: String::new(),
-            body: String::new(),
-            tmp: 0,
-            label: 0,
         }
     }
+}
 
-    fn finish(self) -> String {
-        self.out
-    }
+type Emitter<'a> = IrEmitter<'a, FnState<'a>>;
 
-    fn fresh(&mut self) -> String {
-        let t = self.tmp;
-        self.tmp += 1;
-        format!("%t{t}")
-    }
-
-    fn fresh_label(&mut self, prefix: &str) -> String {
-        let n = self.label;
-        self.label += 1;
-        format!("{prefix}{n}")
-    }
-
+impl<'a> Emitter<'a> {
     /// Same-name `var` redecls / uses share one primary storage slot.
     fn resolve_var_slot(&self, id: LocalId) -> LocalId {
-        self.info.var_primary.get(&id).copied().unwrap_or(id)
+        self.state.info.var_primary.get(&id).copied().unwrap_or(id)
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -1971,11 +1946,11 @@ impl<'a> Emitter<'a> {
         self.body.clear();
         self.tmp = 0;
         self.label = 0;
-        self.allocas.clear();
-        self.rest_slots.clear();
-        self.arguments_slots.clear();
-        self.if_fn_slot_ptrs.clear();
-        self.typeof_code_ptrs.clear();
+        self.state.allocas.clear();
+        self.state.rest_slots.clear();
+        self.state.arguments_slots.clear();
+        self.state.if_fn_slot_ptrs.clear();
+        self.state.typeof_code_ptrs.clear();
 
         // String globals for typeof observations (emitted before main).
         let mut prelude = String::new();
@@ -1988,8 +1963,8 @@ impl<'a> Emitter<'a> {
         top_vars.sort_by_key(|id| id.0);
         for id in top_vars {
             let ptr = format!("%l{}", id.0);
-            self.allocas.insert(id, ptr.clone());
-            writeln!(self.out, "  {ptr} = alloca double, align 8").ok();
+            self.state.allocas.insert(id, ptr.clone());
+            SlotTy::Number.write_alloca(&mut self.out, &ptr);
             writeln!(
                 self.out,
                 "  store double {}, ptr {ptr}",
@@ -2001,13 +1976,13 @@ impl<'a> Emitter<'a> {
         for id in &info.user_locals {
             if info.string_locals.contains(id) {
                 let ptr = format!("%typeof{}", id.0);
-                self.typeof_code_ptrs.insert(*id, ptr.clone());
+                self.state.typeof_code_ptrs.insert(*id, ptr.clone());
                 writeln!(self.out, "  {ptr} = alloca i32, align 4").ok();
                 writeln!(self.out, "  store i32 0, ptr {ptr}").ok();
-            } else if !self.allocas.contains_key(id) {
+            } else if !self.state.allocas.contains_key(id) {
                 let ptr = format!("%l{}", id.0);
-                self.allocas.insert(*id, ptr.clone());
-                writeln!(self.out, "  {ptr} = alloca double, align 8").ok();
+                self.state.allocas.insert(*id, ptr.clone());
+                SlotTy::Number.write_alloca(&mut self.out, &ptr);
             }
         }
         // Annex B if-fn binding slots (top-level).
@@ -2017,7 +1992,7 @@ impl<'a> Emitter<'a> {
             // Only slots whose Function is not nested inside another function body.
             if self.if_fn_slot_owned_by_top(id) {
                 let ptr = format!("%iffn{}", id.0);
-                self.if_fn_slot_ptrs.insert(id, ptr.clone());
+                self.state.if_fn_slot_ptrs.insert(id, ptr.clone());
                 writeln!(self.out, "  {ptr} = alloca i32, align 4").ok();
                 writeln!(self.out, "  store i32 -1, ptr {ptr}").ok();
             }
@@ -2033,6 +2008,7 @@ impl<'a> Emitter<'a> {
         for id in &info.user_locals {
             if info.string_locals.contains(id) {
                 let code_ptr = self
+                    .state
                     .typeof_code_ptrs
                     .get(id)
                     .cloned()
@@ -2060,6 +2036,7 @@ impl<'a> Emitter<'a> {
                 // Number / `var` observations: print "undefined" for the undef sentinel.
                 let slot = self.resolve_var_slot(*id);
                 let ptr = self
+                    .state
                     .allocas
                     .get(&slot)
                     .cloned()
@@ -2085,9 +2062,9 @@ impl<'a> Emitter<'a> {
         }
 
         // Emit string globals before main definition.
-        for (s, gname) in &self.str_globals {
+        for (s, gname) in &self.state.str_globals {
             let n = s.len() + 1;
-            let esc = escape_llvm_string(s);
+            let esc = escape_llvm_bytes(s.as_bytes());
             writeln!(
                 prelude,
                 "@{gname} = private unnamed_addr constant [{n} x i8] c\"{esc}\\00\""
@@ -2120,7 +2097,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn if_fn_nested_in_any_function(&self, id: LocalId) -> bool {
-        for f in &self.info.functions {
+        for f in &self.state.info.functions {
             if stmt_list_mentions_if_fn(&f.body, id) {
                 return true;
             }
@@ -2129,11 +2106,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_print_str(&mut self, s: &str) -> Result<(), Diagnostic> {
-        let gname = if let Some(g) = self.str_globals.get(s) {
+        let gname = if let Some(g) = self.state.str_globals.get(s) {
             g.clone()
         } else {
-            let g = format!(".esfn.str.{}", self.str_globals.len());
-            self.str_globals.insert(s.to_string(), g.clone());
+            let g = format!(".esfn.str.{}", self.state.str_globals.len());
+            self.state.str_globals.insert(s.to_string(), g.clone());
             g
         };
         let t = self.fresh();
@@ -2148,22 +2125,22 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_function(&mut self, f: &FnInfo) -> Result<(), Diagnostic> {
-        let fn_name = self.fn_names.get(&f.idx).cloned().unwrap();
+        let fn_name = self.state.fn_names.get(&f.idx).cloned().unwrap();
 
         let saved_body = std::mem::take(&mut self.body);
         let saved_tmp = self.tmp;
         let saved_label = self.label;
-        let saved_allocas = std::mem::take(&mut self.allocas);
-        let saved_rest = std::mem::take(&mut self.rest_slots);
-        let saved_args = std::mem::take(&mut self.arguments_slots);
-        let saved_if_slots = std::mem::take(&mut self.if_fn_slot_ptrs);
+        let saved_allocas = std::mem::take(&mut self.state.allocas);
+        let saved_rest = std::mem::take(&mut self.state.rest_slots);
+        let saved_args = std::mem::take(&mut self.state.arguments_slots);
+        let saved_if_slots = std::mem::take(&mut self.state.if_fn_slot_ptrs);
 
         self.tmp = 0;
         self.label = 0;
-        self.allocas.clear();
-        self.rest_slots.clear();
-        self.arguments_slots.clear();
-        self.if_fn_slot_ptrs.clear();
+        self.state.allocas.clear();
+        self.state.rest_slots.clear();
+        self.state.arguments_slots.clear();
+        self.state.if_fn_slot_ptrs.clear();
 
         let mut sig_parts = Vec::new();
         for (i, _) in f.params.iter().enumerate() {
@@ -2185,8 +2162,8 @@ impl<'a> Emitter<'a> {
         let mut entry = String::new();
         for (i, pid) in f.params.iter().enumerate() {
             let ptr = format!("%l{}", pid.0);
-            self.allocas.insert(*pid, ptr.clone());
-            writeln!(entry, "  {ptr} = alloca double, align 8").ok();
+            self.state.allocas.insert(*pid, ptr.clone());
+            SlotTy::Number.write_alloca(&mut entry, &ptr);
             writeln!(entry, "  store double %p{i}, ptr {ptr}").ok();
         }
         if let Some(rid) = f.rest {
@@ -2196,7 +2173,7 @@ impl<'a> Emitter<'a> {
             writeln!(entry, "  {len_slot} = alloca i64, align 8").ok();
             writeln!(entry, "  store ptr %rest_buf, ptr {buf_slot}").ok();
             writeln!(entry, "  store i64 %rest_len, ptr {len_slot}").ok();
-            self.rest_slots.insert(rid, (buf_slot, len_slot));
+            self.state.rest_slots.insert(rid, (buf_slot, len_slot));
         }
         if let Some(aid) = f.arguments {
             let buf_slot = format!("%args_buf_slot{}", aid.0);
@@ -2205,30 +2182,31 @@ impl<'a> Emitter<'a> {
             writeln!(entry, "  {len_slot} = alloca i64, align 8").ok();
             writeln!(entry, "  store ptr %args_buf, ptr {buf_slot}").ok();
             writeln!(entry, "  store i64 %argc, ptr {len_slot}").ok();
-            self.arguments_slots.insert(aid, (buf_slot, len_slot));
+            self.state.arguments_slots.insert(aid, (buf_slot, len_slot));
         }
         for (i, cid) in f.captures.iter().enumerate() {
             let ptr = format!("%l{}", cid.0);
-            self.allocas.insert(*cid, ptr.clone());
-            writeln!(entry, "  {ptr} = alloca double, align 8").ok();
+            self.state.allocas.insert(*cid, ptr.clone());
+            SlotTy::Number.write_alloca(&mut entry, &ptr);
             writeln!(entry, "  store double %c{i}, ptr {ptr}").ok();
         }
         // Hoisted function-scope `var` slots (init undefined).
-        if let Some(slots) = self.info.fn_var_slots.get(&f.idx) {
+        if let Some(slots) = self.state.info.fn_var_slots.get(&f.idx) {
             let mut ids: Vec<LocalId> = slots.iter().copied().collect();
             ids.sort_by_key(|id| id.0);
             for id in ids {
-                if self.allocas.contains_key(&id) {
+                if self.state.allocas.contains_key(&id) {
                     continue;
                 }
                 let ptr = format!("%l{}", id.0);
-                self.allocas.insert(id, ptr.clone());
-                writeln!(entry, "  {ptr} = alloca double, align 8").ok();
+                self.state.allocas.insert(id, ptr.clone());
+                SlotTy::Number.write_alloca(&mut entry, &ptr);
                 writeln!(entry, "  store double {}, ptr {ptr}", undef_double_const()).ok();
             }
         }
         // Nested Annex B if-fn slots for this function body.
         let mut nested_slots: Vec<LocalId> = self
+            .state
             .info
             .if_fn_slots
             .iter()
@@ -2238,7 +2216,7 @@ impl<'a> Emitter<'a> {
         nested_slots.sort_by_key(|id| id.0);
         for id in nested_slots {
             let ptr = format!("%iffn{}", id.0);
-            self.if_fn_slot_ptrs.insert(id, ptr.clone());
+            self.state.if_fn_slot_ptrs.insert(id, ptr.clone());
             writeln!(entry, "  {ptr} = alloca i32, align 4").ok();
             writeln!(entry, "  store i32 -1, ptr {ptr}").ok();
         }
@@ -2270,46 +2248,37 @@ impl<'a> Emitter<'a> {
         self.body = saved_body;
         self.tmp = saved_tmp;
         self.label = saved_label;
-        self.allocas = saved_allocas;
-        self.rest_slots = saved_rest;
-        self.arguments_slots = saved_args;
-        self.if_fn_slot_ptrs = saved_if_slots;
+        self.state.allocas = saved_allocas;
+        self.state.rest_slots = saved_rest;
+        self.state.arguments_slots = saved_args;
+        self.state.if_fn_slot_ptrs = saved_if_slots;
         Ok(())
-    }
-
-    fn body_ends_with_terminator(&self) -> bool {
-        for line in self.body.lines().rev() {
-            let t = line.trim();
-            if t.is_empty() {
-                continue;
-            }
-            return t.starts_with("ret ") || t.starts_with("br ");
-        }
-        false
     }
 
     fn emit_top_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, kind } => {
-                if self.info.fn_binding.contains_key(local) {
+                if self.state.info.fn_binding.contains_key(local) {
                     // Function binding — no number storage required for static calls.
                     return Ok(());
                 }
-                if self.info.obj_methods.contains_key(local) {
+                if self.state.info.obj_methods.contains_key(local) {
                     // Object holding static methods — methods resolved via obj_methods table.
                     return Ok(());
                 }
-                if self.info.string_locals.contains(local) {
+                if self.state.info.string_locals.contains(local) {
                     let init = init
                         .as_ref()
                         .ok_or_else(|| diag("es_functions: typeof declare requires init"))?;
                     return self.emit_typeof_declare(*local, init);
                 }
                 // `var` is hoisted to entry as undefined; bare `var x` is a no-op store.
-                let is_var = *kind == BindingKind::Var || self.info.var_primary.contains_key(local);
+                let is_var =
+                    *kind == BindingKind::Var || self.state.info.var_primary.contains_key(local);
                 let slot = self.resolve_var_slot(*local);
                 if is_var {
                     let ptr = self
+                        .state
                         .allocas
                         .get(&slot)
                         .cloned()
@@ -2323,12 +2292,12 @@ impl<'a> Emitter<'a> {
                 let init = init
                     .as_ref()
                     .ok_or_else(|| diag("es_functions: declare requires init"))?;
-                let ptr = if let Some(p) = self.allocas.get(&slot).cloned() {
+                let ptr = if let Some(p) = self.state.allocas.get(&slot).cloned() {
                     p
                 } else {
                     let p = format!("%l{}", slot.0);
-                    self.allocas.insert(slot, p.clone());
-                    writeln!(self.body, "  {p} = alloca double, align 8").ok();
+                    self.state.allocas.insert(slot, p.clone());
+                    SlotTy::Number.write_alloca(&mut self.body, &p);
                     p
                 };
                 let v = self.emit_number_expr(init)?;
@@ -2357,6 +2326,7 @@ impl<'a> Emitter<'a> {
                 } => {
                     let slot = self.resolve_var_slot(*id);
                     let ptr = self
+                        .state
                         .allocas
                         .get(&slot)
                         .cloned()
@@ -2384,12 +2354,19 @@ impl<'a> Emitter<'a> {
             return Err(diag("es_functions: typeof arg must be local"));
         };
         let code_ptr = self
+            .state
             .typeof_code_ptrs
             .get(&local)
             .cloned()
             .ok_or_else(|| diag("es_functions: typeof code slot missing"))?;
-        let primary = self.info.if_fn_primary.get(id).copied().unwrap_or(*id);
-        if let Some(slot) = self.if_fn_slot_ptrs.get(&primary).cloned() {
+        let primary = self
+            .state
+            .info
+            .if_fn_primary
+            .get(id)
+            .copied()
+            .unwrap_or(*id);
+        if let Some(slot) = self.state.if_fn_slot_ptrs.get(&primary).cloned() {
             let idx = self.fresh();
             writeln!(self.body, "  {idx} = load i32, ptr {slot}").ok();
             let bound = self.fresh();
@@ -2397,7 +2374,7 @@ impl<'a> Emitter<'a> {
             let t = self.fresh();
             writeln!(self.body, "  {t} = zext i1 {bound} to i32").ok();
             writeln!(self.body, "  store i32 {t}, ptr {code_ptr}").ok();
-        } else if self.info.fn_binding.contains_key(id) {
+        } else if self.state.info.fn_binding.contains_key(id) {
             // Always-bound function decl.
             writeln!(self.body, "  store i32 1, ptr {code_ptr}").ok();
         } else {
@@ -2410,14 +2387,14 @@ impl<'a> Emitter<'a> {
 
     /// Activate Annex B if-clause function: store its fn idx into the primary slot.
     fn emit_if_fn_activate(&mut self, local: LocalId) -> Result<(), Diagnostic> {
-        let Some(primary) = self.info.if_fn_primary.get(&local).copied() else {
+        let Some(primary) = self.state.info.if_fn_primary.get(&local).copied() else {
             // Ordinary function decl (not if-clause) — always available via fn_binding.
             return Ok(());
         };
-        let Some(&idx) = self.info.fn_binding.get(&local) else {
+        let Some(&idx) = self.state.info.fn_binding.get(&local) else {
             return Ok(());
         };
-        let Some(slot) = self.if_fn_slot_ptrs.get(&primary).cloned() else {
+        let Some(slot) = self.state.if_fn_slot_ptrs.get(&primary).cloned() else {
             return Err(diag(format!(
                 "es_functions: if-fn slot missing for %{}",
                 primary.0
@@ -2491,14 +2468,16 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::Declare { local, init, kind } => {
-                if self.info.fn_binding.contains_key(local) {
+                if self.state.info.fn_binding.contains_key(local) {
                     return Ok(());
                 }
                 // Hoisted `var`: store init into primary (bare `var` already undef at entry).
-                let is_var = *kind == BindingKind::Var || self.info.var_primary.contains_key(local);
+                let is_var =
+                    *kind == BindingKind::Var || self.state.info.var_primary.contains_key(local);
                 if is_var {
                     let slot = self.resolve_var_slot(*local);
                     let ptr = self
+                        .state
                         .allocas
                         .get(&slot)
                         .cloned()
@@ -2512,8 +2491,8 @@ impl<'a> Emitter<'a> {
                     return Ok(());
                 }
                 let ptr = format!("%l{}", local.0);
-                self.allocas.insert(*local, ptr.clone());
-                writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
+                self.state.allocas.insert(*local, ptr.clone());
+                SlotTy::Number.write_alloca(&mut self.body, &ptr);
                 if let Some(e) = init {
                     if matches!(e, Expr::Function { .. }) {
                         writeln!(
@@ -2561,6 +2540,7 @@ impl<'a> Emitter<'a> {
                 } => {
                     let slot = self.resolve_var_slot(*id);
                     let ptr = self
+                        .state
                         .allocas
                         .get(&slot)
                         .cloned()
@@ -2585,6 +2565,7 @@ impl<'a> Emitter<'a> {
             return Err(diag("es_functions: for-of right must be rest local"));
         };
         let (buf_slot, len_slot) = self
+            .state
             .rest_slots
             .get(rest_id)
             .cloned()
@@ -2598,8 +2579,8 @@ impl<'a> Emitter<'a> {
             return Err(diag("es_functions: for-of left must be bare let binding"));
         };
         let bind_ptr = format!("%l{}", bind_id.0);
-        self.allocas.insert(*bind_id, bind_ptr.clone());
-        writeln!(self.body, "  {bind_ptr} = alloca double, align 8").ok();
+        self.state.allocas.insert(*bind_id, bind_ptr.clone());
+        SlotTy::Number.write_alloca(&mut self.body, &bind_ptr);
 
         let buf = self.fresh();
         let len = self.fresh();
@@ -2649,12 +2630,12 @@ impl<'a> Emitter<'a> {
         let Expr::Function { params, .. } = expr else {
             return Err(diag("internal: emit_return_fn"));
         };
-        let idx = find_fn_idx_by_param_patterns(params, &self.info.functions)
+        let idx = find_fn_idx_by_param_patterns(params, &self.state.info.functions)
             .ok_or_else(|| diag("es_functions: return unknown FunctionExpr"))?;
-        let f = &self.info.functions[idx];
+        let f = &self.state.info.functions[idx];
         writeln!(self.body, "  store i32 {idx}, ptr @es_ret_fn").ok();
         for (i, cid) in f.captures.iter().enumerate() {
-            let ptr = self.allocas.get(cid).cloned().ok_or_else(|| {
+            let ptr = self.state.allocas.get(cid).cloned().ok_or_else(|| {
                 diag(format!(
                     "es_functions: return capture %{} not in frame",
                     cid.0
@@ -2679,6 +2660,7 @@ impl<'a> Emitter<'a> {
 
     fn emit_param_default(&mut self, pid: LocalId, def: &Expr) -> Result<(), Diagnostic> {
         let ptr = self
+            .state
             .allocas
             .get(&pid)
             .cloned()
@@ -2747,6 +2729,7 @@ impl<'a> Emitter<'a> {
             Expr::Local { id, .. } => {
                 let slot = self.resolve_var_slot(*id);
                 let ptr = self
+                    .state
                     .allocas
                     .get(&slot)
                     .cloned()
@@ -2817,6 +2800,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("es_functions: member object must be local"));
                 };
                 let (buf_slot, len_slot) = self
+                    .state
                     .arguments_slots
                     .get(id)
                     .cloned()
@@ -2892,19 +2876,20 @@ impl<'a> Emitter<'a> {
 
         match callee {
             Expr::Local { id, .. } => {
-                let primary = self.info.if_fn_primary.get(id).copied().or_else(|| {
-                    if self.info.if_fn_slots.contains(id) {
+                let primary = self.state.info.if_fn_primary.get(id).copied().or_else(|| {
+                    if self.state.info.if_fn_slots.contains(id) {
                         Some(*id)
                     } else {
                         None
                     }
                 });
                 if let Some(primary) = primary {
-                    if self.if_fn_slot_ptrs.contains_key(&primary) {
+                    if self.state.if_fn_slot_ptrs.contains_key(&primary) {
                         return self.emit_dynamic_if_fn_call(primary, &arg_vals);
                     }
                 }
                 let idx = *self
+                    .state
                     .info
                     .fn_binding
                     .get(id)
@@ -2912,7 +2897,7 @@ impl<'a> Emitter<'a> {
                 self.emit_direct_call(idx, &arg_vals)
             }
             Expr::Function { params, .. } => {
-                let idx = find_fn_idx_by_param_patterns(params, &self.info.functions)
+                let idx = find_fn_idx_by_param_patterns(params, &self.state.info.functions)
                     .ok_or_else(|| diag("es_functions: IIFE unknown FunctionExpr"))?;
                 self.emit_direct_call(idx, &arg_vals)
             }
@@ -2932,6 +2917,7 @@ impl<'a> Emitter<'a> {
                 let name = static_prop_name(property)
                     .ok_or_else(|| diag("es_functions: method name must be static"))?;
                 let idx = *self
+                    .state
                     .info
                     .obj_methods
                     .get(oid)
@@ -2948,19 +2934,19 @@ impl<'a> Emitter<'a> {
                 let _inner_ret = self.emit_call(inner, inner_args)?;
                 let idx = match inner.as_ref() {
                     Expr::Local { id, .. } => {
-                        let caller_idx = *self.info.fn_binding.get(id).ok_or_else(|| {
+                        let caller_idx = *self.state.info.fn_binding.get(id).ok_or_else(|| {
                             diag("es_functions: higher-order call unbound callee")
                         })?;
                         returned_fn_idx_in_body(
-                            &self.info.functions[caller_idx].body,
-                            &self.info.functions,
+                            &self.state.info.functions[caller_idx].body,
+                            &self.state.info.functions,
                         )
                         .ok_or_else(|| diag("es_functions: callee does not return function"))?
                     }
                     _ => return Err(diag("es_functions: unsupported higher-order callee")),
                 };
                 // Pad defaults / pack rest, then load captures from return buffer.
-                let f = &self.info.functions[idx];
+                let f = &self.state.info.functions[idx];
                 if !call_arity_ok(f, arg_vals.len()) {
                     return Err(diag("es_functions: higher-order call arity mismatch"));
                 }
@@ -2983,13 +2969,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit_direct_call(&mut self, idx: usize, arg_vals: &[String]) -> Result<String, Diagnostic> {
-        let f = &self.info.functions[idx];
+        let f = &self.state.info.functions[idx];
         if !call_arity_ok(f, arg_vals.len()) {
             return Err(diag("es_functions: call arity mismatch"));
         }
         let mut caps = Vec::new();
         for cid in &f.captures.clone() {
-            let ptr = self.allocas.get(cid).cloned().ok_or_else(|| {
+            let ptr = self.state.allocas.get(cid).cloned().ok_or_else(|| {
                 diag(format!(
                     "es_functions: capture local %{} not in caller frame",
                     cid.0
@@ -3009,11 +2995,13 @@ impl<'a> Emitter<'a> {
         arg_vals: &[String],
     ) -> Result<String, Diagnostic> {
         let slot = self
+            .state
             .if_fn_slot_ptrs
             .get(&primary)
             .cloned()
             .ok_or_else(|| diag("es_functions: dynamic call missing slot"))?;
         let candidates = self
+            .state
             .info
             .if_fn_candidates
             .get(&primary)
@@ -3076,7 +3064,7 @@ impl<'a> Emitter<'a> {
         arg_vals: &[String],
         caps: &[String],
     ) -> Result<String, Diagnostic> {
-        let f = &self.info.functions[idx];
+        let f = &self.state.info.functions[idx];
         let n_fixed = f.params.len();
         let undef = undef_double_const();
         let mut fixed: Vec<String> = arg_vals.iter().take(n_fixed).cloned().collect();
@@ -3143,7 +3131,7 @@ impl<'a> Emitter<'a> {
             call_parts.push(format!("double {c}"));
         }
 
-        let fn_name = self.fn_names.get(&idx).cloned().unwrap();
+        let fn_name = self.state.fn_names.get(&idx).cloned().unwrap();
         let t = self.fresh();
         if call_parts.is_empty() {
             writeln!(self.body, "  {t} = call double @{fn_name}()").ok();
@@ -3213,19 +3201,6 @@ fn stmt_mentions_if_fn(stmt: &Stmt, id: LocalId) -> bool {
         Stmt::Function { body, local, .. } => *local == id || stmt_list_mentions_if_fn(body, id),
         _ => false,
     }
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

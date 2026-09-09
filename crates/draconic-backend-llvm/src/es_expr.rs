@@ -41,6 +41,8 @@ use draconic_runtime::abi::{
     ES_EXPR_DECLARES, PRINT_BOOL, PRINT_BYTES, PRINT_F64, PRINT_I64, UTF16_LEN,
 };
 
+use crate::emitter::{escape_llvm_bytes, Emitter as IrEmitter, SlotTy};
+
 /// True when this module is a supported ES expression / control-flow subset
 /// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.06 / N08.01.* / N08.02.01–N08.02.09 /
 /// N08.07.01–N08.07.05 / N08.08.01–N08.08.06):
@@ -67,20 +69,9 @@ pub(crate) fn is_es_expr_module(module: &Module) -> bool {
 
 pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not an es_expr module"))?;
-    let mut em = Emitter::new(module);
+    let mut em = Emitter::new(module, ExprState::default());
     em.emit_module(&info.alloc_locals, &info.user_locals)?;
     Ok(em.finish())
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
-    Number,
-    /// JS BigInt as signed i64 (N08.08.02 fixture range).
-    BigInt,
-    Boolean,
-    String,
-    /// JS `undefined` from `void` (checker maps void → `Type::Null`).
-    Undefined,
 }
 
 /// Top-level user locals in declaration order (observation/print order).
@@ -984,64 +975,18 @@ struct StrVal {
     len: String,
 }
 
-struct Emitter<'a> {
-    module: &'a Module,
-    /// local id → (alloca ptr name, slot type)
+#[derive(Default)]
+struct ExprState {
     allocas: HashMap<LocalId, (String, SlotTy)>,
-    /// string local id → length alloca ptr name (`i64`)
     string_lens: HashMap<LocalId, String>,
-    /// WTF-8 string content → global name (e.g. `.str.0`)
     str_globals: HashMap<Vec<u8>, String>,
-    out: String,
-    body: String,
-    tmp: u32,
     ctrls: Vec<CtrlFrame>,
-    /// Labels from enclosing `label:` wrappers applied to the next loop/frame.
     pending_names: Vec<String>,
 }
 
+type Emitter<'a> = IrEmitter<'a, ExprState>;
+
 impl<'a> Emitter<'a> {
-    fn new(module: &'a Module) -> Self {
-        Self {
-            module,
-            allocas: HashMap::new(),
-            string_lens: HashMap::new(),
-            str_globals: HashMap::new(),
-            out: String::new(),
-            body: String::new(),
-            tmp: 0,
-            ctrls: Vec::new(),
-            pending_names: Vec::new(),
-        }
-    }
-
-    fn fresh(&mut self) -> String {
-        let n = self.tmp;
-        self.tmp += 1;
-        format!("%t{n}")
-    }
-
-    fn fresh_label(&mut self, prefix: &str) -> String {
-        let n = self.tmp;
-        self.tmp += 1;
-        format!("{prefix}{n}")
-    }
-
-    fn body_ends_with_terminator(&self) -> bool {
-        self.body
-            .lines()
-            .rev()
-            .find(|l| !l.trim().is_empty())
-            .is_some_and(|l| {
-                let t = l.trim_start();
-                t.starts_with("br ")
-                    || t.starts_with("ret ")
-                    || t.starts_with("unreachable")
-                    || t.starts_with("switch ")
-                    || t.starts_with("indirectbr ")
-            })
-    }
-
     fn emit_module(
         &mut self,
         alloc: &[(LocalId, SlotTy)],
@@ -1050,25 +995,12 @@ impl<'a> Emitter<'a> {
         // Body first so string globals are collected, then header + globals + main.
         for (id, slot) in alloc {
             let ptr = format!("%l{}", id.0);
-            self.allocas.insert(*id, (ptr.clone(), *slot));
-            match slot {
-                SlotTy::Number => {
-                    writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
-                }
-                SlotTy::BigInt => {
-                    writeln!(self.body, "  {ptr} = alloca i64, align 8").ok();
-                }
-                SlotTy::Boolean => {
-                    writeln!(self.body, "  {ptr} = alloca i1, align 1").ok();
-                }
-                SlotTy::String => {
-                    writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
-                    let len_ptr = format!("%l{}_len", id.0);
-                    writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
-                    self.string_lens.insert(*id, len_ptr);
-                }
-                // No runtime payload; print always emits `undefined`.
-                SlotTy::Undefined => {}
+            self.state.allocas.insert(*id, (ptr.clone(), *slot));
+            slot.write_alloca(&mut self.body, &ptr);
+            if *slot == SlotTy::String {
+                let len_ptr = format!("%l{}_len", id.0);
+                writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
+                self.state.string_lens.insert(*id, len_ptr);
             }
         }
 
@@ -1081,6 +1013,7 @@ impl<'a> Emitter<'a> {
             match slot {
                 SlotTy::Number => {
                     let (ptr, _) = self
+                        .state
                         .allocas
                         .get(id)
                         .cloned()
@@ -1091,6 +1024,7 @@ impl<'a> Emitter<'a> {
                 }
                 SlotTy::BigInt => {
                     let (ptr, _) = self
+                        .state
                         .allocas
                         .get(id)
                         .cloned()
@@ -1101,6 +1035,7 @@ impl<'a> Emitter<'a> {
                 }
                 SlotTy::Boolean => {
                     let (ptr, _) = self
+                        .state
                         .allocas
                         .get(id)
                         .cloned()
@@ -1113,11 +1048,13 @@ impl<'a> Emitter<'a> {
                 }
                 SlotTy::String => {
                     let (ptr, _) = self
+                        .state
                         .allocas
                         .get(id)
                         .cloned()
                         .ok_or_else(|| diag("internal: print missing alloca"))?;
                     let len_ptr = self
+                        .state
                         .string_lens
                         .get(id)
                         .cloned()
@@ -1160,7 +1097,7 @@ impl<'a> Emitter<'a> {
         writeln!(self.out, "declare double @llvm.sqrt.f64(double)").ok();
         writeln!(self.out).ok();
 
-        for (content, gname) in &self.str_globals {
+        for (content, gname) in &self.state.str_globals {
             let n = content.len() + 1;
             let esc = escape_llvm_bytes(content);
             writeln!(
@@ -1169,7 +1106,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         }
-        if !self.str_globals.is_empty() {
+        if !self.state.str_globals.is_empty() {
             writeln!(self.out).ok();
         }
 
@@ -1185,6 +1122,7 @@ impl<'a> Emitter<'a> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
                 let (ptr, slot) = self
+                    .state
                     .allocas
                     .get(local)
                     .cloned()
@@ -1282,7 +1220,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::While { test, body } => {
-                let names = std::mem::take(&mut self.pending_names);
+                let names = std::mem::take(&mut self.state.pending_names);
                 let head = self.fresh_label("while_head");
                 let bod = self.fresh_label("while_body");
                 let end = self.fresh_label("while_end");
@@ -1291,13 +1229,13 @@ impl<'a> Emitter<'a> {
                 let cond = self.emit_to_boolean(test)?;
                 writeln!(self.body, "  br i1 {cond}, label %{bod}, label %{end}").ok();
                 writeln!(self.body, "{bod}:").ok();
-                self.ctrls.push(CtrlFrame {
+                self.state.ctrls.push(CtrlFrame {
                     names,
                     break_label: end.clone(),
                     continue_label: Some(head.clone()),
                 });
                 self.emit_stmt(body)?;
-                self.ctrls.pop();
+                self.state.ctrls.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{head}").ok();
                 }
@@ -1305,19 +1243,19 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Stmt::DoWhile { body, test } => {
-                let names = std::mem::take(&mut self.pending_names);
+                let names = std::mem::take(&mut self.state.pending_names);
                 let bod = self.fresh_label("do_body");
                 let head = self.fresh_label("do_test");
                 let end = self.fresh_label("do_end");
                 writeln!(self.body, "  br label %{bod}").ok();
                 writeln!(self.body, "{bod}:").ok();
-                self.ctrls.push(CtrlFrame {
+                self.state.ctrls.push(CtrlFrame {
                     names,
                     break_label: end.clone(),
                     continue_label: Some(head.clone()),
                 });
                 self.emit_stmt(body)?;
-                self.ctrls.pop();
+                self.state.ctrls.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{head}").ok();
                 }
@@ -1333,7 +1271,7 @@ impl<'a> Emitter<'a> {
                 update,
                 body,
             } => {
-                let names = std::mem::take(&mut self.pending_names);
+                let names = std::mem::take(&mut self.state.pending_names);
                 if let Some(i) = init {
                     self.emit_stmt(i)?;
                 }
@@ -1350,13 +1288,13 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  br label %{bod}").ok();
                 }
                 writeln!(self.body, "{bod}:").ok();
-                self.ctrls.push(CtrlFrame {
+                self.state.ctrls.push(CtrlFrame {
                     names,
                     break_label: end.clone(),
                     continue_label: Some(upd.clone()),
                 });
                 self.emit_stmt(body)?;
-                self.ctrls.pop();
+                self.state.ctrls.pop();
                 if !self.body_ends_with_terminator() {
                     writeln!(self.body, "  br label %{upd}").ok();
                 }
@@ -1388,7 +1326,7 @@ impl<'a> Emitter<'a> {
                 discriminant,
                 cases,
             } => {
-                let names = std::mem::take(&mut self.pending_names);
+                let names = std::mem::take(&mut self.state.pending_names);
                 let disc = self.emit_number_expr(discriminant)?;
                 let end = self.fresh_label("switch_end");
                 let case_labels: Vec<String> = (0..cases.len())
@@ -1420,7 +1358,7 @@ impl<'a> Emitter<'a> {
                 }
                 writeln!(self.body, "  br label %{default_target}").ok();
 
-                self.ctrls.push(CtrlFrame {
+                self.state.ctrls.push(CtrlFrame {
                     names,
                     break_label: end.clone(),
                     continue_label: None,
@@ -1441,7 +1379,7 @@ impl<'a> Emitter<'a> {
                         }
                     }
                 }
-                self.ctrls.pop();
+                self.state.ctrls.pop();
                 writeln!(self.body, "{end}:").ok();
                 Ok(())
             }
@@ -1467,20 +1405,20 @@ impl<'a> Emitter<'a> {
                 | Stmt::ForOf { .. }
                 | Stmt::Switch { .. }
                 | Stmt::Labeled { .. } => {
-                    self.pending_names.push(label.clone());
+                    self.state.pending_names.push(label.clone());
                     self.emit_stmt(body)
                 }
                 _ => {
                     let end = self.fresh_label("lbl_end");
-                    let mut names = std::mem::take(&mut self.pending_names);
+                    let mut names = std::mem::take(&mut self.state.pending_names);
                     names.push(label.clone());
-                    self.ctrls.push(CtrlFrame {
+                    self.state.ctrls.push(CtrlFrame {
                         names,
                         break_label: end.clone(),
                         continue_label: None,
                     });
                     self.emit_stmt(body)?;
-                    self.ctrls.pop();
+                    self.state.ctrls.pop();
                     if !self.body_ends_with_terminator() {
                         writeln!(self.body, "  br label %{end}").ok();
                     }
@@ -1490,6 +1428,7 @@ impl<'a> Emitter<'a> {
             },
             Stmt::Break { label: None } => {
                 let frame = self
+                    .state
                     .ctrls
                     .last()
                     .ok_or_else(|| diag("internal: break outside loop/switch in es_expr"))?;
@@ -1499,6 +1438,7 @@ impl<'a> Emitter<'a> {
             }
             Stmt::Break { label: Some(name) } => {
                 let end = self
+                    .state
                     .ctrls
                     .iter()
                     .rev()
@@ -1510,6 +1450,7 @@ impl<'a> Emitter<'a> {
             }
             Stmt::Continue { label: None } => {
                 let cont = self
+                    .state
                     .ctrls
                     .iter()
                     .rev()
@@ -1520,6 +1461,7 @@ impl<'a> Emitter<'a> {
             }
             Stmt::Continue { label: Some(name) } => {
                 let cont = self
+                    .state
                     .ctrls
                     .iter()
                     .rev()
@@ -1543,19 +1485,19 @@ impl<'a> Emitter<'a> {
         body: &Stmt,
         is_of: bool,
     ) -> Result<(), Diagnostic> {
-        let names = std::mem::take(&mut self.pending_names);
+        let names = std::mem::take(&mut self.state.pending_names);
         // Ensure for-in/of `let` binding has an alloca (also collected in classify).
         if let Stmt::Declare { local, init, .. } = left {
             if init.is_some() {
                 return Err(diag("internal: for-in/of left declare must not have init"));
             }
-            if !self.allocas.contains_key(local) {
+            if !self.state.allocas.contains_key(local) {
                 let ptr = format!("%l{}", local.0);
                 writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
-                self.allocas.insert(*local, (ptr, SlotTy::String));
+                self.state.allocas.insert(*local, (ptr, SlotTy::String));
                 let len_ptr = format!("%l{}_len", local.0);
                 writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
-                self.string_lens.insert(*local, len_ptr);
+                self.state.string_lens.insert(*local, len_ptr);
             }
         }
         let s = self.emit_string_expr(right)?;
@@ -1625,13 +1567,13 @@ impl<'a> Emitter<'a> {
             }
         };
         self.store_for_in_of_left(left, &bound)?;
-        self.ctrls.push(CtrlFrame {
+        self.state.ctrls.push(CtrlFrame {
             names,
             break_label: end.clone(),
             continue_label: Some(cont.clone()),
         });
         self.emit_stmt(body)?;
-        self.ctrls.pop();
+        self.state.ctrls.pop();
         if !self.body_ends_with_terminator() {
             writeln!(self.body, "  br label %{cont}").ok();
         }
@@ -1659,6 +1601,7 @@ impl<'a> Emitter<'a> {
 
     fn store_string_local(&mut self, id: LocalId, value: &StrVal) -> Result<(), Diagnostic> {
         let (ptr, slot) = self
+            .state
             .allocas
             .get(&id)
             .cloned()
@@ -1667,6 +1610,7 @@ impl<'a> Emitter<'a> {
             return Err(diag("internal: expected string slot"));
         }
         let len_ptr = self
+            .state
             .string_lens
             .get(&id)
             .cloned()
@@ -1678,6 +1622,7 @@ impl<'a> Emitter<'a> {
 
     fn load_string_local(&mut self, id: LocalId) -> Result<StrVal, Diagnostic> {
         let (ptr, slot) = self
+            .state
             .allocas
             .get(&id)
             .cloned()
@@ -1686,6 +1631,7 @@ impl<'a> Emitter<'a> {
             return Err(diag("internal: expected string local"));
         }
         let len_ptr = self
+            .state
             .string_lens
             .get(&id)
             .cloned()
@@ -1707,11 +1653,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn string_const_bytes(&mut self, bytes: &[u8]) -> Result<StrVal, Diagnostic> {
-        let gname = if let Some(g) = self.str_globals.get(bytes) {
+        let gname = if let Some(g) = self.state.str_globals.get(bytes) {
             g.clone()
         } else {
-            let g = format!(".str.{}", self.str_globals.len());
-            self.str_globals.insert(bytes.to_vec(), g.clone());
+            let g = format!(".str.{}", self.state.str_globals.len());
+            self.state.str_globals.insert(bytes.to_vec(), g.clone());
             g
         };
         let t = self.fresh();
@@ -1777,7 +1723,7 @@ impl<'a> Emitter<'a> {
                 {
                     return Ok(());
                 }
-                let (_, slot) = self.allocas.get(id).cloned().ok_or_else(|| {
+                let (_, slot) = self.state.allocas.get(id).cloned().ok_or_else(|| {
                     diag(format!("internal: unallocated discard local %{}", id.0))
                 })?;
                 match slot {
@@ -1882,6 +1828,7 @@ impl<'a> Emitter<'a> {
             Expr::BigInt { raw, .. } => Ok(format_bigint_const(raw)?),
             Expr::Local { id, .. } => {
                 let (ptr, slot) = self
+                    .state
                     .allocas
                     .get(id)
                     .cloned()
@@ -1968,7 +1915,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
                 let (ptr, slot) =
-                    self.allocas.get(id).cloned().ok_or_else(|| {
+                    self.state.allocas.get(id).cloned().ok_or_else(|| {
                         diag(format!("internal: unallocated assign local %{}", id.0))
                     })?;
                 if slot != SlotTy::BigInt {
@@ -2094,8 +2041,12 @@ impl<'a> Emitter<'a> {
                 ..
             } => {
                 self.emit_discard_arg(arg)?;
-                let slot_of: HashMap<LocalId, SlotTy> =
-                    self.allocas.iter().map(|(k, (_, s))| (*k, *s)).collect();
+                let slot_of: HashMap<LocalId, SlotTy> = self
+                    .state
+                    .allocas
+                    .iter()
+                    .map(|(k, (_, s))| (*k, *s))
+                    .collect();
                 let name = Self::typeof_name(arg, &slot_of, self.module)
                     .ok_or_else(|| diag("internal: unsupported typeof operand"))?;
                 self.string_const(name)
@@ -2205,6 +2156,7 @@ impl<'a> Emitter<'a> {
         let as_number = match expr {
             Expr::Number { .. } => true,
             Expr::Local { id, .. } => self
+                .state
                 .allocas
                 .get(id)
                 .is_some_and(|(_, s)| *s == SlotTy::Number),
@@ -2238,6 +2190,7 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::Local { id, .. } => {
                 let (_, slot) = self
+                    .state
                     .allocas
                     .get(id)
                     .cloned()
@@ -2271,7 +2224,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
                 let (_, slot) =
-                    self.allocas.get(id).cloned().ok_or_else(|| {
+                    self.state.allocas.get(id).cloned().ok_or_else(|| {
                         diag(format!("internal: unallocated assign local %{}", id.0))
                     })?;
                 if slot != SlotTy::Undefined {
@@ -2349,6 +2302,7 @@ impl<'a> Emitter<'a> {
                     return format_number_ctor_const(name);
                 }
                 let (ptr, slot) = self
+                    .state
                     .allocas
                     .get(id)
                     .cloned()
@@ -2480,7 +2434,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
                 let (ptr, slot) =
-                    self.allocas.get(id).cloned().ok_or_else(|| {
+                    self.state.allocas.get(id).cloned().ok_or_else(|| {
                         diag(format!("internal: unallocated assign local %{}", id.0))
                     })?;
                 if slot != SlotTy::Number {
@@ -2560,7 +2514,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: only local ++/-- in es_expr"));
                 };
                 let (ptr, slot) =
-                    self.allocas.get(id).cloned().ok_or_else(|| {
+                    self.state.allocas.get(id).cloned().ok_or_else(|| {
                         diag(format!("internal: unallocated update local %{}", id.0))
                     })?;
                 if slot != SlotTy::Number {
@@ -2638,6 +2592,7 @@ impl<'a> Emitter<'a> {
             }),
             Expr::Local { id, .. } => {
                 let (ptr, slot) = self
+                    .state
                     .allocas
                     .get(id)
                     .cloned()
@@ -2788,7 +2743,7 @@ impl<'a> Emitter<'a> {
                     return Err(diag("internal: only local assign in es_expr"));
                 };
                 let (ptr, slot) =
-                    self.allocas.get(id).cloned().ok_or_else(|| {
+                    self.state.allocas.get(id).cloned().ok_or_else(|| {
                         diag(format!("internal: unallocated assign local %{}", id.0))
                     })?;
                 if slot != SlotTy::Boolean {
@@ -3107,10 +3062,6 @@ impl<'a> Emitter<'a> {
             _ => Err(diag("internal: not a bitwise op")),
         }
     }
-
-    fn finish(self) -> String {
-        self.out
-    }
 }
 
 fn expr_ty_is_number(expr: &Expr) -> bool {
@@ -3198,19 +3149,6 @@ fn parse_js_number_literal(s: &str) -> Option<f64> {
         return u64::from_str_radix(oct, 8).ok().map(|n| n as f64);
     }
     s.parse().ok()
-}
-
-fn escape_llvm_bytes(bytes: &[u8]) -> String {
-    let mut out = String::new();
-    for b in bytes {
-        match *b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 /// Encode JS UTF-16 code units as WTF-8 (UTF-8 + unpaired surrogates as 3-byte sequences).
