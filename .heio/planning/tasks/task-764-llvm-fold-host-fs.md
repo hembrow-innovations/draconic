@@ -73,3 +73,14 @@ FS names from the catalog lower as ABI calls in the walker.
 
 **Explain this part:**
 Leave other host_* arms in place. Contract-dispatch waits until fs is in the walker.
+
+## Blocked
+
+`cargo test -p draconic-backend-llvm --offline` cannot compile. In-flight [[task-760-llvm-fold-functions]] leaves `es_functions.rs` with `by_id` unbound in `collect_free_in_expr`. This sitting must not edit `es_functions.rs`. Fold is in the working tree (walker `walk_host_fs`, `is_host_fs_module` gone from `emit_llvm_ir_raw`) but unverified.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline
+- **result**: lose
+- **gap**: crate does not compile; `es_functions.rs` `by_id` not in scope (task-760 uncommitted)
