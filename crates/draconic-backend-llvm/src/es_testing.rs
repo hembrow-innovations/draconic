@@ -14,7 +14,6 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Pattern, Stmt};
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
-#[path = "es_testing_eval.rs"]
 mod eval;
 
 use eval::eval_body;

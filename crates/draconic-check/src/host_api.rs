@@ -58,13 +58,9 @@ pub struct HostApiEntry {
     pub note: &'static str,
 }
 
-#[path = "host_api_fs.rs"]
 mod host_api_fs;
-#[path = "host_api_net.rs"]
 mod host_api_net;
-#[path = "host_api_process.rs"]
 mod host_api_process;
-#[path = "host_api_workers.rs"]
 mod host_api_workers;
 
 const fn host_api_count() -> usize {

@@ -1,0 +1,11 @@
+pub mod cmd_bindgen;
+pub mod cmd_build;
+pub mod cmd_check;
+pub mod cmd_doc;
+pub mod cmd_fmt;
+pub mod cmd_get;
+pub mod cmd_mod;
+pub mod cmd_parse;
+pub mod cmd_repl;
+pub mod cmd_run;
+pub mod cmd_test;

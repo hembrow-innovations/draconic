@@ -21,9 +21,7 @@ use draconic_runtime::abi::{
     HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
 };
 
-#[path = "host_ws_e2e_classify.rs"]
 mod classify;
-#[path = "host_ws_e2e_emit.rs"]
 mod emit;
 
 use classify::classify;

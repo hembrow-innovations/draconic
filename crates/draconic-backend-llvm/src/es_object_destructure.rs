@@ -15,7 +15,6 @@ use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT,
     OBJECT_COPY_OWN, OBJECT_DELETE, OBJECT_GET, OBJECT_SET, PRINT_F64, PRINT_STR,
 };
-#[path = "es_object_destructure_emit.rs"]
 mod emit;
 
 

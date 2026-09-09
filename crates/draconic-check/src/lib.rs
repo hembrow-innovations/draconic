@@ -3,11 +3,6 @@
 
 mod binder;
 mod checker;
-mod checker_assign;
-mod checker_expr;
-mod checker_ops;
-mod checker_stmt;
-mod checker_type;
 mod early;
 mod host_api;
 mod symbols;

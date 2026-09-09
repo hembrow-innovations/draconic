@@ -24,13 +24,9 @@ use draconic_runtime::abi::{
     ARRAY_SPREAD_CSTR, CSTR_CONCAT, GC_INIT, OBJECT_GET, OBJECT_SET, PRINT_F64, PRINT_STR,
 };
 
-#[path = "es_arrays_classify.rs"]
 mod classify;
-#[path = "es_arrays_ok.rs"]
 mod ok;
-#[path = "es_arrays_emit.rs"]
 mod emit;
-#[path = "es_arrays_emit_expr.rs"]
 mod emit_expr;
 
 use classify::classify;

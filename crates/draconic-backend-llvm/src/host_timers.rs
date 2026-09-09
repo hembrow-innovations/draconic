@@ -24,9 +24,7 @@ use draconic_runtime::abi::{
     PRINT_BOOL, PRINT_I64, PRINT_STR, TIMER_CLEAR, TIMER_SET, TIMER_SET_INTERVAL,
 };
 
-#[path = "host_timers_classify.rs"]
 mod classify;
-#[path = "host_timers_emit.rs"]
 mod emit;
 
 use classify::try_classify;

@@ -1,11 +1,8 @@
 pub use draconic_lexer::JsString;
 
 mod dump;
-mod dump_expr;
 mod expr;
 mod print;
-mod print_expr;
-mod print_type;
 mod stmt;
 mod type_ann;
 

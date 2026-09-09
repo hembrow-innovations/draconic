@@ -15,7 +15,6 @@ use draconic_runtime::abi::{
     HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
 };
 
-#[path = "host_stdio_classify.rs"]
 mod classify;
 
 use classify::classify;

@@ -1,9 +1,6 @@
 mod js_string;
 mod lexer;
 mod regexp;
-mod scan_ident;
-mod scan_number;
-mod scan_string;
 mod token;
 mod trivia;
 

@@ -4,19 +4,8 @@ pub use draconic_ast::BindingKind;
 pub use draconic_check::{NativeType, ObjectShape, SymbolId as LocalId, Type as IrType};
 
 mod dump;
-mod dump_expr;
 mod expr;
 mod lower;
-mod lower_class;
-mod lower_class_element;
-mod lower_class_local;
-mod lower_class_prop;
-mod lower_class_static;
-mod lower_eval;
-mod lower_expr;
-mod lower_expr_object;
-mod lower_pattern;
-mod lower_private;
 mod module;
 mod stmt;
 
@@ -37,7 +26,7 @@ mod tests {
     use draconic_parser::parse;
 
     use crate::dump::dump_module;
-    use crate::lower_class_element::{params_are_simple, with_use_strict};
+    use crate::lower::lower_class_element::{params_are_simple, with_use_strict};
 
     fn lower_src(src: &str) -> Module {
         let program = parse(src).unwrap();

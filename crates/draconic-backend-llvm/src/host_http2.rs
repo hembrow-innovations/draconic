@@ -20,7 +20,6 @@ use draconic_runtime::abi::{
     HOST_TCP_WRITE, PRINT_I64,
 };
 
-#[path = "host_http2_classify.rs"]
 mod classify;
 
 use classify::classify;

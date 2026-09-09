@@ -21,9 +21,7 @@ use std::path::{Path, PathBuf};
 
 use crate::validate_module_path;
 
-#[path = "cache_checkout.rs"]
 mod cache_checkout;
-#[path = "cache_fetch.rs"]
 mod cache_fetch;
 
 pub use cache_fetch::CacheFetchError;

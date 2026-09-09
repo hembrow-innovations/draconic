@@ -35,15 +35,11 @@ use draconic_ast::JsString;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, IrType as Type, LocalId, Module};
 
-#[path = "es_expr_classify.rs"]
 mod classify;
 use classify::*;
 
-#[path = "es_expr_emit.rs"]
 mod emit;
-#[path = "es_expr_emit_number.rs"]
 mod emit_number;
-#[path = "es_expr_emit_values.rs"]
 mod emit_values;
 
 /// True when this module is a supported ES expression / control-flow subset

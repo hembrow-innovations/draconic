@@ -29,7 +29,6 @@ use crate::compression;
 use crate::hex;
 use crate::hmac;
 use crate::sha256;
-#[path = "es_encoding_eval.rs"]
 mod eval;
 
 use eval::eval_body;

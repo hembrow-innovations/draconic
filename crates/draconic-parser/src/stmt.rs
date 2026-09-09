@@ -1,5 +1,11 @@
 use super::*;
 
+mod stmt_class;
+mod stmt_for;
+mod stmt_function;
+pub(crate) mod stmt_lexical;
+mod stmt_using;
+
 impl Parser {
     /// One statement-list item; multi-declarator `let`/`const`/`var` expands to multiple Lets.
     pub(crate) fn parse_stmt_list_item_into(&mut self, body: &mut Vec<Stmt>) -> Result<(), Diagnostic> {

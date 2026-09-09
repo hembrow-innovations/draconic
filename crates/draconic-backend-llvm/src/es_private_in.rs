@@ -18,9 +18,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-#[path = "es_private_in_eval.rs"]
 mod eval;
-#[path = "es_private_in_call.rs"]
 mod call;
 
 

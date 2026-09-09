@@ -1,4 +1,6 @@
-use crate::dump_expr::{dump_expr, dump_params};
+mod dump_expr;
+
+use dump_expr::{dump_expr, dump_params};
 use crate::{
     ArrayPatternEl, AssignTarget, BindingKind, Module, ObjectPatternEl, ObjectPropKey, Pattern,
     Stmt,

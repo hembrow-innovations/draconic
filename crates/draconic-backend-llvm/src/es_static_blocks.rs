@@ -16,9 +16,7 @@ use draconic_ir::{
     Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
-#[path = "es_static_blocks_eval.rs"]
 mod eval;
-#[path = "es_static_blocks_call.rs"]
 mod call;
 
 use eval::{as_callable, eval_body, ParamBind};

@@ -32,11 +32,8 @@ use draconic_runtime::abi::{
     PRINT_F64, PRINT_STR,
 };
 
-#[path = "host_tcp_classify.rs"]
 mod classify;
-#[path = "host_tcp_emit.rs"]
 mod emit;
-#[path = "host_tcp_values.rs"]
 mod values;
 
 use classify::classify;

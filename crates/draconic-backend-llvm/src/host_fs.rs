@@ -29,13 +29,9 @@ use draconic_runtime::abi::{
     PRINT_F64, PRINT_STR,
 };
 
-#[path = "host_fs_classify.rs"]
 mod classify;
-#[path = "host_fs_emit.rs"]
 mod emit;
-#[path = "host_fs_io.rs"]
 mod io;
-#[path = "host_fs_values.rs"]
 mod values;
 
 use classify::classify;

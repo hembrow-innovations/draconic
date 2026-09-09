@@ -16,11 +16,8 @@ use draconic_runtime::abi::{
     PROMISE_RESOLVE, PROMISE_THEN,
 };
 
-#[path = "es_promise_emit.rs"]
 mod emit;
-#[path = "es_promise_async.rs"]
 mod async_fn;
-#[path = "es_promise_reaction.rs"]
 mod reaction;
 
 /// True when this module is the supported Promise/async subset (E12.01–E12.09 / N06.03–N06.11).

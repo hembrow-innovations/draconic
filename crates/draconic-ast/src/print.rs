@@ -4,11 +4,14 @@
 //! `print_program` is pure AST → text; parse → print → parse → print is
 //! idempotent for well-formed programs.
 
-use crate::print_expr::{
+mod print_expr;
+mod print_type;
+
+use print_expr::{
     expr_needs_stmt_paren, print_expr, print_expr_inner, print_object_key, print_string_lit,
     PREC_ASSIGN,
 };
-use crate::print_type::{print_type_ann, print_type_params};
+use print_type::{print_type_ann, print_type_params};
 use crate::{
     AccessorKind, ArrayPatternElement, BindingKind, BindingPattern, ClassElement, ImportAttribute,
     ImportAttributeKey, ImportPhase, ObjectPatternProp, Param, Program, Stmt,

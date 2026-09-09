@@ -1,4 +1,8 @@
-use crate::scan_ident::is_ident_continue_char;
+mod scan_ident;
+mod scan_number;
+mod scan_string;
+
+use scan_ident::is_ident_continue_char;
 use crate::token::{Token, TokenKind};
 use draconic_diagnostics::{Diagnostic, Span};
 

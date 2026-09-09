@@ -15,6 +15,12 @@ use super::{
     IntersectionType, ObjectShape, Symbol, SymbolId, Type, UnionType,
 };
 
+mod checker_assign;
+mod checker_expr;
+mod checker_ops;
+mod checker_stmt;
+mod checker_type;
+
 /// Resolved signature for a non-generic annotated function (T07.01).
 /// Recorded for call-site argument checking: arity and per-param assignability.
 /// Only built when the function has at least one annotated parameter, so

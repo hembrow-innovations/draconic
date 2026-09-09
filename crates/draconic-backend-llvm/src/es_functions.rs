@@ -35,15 +35,10 @@ use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
 
 use crate::emitter::{escape_llvm_bytes, Emitter as IrEmitter, SlotTy};
 
-#[path = "es_functions_classify.rs"]
 mod classify;
-#[path = "es_functions_collect.rs"]
 mod collect;
-#[path = "es_functions_ok.rs"]
 mod ok;
-#[path = "es_functions_emit.rs"]
 mod emit;
-#[path = "es_functions_emit_expr.rs"]
 mod emit_expr;
 
 use classify::classify;

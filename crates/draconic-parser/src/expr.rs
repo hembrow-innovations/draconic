@@ -1,5 +1,11 @@
 use super::*;
 
+mod expr_function;
+mod expr_lhs;
+mod expr_object;
+mod expr_ops;
+mod expr_primary;
+
 impl Parser {
     /// Expression: `AssignmentExpression` (`,` `AssignmentExpression`)* left-assoc.
     pub(crate) fn parse_expr(&mut self) -> Result<Expr, Diagnostic> {

@@ -13,20 +13,10 @@ mod contains;
 mod context;
 mod cover;
 mod expr;
-mod expr_function;
-mod expr_lhs;
-mod expr_object;
-mod expr_ops;
-mod expr_primary;
 mod fuzz;
 mod module;
 mod pattern;
 mod stmt;
-mod stmt_class;
-mod stmt_for;
-mod stmt_function;
-mod stmt_lexical;
-mod stmt_using;
 mod ty;
 
 use context::ParserContext;
@@ -43,7 +33,7 @@ pub(crate) use contains::{
 pub(crate) use cover::{
     array_expr_to_pattern, expr_contains_cover_initialized_name, object_expr_to_pattern,
 };
-pub(crate) use stmt_lexical::binding_pattern_bound_names_contain_let;
+pub(crate) use stmt::stmt_lexical::binding_pattern_bound_names_contain_let;
 
 pub use draconic_ast::dump_program as dump_ast;
 pub use fuzz::fuzz_parse;

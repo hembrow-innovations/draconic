@@ -19,7 +19,6 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_STR};
 
-#[path = "es_new_target_eval.rs"]
 mod eval;
 
 pub(crate) fn is_es_new_target_module(module: &Module) -> bool {

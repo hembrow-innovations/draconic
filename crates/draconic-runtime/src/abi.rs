@@ -675,27 +675,16 @@ pub const ES_PROMISE_DECLARES: &[AbiFn] = &[
     OBJECT_GET,
 ];
 
-#[path = "abi_host.rs"]
 mod abi_host;
-#[path = "abi_host_io.rs"]
 mod abi_host_io;
-#[path = "abi_host_net.rs"]
 mod abi_host_net;
-#[path = "abi_host_symbols.rs"]
 mod abi_host_symbols;
-#[path = "host_process_polyfill.rs"]
 mod host_process_polyfill;
-#[path = "host_worker_polyfill.rs"]
 mod host_worker_polyfill;
-#[path = "host_cancel_polyfill.rs"]
 mod host_cancel_polyfill;
-#[path = "host_timer_polyfill.rs"]
 mod host_timer_polyfill;
-#[path = "host_stdio_polyfill.rs"]
 mod host_stdio_polyfill;
-#[path = "host_path_polyfill.rs"]
 mod host_path_polyfill;
-#[path = "host_fs_polyfill.rs"]
 mod host_fs_polyfill;
 
 pub use abi_host::*;

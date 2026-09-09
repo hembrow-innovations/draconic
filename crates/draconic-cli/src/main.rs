@@ -2,17 +2,7 @@ use std::env;
 use std::path::Path;
 use std::process::ExitCode;
 
-mod cmd_bindgen;
-mod cmd_build;
-mod cmd_check;
-mod cmd_doc;
-mod cmd_fmt;
-mod cmd_get;
-mod cmd_mod;
-mod cmd_parse;
-mod cmd_repl;
-mod cmd_run;
-mod cmd_test;
+mod cmd;
 mod doc;
 mod extract;
 mod strip_symbols;
@@ -29,18 +19,18 @@ fn main() -> ExitCode {
 
     let cmd = args.remove(0);
     match cmd.as_str() {
-        "parse" => cmd_parse::cmd_parse(&args),
-        "check" => cmd_check::cmd_check(&args),
-        "fmt" => cmd_fmt::cmd_fmt(&args),
-        "doc" => cmd_doc::cmd_doc(&args),
+        "parse" => cmd::cmd_parse::cmd_parse(&args),
+        "check" => cmd::cmd_check::cmd_check(&args),
+        "fmt" => cmd::cmd_fmt::cmd_fmt(&args),
+        "doc" => cmd::cmd_doc::cmd_doc(&args),
         "extract" => extract::cmd_extract(&args),
-        "build" => cmd_build::cmd_build(&args),
-        "run" => cmd_run::cmd_run(&args),
-        "repl" => cmd_repl::cmd_repl(&args),
-        "test" => cmd_test::cmd_test(&args),
-        "get" => cmd_get::cmd_get(&args),
-        "mod" => cmd_mod::cmd_mod(&args),
-        "bindgen" => cmd_bindgen::cmd_bindgen(&args),
+        "build" => cmd::cmd_build::cmd_build(&args),
+        "run" => cmd::cmd_run::cmd_run(&args),
+        "repl" => cmd::cmd_repl::cmd_repl(&args),
+        "test" => cmd::cmd_test::cmd_test(&args),
+        "get" => cmd::cmd_get::cmd_get(&args),
+        "mod" => cmd::cmd_mod::cmd_mod(&args),
+        "bindgen" => cmd::cmd_bindgen::cmd_bindgen(&args),
         "help" | "-h" | "--help" => {
             print_usage();
             ExitCode::SUCCESS
@@ -54,7 +44,7 @@ fn main() -> ExitCode {
             let mut run_args = Vec::with_capacity(args.len() + 1);
             run_args.push(other.to_string());
             run_args.extend(args);
-            cmd_run::cmd_run(&run_args)
+            cmd::cmd_run::cmd_run(&run_args)
         }
         other => {
             eprintln!("unknown command: {other}");

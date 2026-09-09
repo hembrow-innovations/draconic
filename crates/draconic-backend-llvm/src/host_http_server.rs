@@ -28,11 +28,8 @@ use draconic_runtime::abi::{
     HOST_TLS_SERVER_WRAP, HOST_TLS_WRITE, HOST_WS_HANDSHAKE_RESPONSE, PRINT_I64, PRINT_STR,
 };
 
-#[path = "host_http_server_classify.rs"]
 mod classify;
-#[path = "host_http_server_emit.rs"]
 mod emit;
-#[path = "host_http_server_io.rs"]
 mod io;
 
 use classify::classify;

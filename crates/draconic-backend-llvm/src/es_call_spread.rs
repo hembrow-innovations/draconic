@@ -18,7 +18,6 @@ use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, CSTR_CONCAT, GC_INIT,
     OBJECT_GET, OBJECT_SET, OBJECT_SET_PROTO, PRINT_F64, PRINT_STR,
 };
-#[path = "es_call_spread_emit.rs"]
 mod emit;
 
 

@@ -20,9 +20,7 @@ use draconic_runtime::abi::{
     PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
 
-#[path = "host_tcp_async_classify.rs"]
 mod classify;
-#[path = "host_tcp_async_emit.rs"]
 mod emit;
 
 use classify::try_classify;

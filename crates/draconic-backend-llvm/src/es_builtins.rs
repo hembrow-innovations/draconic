@@ -54,35 +54,26 @@ use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::Module;
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 
-#[path = "es_builtins_values.rs"]
 mod values;
 use values::*;
 
-#[path = "es_builtins_regexp.rs"]
 mod regexp;
 use regexp::*;
 
-#[path = "es_builtins_date.rs"]
 mod date;
 use date::*;
 
-#[path = "es_builtins_string.rs"]
 mod string;
 use string::*;
 
-#[path = "es_builtins_json.rs"]
 mod json;
 use json::*;
 
-#[path = "es_builtins_classify.rs"]
 mod classify;
 use classify::*;
 
-#[path = "es_builtins_call.rs"]
 mod call;
-#[path = "es_builtins_eval.rs"]
 mod eval;
-#[path = "es_builtins_member.rs"]
 mod member;
 
 struct Interp {

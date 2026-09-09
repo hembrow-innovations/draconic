@@ -35,11 +35,8 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-#[path = "es_generators_eval.rs"]
 mod eval;
-#[path = "es_generators_class.rs"]
 mod class;
-#[path = "es_generators_exec.rs"]
 mod exec;
 
 use eval::eval_body;

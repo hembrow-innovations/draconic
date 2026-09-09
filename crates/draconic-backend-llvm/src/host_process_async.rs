@@ -21,7 +21,6 @@ use draconic_runtime::abi::{
     HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
 
-#[path = "host_process_async_classify.rs"]
 mod classify;
 
 use classify::try_classify;

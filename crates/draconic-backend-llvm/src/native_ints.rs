@@ -16,13 +16,9 @@ use draconic_runtime::abi::{
 
 use crate::debug_info::{dbg_marker, SourceDebug};
 
-#[path = "native_ints_emit.rs"]
 mod emit;
-#[path = "native_ints_expr.rs"]
 mod expr;
-#[path = "native_ints_layout.rs"]
 mod layout;
-#[path = "native_ints_ops.rs"]
 mod ops;
 
 /// LLVM IR type spelling for a semantic native type (backend-owned mapping).

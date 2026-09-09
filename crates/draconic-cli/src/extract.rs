@@ -12,11 +12,9 @@ use draconic_ast::{
 use draconic_diagnostics::Span;
 use draconic_parser::parse_module;
 
-#[path = "extract_json.rs"]
 mod extract_json;
 use extract_json::emit_json;
 
-#[path = "extract_instances.rs"]
 mod extract_instances;
 use extract_instances::{
     apply_instance_binding, clear_for_binding, delete_bound_names, delete_params,

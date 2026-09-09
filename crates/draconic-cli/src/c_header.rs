@@ -79,7 +79,6 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-#[path = "c_header_emit.rs"]
 mod c_header_emit;
 pub use c_header_emit::emit_externs;
 

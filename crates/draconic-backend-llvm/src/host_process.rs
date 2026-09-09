@@ -23,7 +23,6 @@ use draconic_runtime::abi::{
     HOST_PROCESS_USER_ARGC, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
-#[path = "host_process_classify.rs"]
 mod classify;
 
 use classify::classify;

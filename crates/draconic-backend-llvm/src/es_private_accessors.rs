@@ -15,7 +15,6 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-#[path = "es_private_accessors_eval.rs"]
 mod eval;
 
 pub(crate) fn is_es_private_accessors_module(module: &Module) -> bool {

@@ -17,17 +17,11 @@ use draconic_ast::UnaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, ObjectProp, Stmt};
 
-#[path = "es_classes_private.rs"]
 mod private;
-#[path = "es_classes_ctor.rs"]
 mod ctor;
-#[path = "es_classes_ok.rs"]
 mod ok;
-#[path = "es_classes_extract.rs"]
 mod extract;
-#[path = "es_classes_emit.rs"]
 mod emit;
-#[path = "es_classes_emit_expr.rs"]
 mod emit_expr;
 
 use extract::{try_extract_class, try_fold_new_class_iife_member};

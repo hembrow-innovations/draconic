@@ -23,7 +23,6 @@ use draconic_runtime::abi::{
     PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
 
-#[path = "host_channels_classify.rs"]
 mod classify;
 
 use classify::classify;

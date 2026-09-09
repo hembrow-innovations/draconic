@@ -19,7 +19,6 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BYTES, PRINT_F64};
 
-#[path = "es_modules_eval.rs"]
 mod eval;
 
 use eval::eval_body;

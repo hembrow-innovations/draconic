@@ -4,9 +4,20 @@ use draconic_ast::{AssignOp, BindingPattern, Expr as AstExpr, Stmt as AstStmt};
 use draconic_check::{CheckedProgram, NativeType, Type};
 use draconic_diagnostics::Span;
 
-use crate::lower_class::lower_class;
-use crate::lower_class_element::{possible_constructor_return, undef_expr};
-use crate::lower_expr::{
+mod lower_class;
+pub(crate) mod lower_class_element;
+mod lower_class_local;
+mod lower_class_prop;
+mod lower_class_static;
+mod lower_eval;
+mod lower_expr;
+mod lower_expr_object;
+mod lower_pattern;
+mod lower_private;
+
+use lower_class::lower_class;
+use lower_class_element::{possible_constructor_return, undef_expr};
+use lower_expr::{
     lower_array_pattern_els, lower_binding_pattern, lower_expr, lower_expr_hint,
     lower_object_pattern_props, lower_params,
 };

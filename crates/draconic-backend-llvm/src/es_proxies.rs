@@ -29,9 +29,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-#[path = "es_proxies_eval.rs"]
 mod eval;
-#[path = "es_proxies_traps.rs"]
 mod traps;
 
 use eval::eval_body;

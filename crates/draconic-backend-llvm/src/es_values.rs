@@ -21,7 +21,6 @@ use draconic_runtime::abi::{
     SYMBOL_KEY_FOR, SYMBOL_NEW,
 };
 
-#[path = "es_values_classify.rs"]
 mod classify;
 
 use classify::classify;

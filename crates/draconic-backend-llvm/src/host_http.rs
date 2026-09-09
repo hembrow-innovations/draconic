@@ -21,7 +21,6 @@ use draconic_runtime::abi::{
     PRINT_I64, PRINT_STR,
 };
 
-#[path = "host_http_classify.rs"]
 mod classify;
 
 use classify::classify;

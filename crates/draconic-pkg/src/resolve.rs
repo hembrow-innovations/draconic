@@ -17,7 +17,6 @@ use std::process::Command;
 
 use crate::validate_version_req;
 
-#[path = "resolve_direct.rs"]
 mod resolve_direct;
 pub use resolve_direct::{
     resolve_direct_deps, resolve_direct_deps_with_advisory, ResolveDirectError,

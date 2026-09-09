@@ -1,4 +1,6 @@
-use crate::dump_expr::dump_expr;
+mod dump_expr;
+
+use dump_expr::dump_expr;
 use crate::{
     AccessorKind, ArrayPatternElement, BindingKind, BindingPattern, ClassElement, ImportAttribute,
     ImportAttributeKey, ImportPhase, ObjectKey, ObjectPatternProp, Param, Program, Stmt, TypeAnn,
