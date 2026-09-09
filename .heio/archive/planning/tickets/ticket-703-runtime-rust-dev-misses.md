@@ -2,13 +2,13 @@
 id: "ticket-703-runtime-rust-dev-misses"
 title: "Runtime lib.rs abi.rs host_abi_tests.rs over budget"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # Runtime lib.rs abi.rs host_abi_tests.rs over budget

@@ -2,13 +2,13 @@
 id: "ticket-699-ir-rust-dev-misses"
 title: "IR lib.rs over budget and dump_module is pub"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # IR lib.rs over budget and dump_module is pub

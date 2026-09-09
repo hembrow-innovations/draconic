@@ -2,14 +2,14 @@
 id: "task-765-host-catalog-sync"
 title: "Host catalog sync test"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-757-host-catalog"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T18:00:00Z"
 ---
 
 # Host catalog sync test
@@ -60,10 +60,14 @@ catalog_sync fails on drift. No new host function in this sitting.
 - size-file-budget: do not push host_api.rs over a new 1250 if already over; add the test next to existing host_api tests
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-check --offline catalog_sync
-- [ ] test asserts native/BOTH names have ABI symbols
-- [ ] test asserts BOTH names have JS polyfill coverage
-- [ ] no new workspace crate
+- [x] cargo test -p draconic-check --offline catalog_sync
+- [x] test asserts native/BOTH names have ABI symbols
+- [x] test asserts BOTH names have JS polyfill coverage
+- [x] no new workspace crate
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-check --offline catalog_sync` — win — test result: ok.
 
 **Out of scope:**
 - Splitting host_api.rs (task-726 waits)

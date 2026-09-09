@@ -2,14 +2,14 @@
 id: "task-759-llvm-default-walker"
 title: "Default LLVM path is one IR walker"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-758-llvm-shared-emitter"]
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T21:00:00Z"
 ---
 
 # Default LLVM path is one IR walker
@@ -59,10 +59,10 @@ Default path walks Stmt/Expr. Existing adapter arms still win first. Native obse
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] leftover supported expr programs emit via the walker
-- [ ] still-unsupported nodes diagnostic
-- [ ] no new is_*_module function
-- [ ] cargo test -p draconic-backend-llvm
+- [x] leftover supported expr programs emit via the walker
+- [x] still-unsupported nodes diagnostic
+- [x] no new is_*_module function
+- [x] cargo test -p draconic-backend-llvm
 
 **Out of scope:**
 - Deleting host_* or fixture printers
@@ -71,3 +71,10 @@ Default path walks Stmt/Expr. Existing adapter arms still win first. Native obse
 
 **Explain this part:**
 Do not steal programs from earlier is_* arms. Order stays load-bearing until contract-dispatch.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline
+- **result**: win
+- **gap**: none

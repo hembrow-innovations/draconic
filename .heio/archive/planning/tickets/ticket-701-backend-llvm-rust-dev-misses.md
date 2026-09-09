@@ -2,13 +2,13 @@
 id: "ticket-701-backend-llvm-rust-dev-misses"
 title: "LLVM backend many files over budget plus extra globals"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # LLVM backend many files over budget plus extra globals

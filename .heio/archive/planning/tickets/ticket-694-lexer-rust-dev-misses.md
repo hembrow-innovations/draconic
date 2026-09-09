@@ -2,13 +2,13 @@
 id: "ticket-694-lexer-rust-dev-misses"
 title: "Lexer over file budget and String regexp errors"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # Lexer over file budget and String regexp errors

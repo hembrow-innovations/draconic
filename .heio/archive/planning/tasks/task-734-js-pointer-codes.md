@@ -2,14 +2,14 @@
 id: "task-734-js-pointer-codes"
 title: "Code JS pointer native_only diagnostics"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-733-js-split-emit"]
 sprint: "rust-dev-audit"
 slice: "slice-711-backend-js-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:00:00Z"
 ---
 
 # Code JS pointer native_only diagnostics
@@ -60,8 +60,8 @@ with_code on that path. Still a hard error, not JS emit.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] O3 sees with_code near native_only
-- [ ] cargo test -p draconic-backend-js
+- [x] O3 sees with_code near native_only
+- [x] cargo test -p draconic-backend-js
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ with_code on that path. Still a hard error, not JS emit.
 
 **Explain this part:**
 Reuse HOST_API_UNSUPPORTED / EXTERN_UNSUPPORTED patterns already in this crate.
+
+## Gauntlet
+
+- **round 1**: `rg -n "native_only_diag|with_code" crates/draconic-backend-js/src`; `cargo test -p draconic-backend-js --offline` — **win**. native_only_diag calls with_code(POINTER_UNSUPPORTED). test result: ok. 64 passed. Host/extern paths unchanged. Promise `language.dual-worlds:native-only-hard-error-on-js` still hard-errors.

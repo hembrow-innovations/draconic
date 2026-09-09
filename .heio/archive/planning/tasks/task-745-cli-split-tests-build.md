@@ -1,18 +1,18 @@
 ---
-id: "task-737-pkg-split-resolve"
-title: "Split pkg resolve.rs"
+id: "task-745-cli-split-tests-build"
+title: "Split cli tests/build.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
-slice: "slice-713-pkg-file-budget"
+slice: "slice-715-cli-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:20:00Z"
 ---
 
-# Split pkg resolve.rs
+# Split cli tests/build.rs
 
 ## Blocked by
 
@@ -20,26 +20,26 @@ None.
 
 ## Done
 
-resolve.rs ≤1000 or resolve_*.rs each ≤1000.
+tests/build.rs ≤1000 or tests/build_*.rs each ≤1000.
 
 ## Context
 
-resolve.rs 1121: tag resolve and direct-dep pinning.
+tests/build.rs 1227 binary integration tests.
 
 ## Verify
 
-Slice O1 after the three pkg tasks; this sitting at least resolve files ≤1000.
+Slice O1 after sibling CLI tasks; this sitting finishes build integration tests ≤1000.
 
-scope: crates/draconic-pkg/src/resolve.rs and new resolve_*.rs
+scope: crates/draconic-cli/tests/build.rs and new tests/build_*.rs
 
 ## Links
 
-[[slice-713-pkg-file-budget]]
+[[slice-715-cli-file-budget]]
 
 ## Agent Brief
 
 **Category:** layout
-**Summary:** Split pkg resolve.rs under 1000.
+**Summary:** Split CLI build integration tests under 1000.
 
 If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 
@@ -49,10 +49,10 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - Contract-first: do not invent language behaviour
 
 **Current behavior:**
-resolve.rs 1121 lines.
+1227-line tests/build.rs.
 
 **Desired behavior:**
-resolve files ≤1000.
+Each file ≤1000.
 
 **Key interfaces:**
 - `mod foo;` plus `foo.rs` (arch-file-modules)
@@ -60,15 +60,18 @@ resolve files ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no resolve*.rs over 1000
-- [ ] cargo test -p draconic-pkg
+- [x] no tests/build*.rs over 1000
+- [x] cargo test -p draconic-cli
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-cli --offline` — win. build.rs 250, build_link.rs 283, build_packages.rs 786; all CLI tests ok.
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
 - Extracting unit tests into crate-level tests/ (test-same-file)
 - cargo test --workspace as this task's oracle
 - New crates or workspace members
-- Editing lib.rs or cache.rs
 
 **Explain this part:**
-Parallel with lib and cache splits.
+Keep spawning CARGO_BIN_EXE_draconic. Do not use --lib as a language oracle.

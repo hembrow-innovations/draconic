@@ -2,12 +2,12 @@
 id: "slice-711-backend-js-file-budget"
 title: "JS backend es_* split and pointer codes"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:30:00Z"
 ---
 
 # JS backend es_* split and pointer codes
@@ -32,18 +32,18 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: js backend rust files ≤1000 lines
+- [x] O1: js backend rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-js"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: js backend tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: js backend tests green
   CHECK: cargo test -p draconic-backend-js --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: pointer native_only uses with_code
+  EVIDENCE: test result: ok. 64 passed
+- [x] O3: pointer native_only uses with_code
   CHECK: rg -n "native_only_diag|with_code" crates/draconic-backend-js/src
   EXPECT: with_code
-  EVIDENCE: pending
+  EVIDENCE: crates/draconic-backend-js/src/native.rs:15 .with_code(codes::POINTER_UNSUPPORTED)
 
 ## Pool
 

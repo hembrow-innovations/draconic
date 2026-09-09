@@ -2,14 +2,14 @@
 id: "task-739-runtime-split-lib"
 title: "Split runtime lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-738-runtime-extract-inline-mods"]
 sprint: "rust-dev-audit"
 slice: "slice-714-runtime-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:45:00Z"
 ---
 
 # Split runtime lib.rs
@@ -60,8 +60,8 @@ lib.rs ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] lib.rs ≤1000
-- [ ] cargo test -p draconic-runtime
+- [x] lib.rs ≤1000
+- [x] cargo test -p draconic-runtime
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ lib.rs ≤1000.
 
 **Explain this part:**
 Runtime may keep split *_tests.rs declared from lib.rs.
+
+## Gauntlet
+
+- round 1: `cargo test -p draconic-runtime --offline` plus lib.rs loc — win — 160 passed, lib.rs 105, archive.rs 604, largest new test file gc_collect_tests.rs 627

@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — closed rust-dev-audit sprint (13 met slices) and 11 tickets; archived 1 abandoned opt-in-bench slice; 15 tickets remain; opt-in-bench and platform sprints stay active
 - **task-743-cli-split-extract** — split cli extract.rs JSON/instance seams and tests/extract.rs under file budget
 - **task-755-llvm-no-extra-globals** — drop extra LLVM thread-locals and process-global id caches
 - **task-754-llvm-split-over-1000** — split llvm files between 1001 and 1250 under file budget

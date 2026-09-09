@@ -1,18 +1,18 @@
 ---
-id: "task-745-cli-split-tests-build"
-title: "Split cli tests/build.rs"
+id: "task-744-cli-split-c-header"
+title: "Split cli c_header.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-715-cli-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:45:00Z"
 ---
 
-# Split cli tests/build.rs
+# Split cli c_header.rs
 
 ## Blocked by
 
@@ -20,17 +20,17 @@ None.
 
 ## Done
 
-tests/build.rs ≤1000 or tests/build_*.rs each ≤1000.
+c_header.rs ≤1000. Same-file tests from 764 move with any new seam.
 
 ## Context
 
-tests/build.rs 1227 binary integration tests.
+c_header.rs 1021, just over the target.
 
 ## Verify
 
-Slice O1 after sibling CLI tasks; this sitting finishes build integration tests ≤1000.
+cargo test -p draconic-cli. c_header.rs ≤1000.
 
-scope: crates/draconic-cli/tests/build.rs and new tests/build_*.rs
+scope: crates/draconic-cli/src/c_header.rs and new sibling if required
 
 ## Links
 
@@ -39,7 +39,7 @@ scope: crates/draconic-cli/tests/build.rs and new tests/build_*.rs
 ## Agent Brief
 
 **Category:** layout
-**Summary:** Split CLI build integration tests under 1000.
+**Summary:** Trim or split c_header.rs under 1000.
 
 If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 
@@ -49,10 +49,10 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - Contract-first: do not invent language behaviour
 
 **Current behavior:**
-1227-line tests/build.rs.
+1021 lines including tests.
 
 **Desired behavior:**
-Each file ≤1000.
+≤1000.
 
 **Key interfaces:**
 - `mod foo;` plus `foo.rs` (arch-file-modules)
@@ -60,8 +60,8 @@ Each file ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no tests/build*.rs over 1000
-- [ ] cargo test -p draconic-cli
+- [x] c_header.rs ≤1000
+- [x] cargo test -p draconic-cli
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -70,4 +70,8 @@ Each file ≤1000.
 - New crates or workspace members
 
 **Explain this part:**
-Keep spawning CARGO_BIN_EXE_draconic. Do not use --lib as a language oracle.
+A small extract of tests-with-seam is enough. Do not rewrite bindgen behaviour.
+
+## Gauntlet
+
+- round 1: `cargo test -p draconic-cli --offline` plus loc — win — 21 c_header unit tests passed, c_header.rs 838, c_header_emit.rs 194

@@ -2,14 +2,14 @@
 id: "task-772-cli-frontend-load-policy"
 title: "CLI reuses Frontend parse policy"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-715-cli-file-budget"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T18:00:00Z"
 ---
 
 # CLI reuses Frontend parse policy
@@ -59,10 +59,10 @@ Same fmt/repl behaviour via Frontend policy. No clap.
 - size-file-budget: main.rs must not grow; extracting a small fmt module ≤1000 is allowed
 
 **Acceptance criteria:**
-- [ ] format_source does not call draconic_parser::parse directly
-- [ ] repl completeness uses the same policy helper
-- [ ] cargo test -p draconic-cli
-- [ ] no clap
+- [x] format_source does not call draconic_parser::parse directly
+- [x] repl completeness uses the same policy helper
+- [x] cargo test -p draconic-cli
+- [x] no clap
 
 **Out of scope:**
 - Splitting the rest of main.rs (task-742)
@@ -71,3 +71,7 @@ Same fmt/repl behaviour via Frontend policy. No clap.
 
 **Explain this part:**
 cmd_parse may still dump AST via parser. Do not link modules during fmt.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-cli --offline` — win. format_source and repl_buffer_status call Frontend `parse_source`; no clap.

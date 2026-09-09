@@ -2,14 +2,14 @@
 id: "task-768-abi-polyfills-keyed"
 title: "Key Runtime JS polyfills by catalog name"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-765-host-catalog-sync"]
 sprint: "rust-dev-audit"
 slice: "slice-757-host-catalog"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T18:00:00Z"
 ---
 
 # Key Runtime JS polyfills by catalog name
@@ -59,10 +59,10 @@ A caller can ask for the polyfill body by catalog host name.
 - size-file-budget: do not grow abi.rs; prefer moving polyfills into siblings if that keeps files ≤1000, but finishing the 1000 budget is task-740
 
 **Acceptance criteria:**
-- [ ] lookup by catalog name returns host JS polyfills
-- [ ] cargo test -p draconic-runtime
-- [ ] catalog_sync still green
-- [ ] no new workspace crate
+- [x] lookup by catalog name returns host JS polyfills
+- [x] cargo test -p draconic-runtime
+- [x] catalog_sync still green
+- [x] no new workspace crate
 
 **Out of scope:**
 - Finishing abi.rs ≤1000 (task-740)
@@ -71,3 +71,7 @@ A caller can ask for the polyfill body by catalog host name.
 
 **Explain this part:**
 If you must move polyfill bodies to new files to avoid growing abi.rs, that is allowed and helps task-740. Do not change LLVM declare strings in this sitting unless a move requires a re-export.
+
+## Gauntlet
+
+Round 1: `cargo test -p draconic-runtime --offline` and `cargo test -p draconic-check --offline catalog_sync` — win. Lookup by catalog name returns host JS polyfills; catalog_sync still green.

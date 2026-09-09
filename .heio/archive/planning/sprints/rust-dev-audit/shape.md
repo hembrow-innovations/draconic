@@ -2,10 +2,10 @@
 id: "rust-dev-audit"
 title: "rust-development crate audit"
 kind: sprint
-status: active
+status: closed
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # rust-development crate audit

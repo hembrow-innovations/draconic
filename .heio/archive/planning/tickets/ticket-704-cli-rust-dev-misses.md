@@ -2,13 +2,13 @@
 id: "ticket-704-cli-rust-dev-misses"
 title: "CLI main.rs extract tests and helpers over file budget"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # CLI main.rs extract tests and helpers over file budget

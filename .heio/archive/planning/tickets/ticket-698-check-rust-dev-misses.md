@@ -2,13 +2,13 @@
 id: "ticket-698-check-rust-dev-misses"
 title: "Checker lib.rs and host_api.rs over file budget"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # Checker lib.rs and host_api.rs over file budget

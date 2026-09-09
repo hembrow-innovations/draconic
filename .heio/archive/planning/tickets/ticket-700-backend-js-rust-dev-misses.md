@@ -2,13 +2,13 @@
 id: "ticket-700-backend-js-rust-dev-misses"
 title: "JS backend files over budget and pointer diags lack codes"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 sprint: "rust-dev-audit"
 blocked_by: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # JS backend files over budget and pointer diags lack codes

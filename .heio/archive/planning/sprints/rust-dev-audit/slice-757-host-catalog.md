@@ -2,12 +2,12 @@
 id: "slice-757-host-catalog"
 title: "Host catalog one table"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
 
 # Host catalog one table
@@ -33,14 +33,14 @@ None. [[task-740-runtime-split-abi]] and [[task-726-check-split-host-api]] wait 
 
 ## Oracle checklist
 
-- [ ] O1: catalog sync test green
+- [x] O1: catalog sync test green
   CHECK: cargo test -p draconic-check --offline catalog_sync
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O2: check runtime js frontend tests green
+  EVIDENCE: catalog_sync ok. 1 passed; 0 failed
+- [x] O2: check runtime js frontend tests green
   CHECK: cargo test -p draconic-check -p draconic-runtime -p draconic-backend-js -p draconic-frontend --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: check 278, runtime 163, backend-js 65, frontend 11, all ok.
 
 ## Pool
 

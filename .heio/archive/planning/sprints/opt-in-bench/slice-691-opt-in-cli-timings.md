@@ -2,14 +2,13 @@
 id: "slice-691-opt-in-cli-timings"
 title: "Opt-in CLI timings"
 kind: slice
-status: active
+status: abandoned
 sprint: "opt-in-bench"
 blocked_by: []
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-08T19:49:50Z"
+updated_at: "2026-09-09T12:30:00Z"
 ---
-
 # Opt-in CLI timings
 
 ## Why
@@ -66,3 +65,8 @@ Durable links to task ids. Never drop them.
 ## See also
 
 [[performance]], [[0012-oracle-check-timeout]], [[api-cli]], [[guides-toolchain]], [[ticket-773-native-console-log]], ROADMAP.md (no new row), Cargo.toml workspace members.
+
+
+## Abandon
+
+ABANDON: [[ticket-773-native-console-log]] — O1 cannot hold. Native LLVM has no console.log lowering, so both-target perf fixtures cannot print. Drain stopped. Tasks stay linked. Do not mark met.

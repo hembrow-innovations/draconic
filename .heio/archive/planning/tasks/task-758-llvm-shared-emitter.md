@@ -2,14 +2,14 @@
 id: "task-758-llvm-shared-emitter"
 title: "Share LLVM SlotTy and Emitter"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T19:30:00Z"
 ---
 
 # Share LLVM SlotTy and Emitter
@@ -59,11 +59,11 @@ es_expr and es_functions share one private implementation. emit_llvm_ir behaviou
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] shared SlotTy/Emitter module exists
-- [ ] es_expr.rs and es_functions.rs do not define enum SlotTy
-- [ ] emit_llvm_ir_raw still has the existing is_* cascade
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new file over 1000
+- [x] shared SlotTy/Emitter module exists
+- [x] es_expr.rs and es_functions.rs do not define enum SlotTy
+- [x] emit_llvm_ir_raw still has the existing is_* cascade
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new file over 1000
 
 **Out of scope:**
 - Deleting is_* adapters
@@ -73,3 +73,10 @@ es_expr and es_functions share one private implementation. emit_llvm_ir behaviou
 
 **Explain this part:**
 This is expand. Later tasks migrate adapters onto this emitter. Do not rename emit_llvm_ir.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline; rg "enum SlotTy" es_expr.rs es_functions.rs; wc -l emitter.rs; emit_llvm_ir_raw is_* cascade
+- **result**: win
+- **gap**: none

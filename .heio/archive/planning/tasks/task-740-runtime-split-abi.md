@@ -2,14 +2,14 @@
 id: "task-740-runtime-split-abi"
 title: "Split runtime abi.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-768-abi-polyfills-keyed"]
 sprint: "rust-dev-audit"
 slice: "slice-714-runtime-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:00:00Z"
 ---
 
 # Split runtime abi.rs
@@ -60,8 +60,8 @@ Files ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no abi*.rs over 1000
-- [ ] cargo test -p draconic-runtime
+- [x] no abi*.rs over 1000
+- [x] cargo test -p draconic-runtime
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ Files ≤1000.
 
 **Explain this part:**
 Parallel with extract/split of lib.rs as long as you do not edit lib.rs in this sitting.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-runtime --offline` — win. 163 passed. abi*.rs all ≤1000 (abi.rs 746). No critic gap.

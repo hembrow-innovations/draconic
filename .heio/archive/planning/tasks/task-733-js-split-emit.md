@@ -2,14 +2,14 @@
 id: "task-733-js-split-emit"
 title: "Split JS backend lib.rs and emit.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-711-backend-js-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:30:00Z"
 ---
 
 # Split JS backend lib.rs and emit.rs
@@ -60,9 +60,9 @@ es_* / existing modules ≤1000. emit_js still public.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O1 max-loc-ok
-- [ ] cargo test -p draconic-backend-js
-- [ ] dual-js-policy still hard-errors pointers/extern/host
+- [x] Slice O1 max-loc-ok
+- [x] cargo test -p draconic-backend-js
+- [x] dual-js-policy still hard-errors pointers/extern/host
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ es_* / existing modules ≤1000. emit_js still public.
 
 **Explain this part:**
 Do not invent a second IR. Consume draconic_ir::Module.
+
+## Gauntlet
+
+- **round 1**: python3 max-loc on crates/draconic-backend-js; cargo test -p draconic-backend-js --offline — **win**. max-loc-ok. test result: ok. 64 passed. emit_js still public. native.rs still reject_native_only / reject_extern_ffi / reject_host_api_name.

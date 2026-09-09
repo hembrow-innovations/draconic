@@ -1,18 +1,18 @@
 ---
-id: "task-744-cli-split-c-header"
-title: "Split cli c_header.rs"
+id: "task-737-pkg-split-resolve"
+title: "Split pkg resolve.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
-slice: "slice-715-cli-file-budget"
+slice: "slice-713-pkg-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:45:00Z"
 ---
 
-# Split cli c_header.rs
+# Split pkg resolve.rs
 
 ## Blocked by
 
@@ -20,26 +20,26 @@ None.
 
 ## Done
 
-c_header.rs ≤1000. Same-file tests from 764 move with any new seam.
+resolve.rs ≤1000 or resolve_*.rs each ≤1000.
 
 ## Context
 
-c_header.rs 1021, just over the target.
+resolve.rs 1121: tag resolve and direct-dep pinning.
 
 ## Verify
 
-cargo test -p draconic-cli. c_header.rs ≤1000.
+Slice O1 after the three pkg tasks; this sitting at least resolve files ≤1000.
 
-scope: crates/draconic-cli/src/c_header.rs and new sibling if required
+scope: crates/draconic-pkg/src/resolve.rs and new resolve_*.rs
 
 ## Links
 
-[[slice-715-cli-file-budget]]
+[[slice-713-pkg-file-budget]]
 
 ## Agent Brief
 
 **Category:** layout
-**Summary:** Trim or split c_header.rs under 1000.
+**Summary:** Split pkg resolve.rs under 1000.
 
 If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 
@@ -49,10 +49,10 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - Contract-first: do not invent language behaviour
 
 **Current behavior:**
-1021 lines including tests.
+resolve.rs 1121 lines.
 
 **Desired behavior:**
-≤1000.
+resolve files ≤1000.
 
 **Key interfaces:**
 - `mod foo;` plus `foo.rs` (arch-file-modules)
@@ -60,14 +60,22 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] c_header.rs ≤1000
-- [ ] cargo test -p draconic-cli
+- [x] no resolve*.rs over 1000
+- [x] cargo test -p draconic-pkg
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
 - Extracting unit tests into crate-level tests/ (test-same-file)
 - cargo test --workspace as this task's oracle
 - New crates or workspace members
+- Editing lib.rs or cache.rs
 
 **Explain this part:**
-A small extract of tests-with-seam is enough. Do not rewrite bindgen behaviour.
+Parallel with lib and cache splits.
+
+## Gauntlet
+
+- **round:** 1
+- **command:** cargo test -p draconic-pkg --offline
+- **result:** win
+- **gap:** none. 313 passed. resolve.rs 667, resolve_direct.rs 542.
