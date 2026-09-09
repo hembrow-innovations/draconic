@@ -6,13 +6,13 @@
 use std::path::Path;
 
 use draconic_ast::{Program, Stmt};
-use draconic_check::{check, check_module};
+use draconic_check::{check, check_for_target, check_module, check_module_for_target};
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
 use draconic_linker::link_entry;
 use draconic_parser::{parse, parse_module};
 
-pub use draconic_check::CheckedProgram;
+pub use draconic_check::{CheckedProgram, CompileTarget};
 pub use draconic_ir::Module;
 
 /// Compile `source` as a Script (no filesystem link graph).
@@ -37,6 +37,12 @@ pub fn compile_source_module(source: &str) -> Result<Module, Diagnostic> {
 /// Linked entries use the Module goal (top-level `await` allowed).
 pub fn compile_path(entry: &Path) -> Result<Module, Diagnostic> {
     let checked = check_path(entry)?;
+    Ok(lower(&checked))
+}
+
+/// Compile a filesystem entry after checking host and FFI policy for `target`.
+pub fn compile_path_for_target(entry: &Path, target: CompileTarget) -> Result<Module, Diagnostic> {
+    let checked = check_path_for_target(entry, target)?;
     Ok(lower(&checked))
 }
 
@@ -68,11 +74,27 @@ pub fn check_source_module(source: &str) -> Result<CheckedProgram, Diagnostic> {
 
 /// Parse or link `entry`, then check, without lowering.
 pub fn check_path(entry: &Path) -> Result<CheckedProgram, Diagnostic> {
-    let (program, module_goal) = load_program(entry)?;
-    if module_goal {
-        check_module(program)
-    } else {
-        check(program)
+    check_loaded(load_program(entry)?, None)
+}
+
+/// Parse or link `entry`, then check host and FFI policy for `target`.
+pub fn check_path_for_target(
+    entry: &Path,
+    target: CompileTarget,
+) -> Result<CheckedProgram, Diagnostic> {
+    check_loaded(load_program(entry)?, Some(target))
+}
+
+fn check_loaded(
+    loaded: (Program, bool),
+    target: Option<CompileTarget>,
+) -> Result<CheckedProgram, Diagnostic> {
+    let (program, module_goal) = loaded;
+    match (module_goal, target) {
+        (true, Some(target)) => check_module_for_target(program, target),
+        (true, None) => check_module(program),
+        (false, Some(target)) => check_for_target(program, target),
+        (false, None) => check(program),
     }
 }
 
@@ -204,6 +226,49 @@ mod tests {
         std::fs::write(&path, "export let x = await 2;\n").unwrap();
         let module = compile_path(&path).expect("path module TLA");
         assert!(!module.body.is_empty() || !module.locals.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn write_temp_drac(label: &str, source: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-frontend-{label}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.drac");
+        std::fs::write(&path, source).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn check_path_without_target_allows_native_only_host() {
+        let (dir, path) = write_temp_drac("untargeted-host", "tlsClientWrap;\n");
+        check_path(&path).expect("untargeted check keeps today's host policy");
+        compile_path(&path).expect("untargeted compile keeps today's host policy");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn check_path_for_target_js_rejects_native_only_host() {
+        let (dir, path) = write_temp_drac("js-host", "tlsClientWrap;\n");
+        let err = check_path_for_target(&path, CompileTarget::Js)
+            .expect_err("js target must diagnostic native-only host use");
+        assert_eq!(
+            err.code,
+            Some(draconic_diagnostics::codes::HOST_API_UNSUPPORTED)
+        );
+        assert!(
+            err.message.contains("unsupported on js") && err.message.contains("native-only"),
+            "got {}",
+            err.message
+        );
+        let compile_err = compile_path_for_target(&path, CompileTarget::Js)
+            .expect_err("js compile must diagnostic native-only host use");
+        assert_eq!(
+            compile_err.code,
+            Some(draconic_diagnostics::codes::HOST_API_UNSUPPORTED)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2,14 +2,14 @@
 id: "task-769-frontend-compile-target"
 title: "Frontend passes CompileTarget"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-765-host-catalog-sync"]
 sprint: "rust-dev-audit"
 slice: "slice-757-host-catalog"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T18:45:00Z"
 ---
 
 # Frontend passes CompileTarget
@@ -60,10 +60,16 @@ Frontend can check for js vs native. Untargeted compile matches today.
 - size-file-budget: frontend lib.rs stays small
 
 **Acceptance criteria:**
-- [ ] Frontend can pass CompileTarget
-- [ ] untargeted path behaviour unchanged
-- [ ] cargo test -p draconic-frontend
-- [ ] cargo test -p draconic-cli
+- [x] Frontend can pass CompileTarget
+- [x] untargeted path behaviour unchanged
+- [x] cargo test -p draconic-frontend
+- [x] cargo test -p draconic-cli
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-frontend --offline` — win
+- **round 2**: `cargo test -p draconic-cli --offline` — lose — native `compile_path_for_target` made http-echo miss LLVM lowering
+- **round 3**: `cargo test -p draconic-cli --offline` — win — CLI passes CompileTarget only for js; native stays untargeted
 
 **Out of scope:**
 - New host APIs

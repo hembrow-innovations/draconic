@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary_with_lto, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_diagnostics::Diagnostic;
-use draconic_frontend::compile_path;
+use draconic_frontend::{compile_path, compile_path_for_target, CompileTarget};
 use draconic_pkg::ensure_locked_for_entry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,7 +217,10 @@ pub(crate) fn build_program(
         ));
     }
 
-    let module = compile_path(input)?;
+    let module = match target {
+        Target::Js => compile_path_for_target(input, CompileTarget::Js)?,
+        Target::Native => compile_path(input)?,
+    };
 
     match target {
         Target::Js => {
