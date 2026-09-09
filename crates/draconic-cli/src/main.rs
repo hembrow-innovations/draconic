@@ -10,9 +10,8 @@ use draconic_backend_js::emit_js;
 use draconic_backend_llvm::{build_native_binary_with_lto, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
-use draconic_frontend::{check_path, compile_path, compile_source};
+use draconic_frontend::{check_path, compile_path, compile_source, parse_source};
 use draconic_ir::Stmt;
-use draconic_parser::{parse, parse_module};
 use draconic_pkg::ensure_locked_for_entry;
 
 mod cmd_test;
@@ -411,16 +410,9 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Parse Script-first, then Module (same policy as frontend load, without link).
+/// Format via Frontend Script-then-Module parse (no link).
 fn format_source(source: &str) -> Result<String, Diagnostic> {
-    let program = match parse(source) {
-        Ok(p) => p,
-        Err(script_err) => match parse_module(source) {
-            Ok(p) => p,
-            Err(_) => return Err(script_err),
-        },
-    };
-    Ok(print_program(&program))
+    Ok(print_program(&parse_source(source)?))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1045,28 +1037,14 @@ enum ReplBufferStatus {
 }
 
 fn repl_buffer_status(source: &str) -> ReplBufferStatus {
-    match parse(source) {
+    match parse_source(source) {
         Ok(_) => ReplBufferStatus::Complete,
         Err(d) => {
             let msg = d.to_string();
             if msg.contains("Eof") || msg.contains("end of file") || msg.contains("end of input") {
                 ReplBufferStatus::Incomplete
             } else {
-                // Script may fail where Module would succeed; try module before rejecting.
-                match parse_module(source) {
-                    Ok(_) => ReplBufferStatus::Complete,
-                    Err(d2) => {
-                        let msg2 = d2.to_string();
-                        if msg2.contains("Eof")
-                            || msg2.contains("end of file")
-                            || msg2.contains("end of input")
-                        {
-                            ReplBufferStatus::Incomplete
-                        } else {
-                            ReplBufferStatus::Error(d)
-                        }
-                    }
-                }
+                ReplBufferStatus::Error(d)
             }
         }
     }

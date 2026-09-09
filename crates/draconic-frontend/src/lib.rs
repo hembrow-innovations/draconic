@@ -40,6 +40,20 @@ pub fn compile_path(entry: &Path) -> Result<Module, Diagnostic> {
     Ok(lower(&checked))
 }
 
+/// Parse `source` Script-first, then Module. No filesystem link.
+///
+/// Fmt and single-buffer tools use this instead of copying the retry. Both
+/// goals failing keeps the Script diagnostic.
+pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
+    match parse(source) {
+        Ok(program) => Ok(program),
+        Err(script_err) => match parse_module(source) {
+            Ok(program) => Ok(program),
+            Err(_) => Err(script_err),
+        },
+    }
+}
+
 /// Parse + check `source` as a Script without lowering.
 pub fn check_source(source: &str) -> Result<CheckedProgram, Diagnostic> {
     let program = parse(source)?;
@@ -156,6 +170,27 @@ mod tests {
         assert!(
             !err.message.is_empty(),
             "script TLA must diagnostic, got empty message"
+        );
+    }
+
+    #[test]
+    fn parse_source_script() {
+        let program = parse_source("let x = 1;").expect("script");
+        assert!(!program_has_module_syntax(&program));
+    }
+
+    #[test]
+    fn parse_source_retries_module_on_export() {
+        let program = parse_source("export let x = 1;").expect("module retry");
+        assert!(program_has_module_syntax(&program));
+    }
+
+    #[test]
+    fn parse_source_keeps_script_error_when_both_fail() {
+        let err = parse_source("let = ;").expect_err("both goals fail");
+        assert!(
+            !err.message.is_empty(),
+            "script diagnostic must be kept, got empty message"
         );
     }
 
