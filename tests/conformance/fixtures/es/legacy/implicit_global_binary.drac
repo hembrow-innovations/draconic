@@ -1,0 +1,121 @@
+// E17.02.175: unresolvable binary GetValue does not create a global.
+// GetValue-first: + / == / & / ** / < throw ReferenceError and do not
+// create globalThis properties. Left-missing skips the other operand.
+// Already-created implicit globals still binary-operate. Strict-mode
+// unresolvable stays ReferenceError.
+// Locks language.ecma:expressions.
+
+// Unresolvable left + throws, does not create a global, skips RHS.
+function plusLeftMissing() {
+  let n = 0;
+  try {
+    igb_plus_l_miss_e1702175 + (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.igb_plus_l_miss_e1702175 === "undefined"
+    );
+  }
+}
+let a = plusLeftMissing();
+
+// Unresolvable right + throws and does not create a global.
+function plusRightMissing() {
+  let n = 0;
+  try {
+    (n = n + 1, 1) + igb_plus_r_miss_e1702175;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 1 &&
+      typeof globalThis.igb_plus_r_miss_e1702175 === "undefined"
+    );
+  }
+}
+let b = plusRightMissing();
+
+// Unresolvable == throws and does not create a global.
+function eqMissing() {
+  try {
+    igb_eq_miss_e1702175 == 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igb_eq_miss_e1702175 === "undefined"
+    );
+  }
+}
+let c = eqMissing();
+
+// Unresolvable & throws and does not create a global.
+function andMissing() {
+  try {
+    igb_and_miss_e1702175 & 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igb_and_miss_e1702175 === "undefined"
+    );
+  }
+}
+let d = andMissing();
+
+// Unresolvable ** throws, does not create a global, skips RHS.
+function powMissing() {
+  let n = 0;
+  try {
+    igb_pow_miss_e1702175 ** (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.igb_pow_miss_e1702175 === "undefined"
+    );
+  }
+}
+let e = powMissing();
+
+// Unresolvable < throws and does not create a global.
+function ltMissing() {
+  try {
+    igb_lt_miss_e1702175 < 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igb_lt_miss_e1702175 === "undefined"
+    );
+  }
+}
+let f = ltMissing();
+
+// Already-created implicit global still binary-operates.
+igb_exist_e1702175 = 4;
+let g =
+  igb_exist_e1702175 + 1 === 5 &&
+  igb_exist_e1702175 == 4 &&
+  (igb_exist_e1702175 & 1) === 0 &&
+  igb_exist_e1702175 ** 2 === 16 &&
+  igb_exist_e1702175 < 5 &&
+  globalThis.igb_exist_e1702175 === 4;
+
+// Strict-mode unresolvable + stays ReferenceError.
+function strictPlus() {
+  "use strict";
+  try {
+    igb_strict_plus_e1702175 + 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igb_strict_plus_e1702175 === "undefined"
+    );
+  }
+}
+let h = strictPlus();

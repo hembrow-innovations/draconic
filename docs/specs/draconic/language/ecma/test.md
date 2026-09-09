@@ -35,6 +35,9 @@ Locks `language.ecma:expressions`, `language.ecma:statements`, `language.ecma:fu
 - **tests/conformance/tests/legacy.rs** — `implicit_global_unary_runs` (fixture `es/legacy/implicit_global_unary`)
   - **How:** Run unresolvable `void` / `+` / `-` / `~` / `!`, already-created implicit-global unary, and typeof/delete contrast on declared js (no `with`).
   - **Why:** Locks `language.ecma:expressions` GetValue-first unary (E17.02.174) so missing identifiers throw ReferenceError and do not create `globalThis` properties.
+- **tests/conformance/tests/legacy.rs** — `implicit_global_binary_runs` (fixture `es/legacy/implicit_global_binary`)
+  - **How:** Run unresolvable `+` / `==` / `&` / `**` / `<`, left-missing skip of the other operand, and already-created implicit-global binary on declared js (no `with`).
+  - **Why:** Locks `language.ecma:expressions` GetValue-first binary (E17.02.175) so missing identifiers throw ReferenceError and do not create `globalThis` properties.
 - **tests/conformance/tests/statements.rs** — `if_else_runs` (fixture `es/statements/if_else`)
   - **How:** Run the if/else fixture on declared targets.
   - **Why:** Locks `language.ecma:statements`. Neighbor `*_runs` functions cover loops, switch, labels, const.
