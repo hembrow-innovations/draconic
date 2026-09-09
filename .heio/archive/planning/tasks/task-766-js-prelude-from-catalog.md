@@ -2,14 +2,14 @@
 id: "task-766-js-prelude-from-catalog"
 title: "JS prelude reads the host catalog"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-765-host-catalog-sync"]
 sprint: "rust-dev-audit"
 slice: "slice-757-host-catalog"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T19:00:00Z"
 ---
 
 # JS prelude reads the host catalog
@@ -60,9 +60,13 @@ Host prelude keys come from the catalog. Native-only names still hard-error on J
 - size-file-budget: do not grow lib.rs past a new 1250 breach; if over 1000, only replace lists
 
 **Acceptance criteria:**
-- [ ] host polyfill injection uses catalog names
-- [ ] cargo test -p draconic-backend-js
-- [ ] do not edit emit.rs
+- [x] host polyfill injection uses catalog names
+- [x] cargo test -p draconic-backend-js
+- [x] do not edit emit.rs
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-backend-js --offline` — win — test result: ok. 65 passed. `module_uses_fs_read` gone; host prelude keys come from `host_apis()`.
 
 **Out of scope:**
 - Splitting emit.rs

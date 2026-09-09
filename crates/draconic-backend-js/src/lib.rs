@@ -146,6 +146,22 @@ mod tests {
     }
 
     #[test]
+    fn emit_host_polyfill_from_catalog_name() {
+        let entry = draconic_check::lookup_host_api("readFileText")
+            .expect("readFileText is a HOST_APIS row");
+        assert!(
+            entry.availability.js,
+            "readFileText must be available on js"
+        );
+        let js = emit_src(r#"readFileText("x.txt");"#);
+        assert!(js.contains("function readFileText("), "{js}");
+        assert!(
+            js.contains("globalThis.readFileText = readFileText"),
+            "{js}"
+        );
+    }
+
+    #[test]
     fn emit_sha256_polyfill() {
         let js = emit_src("let d = sha256(new Uint8Array([]));");
         assert!(js.contains("function sha256("), "{js}");

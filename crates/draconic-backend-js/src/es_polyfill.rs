@@ -4,16 +4,7 @@ use draconic_ir::{AssignTarget, Expr, LocalId, Module, Stmt};
 
 /// L03.01: true when the Program body references the stdlib `sha256` global.
 fn module_uses_sha256(module: &Module) -> bool {
-    let ids: Vec<LocalId> = module
-        .locals
-        .iter()
-        .filter(|l| l.name == "sha256")
-        .map(|l| l.id)
-        .collect();
-    if ids.is_empty() {
-        return false;
-    }
-    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+    module_uses_named_local(module, "sha256")
 }
 
 /// L10.01: true when the Program body references the stdlib `hmacSha256` global.
@@ -28,16 +19,7 @@ fn module_uses_aead(module: &Module) -> bool {
 
 /// L03.02: true when the Program body references the stdlib `randomBytes` global.
 fn module_uses_random_bytes(module: &Module) -> bool {
-    let ids: Vec<LocalId> = module
-        .locals
-        .iter()
-        .filter(|l| l.name == "randomBytes")
-        .map(|l| l.id)
-        .collect();
-    if ids.is_empty() {
-        return false;
-    }
-    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+    module_uses_named_local(module, "randomBytes")
 }
 
 /// L04: gzip / gunzip / deflate / inflate.
@@ -105,243 +87,71 @@ fn module_uses_named_local(module: &Module, name: &str) -> bool {
         .filter(|l| l.name == name)
         .map(|l| l.id)
         .collect();
-    if ids.is_empty() {
-        return false;
+    if !ids.is_empty() && module.body.iter().any(|s| stmt_uses_local(s, &ids)) {
+        return true;
     }
-    module.body.iter().any(|s| stmt_uses_local(s, &ids))
+    module_uses_ident(module, name)
 }
 
-/// H01.01: free host API `processArgs` lowers as `IdentName` (not a builtin local).
-fn module_uses_process_args(module: &Module) -> bool {
-    module
-        .body
+fn module_uses_ident(module: &Module, name: &str) -> bool {
+    module.body.iter().any(|s| stmt_uses_ident_name(s, name))
+}
+
+fn host_js_polyfill_bodies() -> [&'static str; 24] {
+    [
+        draconic_runtime::process_args_js_polyfill(),
+        draconic_runtime::process_env_js_polyfill(),
+        draconic_runtime::process_exit_js_polyfill(),
+        draconic_runtime::process_pid_js_polyfill(),
+        draconic_runtime::cwd_chdir_js_polyfill(),
+        draconic_runtime::hostname_os_js_polyfill(),
+        draconic_runtime::temp_home_js_polyfill(),
+        draconic_runtime::process_run_js_polyfill(),
+        draconic_runtime::process_spawn_js_polyfill(),
+        draconic_runtime::spawn_worker_js_polyfill(),
+        draconic_runtime::channel_js_polyfill(),
+        draconic_runtime::cancel_token_js_polyfill(),
+        draconic_runtime::now_ms_js_polyfill(),
+        draconic_runtime::monotonic_ms_js_polyfill(),
+        draconic_runtime::set_timeout_js_polyfill(),
+        draconic_runtime::set_interval_js_polyfill(),
+        draconic_runtime::stdout_write_js_polyfill(),
+        draconic_runtime::stderr_write_js_polyfill(),
+        draconic_runtime::stdin_read_js_polyfill(),
+        draconic_runtime::path_js_polyfill(),
+        draconic_runtime::fs_read_js_polyfill(),
+        draconic_runtime::http_js_polyfill(),
+        draconic_runtime::dns_js_polyfill(),
+        draconic_runtime::tcp_js_polyfill(),
+    ]
+}
+
+fn polyfill_exports_host_name(src: &str, name: &str) -> bool {
+    src.contains(&format!("function {name}(")) || src.contains(&format!("globalThis.{name} ="))
+}
+
+/// Inject JS host polyfills for catalog names used as free identifiers.
+fn prepend_host_polyfills(module: &Module, out: &mut String) {
+    let used: Vec<&str> = draconic_check::host_apis()
         .iter()
-        .any(|s| stmt_uses_ident_name(s, "processArgs"))
-}
-
-/// H01.02: free host APIs `envGet` / `envSet` / `envDelete`.
-fn module_uses_process_env(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "envGet")
-            || stmt_uses_ident_name(s, "envSet")
-            || stmt_uses_ident_name(s, "envDelete")
-    })
-}
-
-/// H01.03: free host APIs `exit` / `exitCode` / `setExitCode`.
-fn module_uses_process_exit(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "exit")
-            || stmt_uses_ident_name(s, "exitCode")
-            || stmt_uses_ident_name(s, "setExitCode")
-    })
-}
-
-/// H01.04: free host APIs `pid` / `ppid`.
-fn module_uses_process_pid(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "pid") || stmt_uses_ident_name(s, "ppid"))
-}
-
-/// H16.01: free host APIs `cwd` / `chdir`.
-fn module_uses_cwd_chdir(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "cwd") || stmt_uses_ident_name(s, "chdir"))
-}
-
-/// H16.02: free host APIs `hostname` / `osType` / `osArch`.
-fn module_uses_hostname_os(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "hostname")
-            || stmt_uses_ident_name(s, "osType")
-            || stmt_uses_ident_name(s, "osArch")
-    })
-}
-
-/// H16.03: free host APIs `tempDir` / `homeDir`.
-fn module_uses_temp_home(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "tempDir") || stmt_uses_ident_name(s, "homeDir"))
-}
-
-/// H15.01: free host API `processRun`.
-fn module_uses_process_run(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "processRun"))
-}
-
-/// H15.02: process spawn + pipes + kill.
-fn module_uses_process_spawn(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "processSpawn")
-            || stmt_uses_ident_name(s, "processStdinWrite")
-            || stmt_uses_ident_name(s, "processWait")
-            || stmt_uses_ident_name(s, "processStdout")
-            || stmt_uses_ident_name(s, "processStderr")
-            || stmt_uses_ident_name(s, "processKill")
-            || stmt_uses_ident_name(s, "processClose")
-    })
-}
-
-/// C01.01 / C01.02 / C01.03: free host APIs `spawnWorker` / `joinWorker` / `terminateWorker`.
-fn module_uses_spawn_worker(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "spawnWorker")
-            || stmt_uses_ident_name(s, "joinWorker")
-            || stmt_uses_ident_name(s, "terminateWorker")
-    })
-}
-
-/// C02.01–C02.03: free host APIs `makeChannel` / `channelSend` / `channelRecv`.
-fn module_uses_channel(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "makeChannel")
-            || stmt_uses_ident_name(s, "channelSend")
-            || stmt_uses_ident_name(s, "channelRecv")
-    })
-}
-
-/// C05.01 / C05.02: free host APIs `makeCancelToken` / `cancelTokenAbort` /
-/// `cancelTokenAborted` / `cancelTokenLink` / `withTimeout` / `clearWithTimeout`.
-fn module_uses_cancel_token(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "makeCancelToken")
-            || stmt_uses_ident_name(s, "cancelTokenAbort")
-            || stmt_uses_ident_name(s, "cancelTokenAborted")
-            || stmt_uses_ident_name(s, "cancelTokenLink")
-            || stmt_uses_ident_name(s, "withTimeout")
-            || stmt_uses_ident_name(s, "clearWithTimeout")
-    })
-}
-
-/// H05.01: free host API `nowMs`.
-fn module_uses_now_ms(module: &Module) -> bool {
-    module.body.iter().any(|s| stmt_uses_ident_name(s, "nowMs"))
-}
-
-/// H05.02: free host API `monotonicMs`.
-fn module_uses_monotonic_ms(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "monotonicMs"))
-}
-
-/// H05.03: free host APIs `setTimeout` / `clearTimeout`.
-fn module_uses_set_timeout(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "setTimeout") || stmt_uses_ident_name(s, "clearTimeout"))
-}
-
-/// H05.04: free host APIs `setInterval` / `clearInterval`.
-fn module_uses_set_interval(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "setInterval") || stmt_uses_ident_name(s, "clearInterval"))
-}
-
-/// H02.01: free host API `stdoutWrite`.
-fn module_uses_stdout_write(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "stdoutWrite"))
-}
-
-/// H02.02: free host API `stderrWrite`.
-fn module_uses_stderr_write(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "stderrWrite"))
-}
-
-/// H02.03: free host APIs `stdinReadLine` / `stdinReadBytes`.
-fn module_uses_stdin_read(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "stdinReadLine") || stmt_uses_ident_name(s, "stdinReadBytes")
-    })
-}
-
-/// H03.01–H03.03: free host path APIs.
-fn module_uses_path(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "pathJoin")
-            || stmt_uses_ident_name(s, "pathNormalize")
-            || stmt_uses_ident_name(s, "pathDirname")
-            || stmt_uses_ident_name(s, "pathBasename")
-            || stmt_uses_ident_name(s, "pathExtname")
-            || stmt_uses_ident_name(s, "pathIsAbsolute")
-            || stmt_uses_ident_name(s, "pathResolve")
-    })
-}
-
-/// H04.01–H04.05: free host file-read / write / append / exists / stat / dir / rename / copy APIs.
-fn module_uses_fs_read(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "readFileText")
-            || stmt_uses_ident_name(s, "readFileBytes")
-            || stmt_uses_ident_name(s, "writeFileText")
-            || stmt_uses_ident_name(s, "writeFileBytes")
-            || stmt_uses_ident_name(s, "appendFileText")
-            || stmt_uses_ident_name(s, "appendFileBytes")
-            || stmt_uses_ident_name(s, "exists")
-            || stmt_uses_ident_name(s, "stat")
-            || stmt_uses_ident_name(s, "mkdir")
-            || stmt_uses_ident_name(s, "mkdirAll")
-            || stmt_uses_ident_name(s, "readdir")
-            || stmt_uses_ident_name(s, "rmdir")
-            || stmt_uses_ident_name(s, "removeFile")
-            || stmt_uses_ident_name(s, "renameFile")
-            || stmt_uses_ident_name(s, "copyFile")
-    })
-}
-
-/// H17.04: HTTP/1.1 helpers (parse/write request/response).
-fn module_uses_http_helpers(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "httpParseRequest")
-            || stmt_uses_ident_name(s, "httpRequestHeader")
-            || stmt_uses_ident_name(s, "httpWriteResponse")
-            || stmt_uses_ident_name(s, "httpWriteRequest")
-            || stmt_uses_ident_name(s, "httpParseResponse")
-            || stmt_uses_ident_name(s, "httpResponseHeader")
-    })
-}
-
-/// H17.04: `dnsLookup` Node bridge.
-fn module_uses_dns_lookup(module: &Module) -> bool {
-    module
-        .body
-        .iter()
-        .any(|s| stmt_uses_ident_name(s, "dnsLookup"))
-}
-
-/// H17.04: sync TCP Node `net` bridge.
-fn module_uses_tcp(module: &Module) -> bool {
-    module.body.iter().any(|s| {
-        stmt_uses_ident_name(s, "tcpListen")
-            || stmt_uses_ident_name(s, "tcpLocalPort")
-            || stmt_uses_ident_name(s, "closeTcp")
-            || stmt_uses_ident_name(s, "tcpAccept")
-            || stmt_uses_ident_name(s, "tcpConnect")
-            || stmt_uses_ident_name(s, "tcpPeerAddress")
-            || stmt_uses_ident_name(s, "tcpPeerPort")
-            || stmt_uses_ident_name(s, "tcpRead")
-            || stmt_uses_ident_name(s, "tcpWrite")
-            || stmt_uses_ident_name(s, "tcpShutdown")
-    })
+        .filter(|e| e.availability.js && module_uses_ident(module, e.name))
+        .map(|e| e.name)
+        .collect();
+    if used.is_empty() {
+        return;
+    }
+    for src in host_js_polyfill_bodies() {
+        if used
+            .iter()
+            .copied()
+            .any(|name| polyfill_exports_host_name(src, name))
+        {
+            out.push_str(src);
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
 }
 
 fn stmt_uses_ident_name(stmt: &Stmt, name: &str) -> bool {
@@ -648,76 +458,5 @@ pub(crate) fn prepend_polyfills(module: &Module, out: &mut String) {
     if module_uses_describe_it(module) {
         push(out, draconic_runtime::describe_it_js_polyfill());
     }
-    if module_uses_process_args(module) {
-        push(out, draconic_runtime::process_args_js_polyfill());
-    }
-    if module_uses_process_env(module) {
-        push(out, draconic_runtime::process_env_js_polyfill());
-    }
-    if module_uses_process_exit(module) {
-        push(out, draconic_runtime::process_exit_js_polyfill());
-    }
-    if module_uses_process_pid(module) {
-        push(out, draconic_runtime::process_pid_js_polyfill());
-    }
-    if module_uses_cwd_chdir(module) {
-        push(out, draconic_runtime::cwd_chdir_js_polyfill());
-    }
-    if module_uses_hostname_os(module) {
-        push(out, draconic_runtime::hostname_os_js_polyfill());
-    }
-    if module_uses_temp_home(module) {
-        push(out, draconic_runtime::temp_home_js_polyfill());
-    }
-    if module_uses_process_run(module) {
-        push(out, draconic_runtime::process_run_js_polyfill());
-    }
-    if module_uses_process_spawn(module) {
-        push(out, draconic_runtime::process_spawn_js_polyfill());
-    }
-    if module_uses_spawn_worker(module) {
-        push(out, draconic_runtime::spawn_worker_js_polyfill());
-    }
-    if module_uses_channel(module) {
-        push(out, draconic_runtime::channel_js_polyfill());
-    }
-    if module_uses_cancel_token(module) {
-        push(out, draconic_runtime::cancel_token_js_polyfill());
-    }
-    if module_uses_now_ms(module) {
-        push(out, draconic_runtime::now_ms_js_polyfill());
-    }
-    if module_uses_monotonic_ms(module) {
-        push(out, draconic_runtime::monotonic_ms_js_polyfill());
-    }
-    if module_uses_set_timeout(module) {
-        push(out, draconic_runtime::set_timeout_js_polyfill());
-    }
-    if module_uses_set_interval(module) {
-        push(out, draconic_runtime::set_interval_js_polyfill());
-    }
-    if module_uses_stdout_write(module) {
-        push(out, draconic_runtime::stdout_write_js_polyfill());
-    }
-    if module_uses_stderr_write(module) {
-        push(out, draconic_runtime::stderr_write_js_polyfill());
-    }
-    if module_uses_stdin_read(module) {
-        push(out, draconic_runtime::stdin_read_js_polyfill());
-    }
-    if module_uses_path(module) {
-        push(out, draconic_runtime::path_js_polyfill());
-    }
-    if module_uses_fs_read(module) {
-        push(out, draconic_runtime::fs_read_js_polyfill());
-    }
-    if module_uses_http_helpers(module) {
-        push(out, draconic_runtime::http_js_polyfill());
-    }
-    if module_uses_dns_lookup(module) {
-        push(out, draconic_runtime::dns_js_polyfill());
-    }
-    if module_uses_tcp(module) {
-        push(out, draconic_runtime::tcp_js_polyfill());
-    }
+    prepend_host_polyfills(module, out);
 }
