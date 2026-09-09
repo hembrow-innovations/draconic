@@ -2,12 +2,12 @@
 id: "slice-756-llvm-one-walker"
 title: "LLVM one IR-walking lowerer"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:00:00Z"
 ---
 
 # LLVM one IR-walking lowerer
@@ -32,18 +32,18 @@ None. This slice blocks [[slice-712-backend-llvm-file-budget]] file splits until
 
 ## Oracle checklist
 
-- [ ] O1: emit_llvm_ir_raw is not a 66-arm cascade
+- [x] O1: emit_llvm_ir_raw is not a 66-arm cascade
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-backend-llvm/src/lib.rs").read_text(); a=t.find("fn emit_llvm_ir_raw"); b=t.find("fn is_empty_program"); n=t[a:b].count("_module("); print("walker-dispatch" if 0<=n<=4 else "cascade:%d"%n)'
   EXPECT: walker-dispatch
-  EVIDENCE: pending
-- [ ] O2: no fixture OBS printers
+  EVIDENCE: walker-dispatch
+- [x] O2: no fixture OBS printers
   CHECK: python3 -c 'from pathlib import Path; hits=[p.name for p in Path("crates/draconic-backend-llvm/src").glob("*.rs") if "const OBS" in p.read_text()]; print("no-obs" if not hits else "obs:"+",".join(hits))'
   EXPECT: no-obs
-  EVIDENCE: pending
-- [ ] O3: llvm backend tests green
+  EVIDENCE: no-obs
+- [x] O3: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 314 passed
 
 ## Pool
 
