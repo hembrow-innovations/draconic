@@ -173,6 +173,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "draconic-ast",
+ "draconic-check",
  "draconic-diagnostics",
  "draconic-embed",
  "draconic-frontend",
@@ -189,6 +190,7 @@ dependencies = [
  "draconic-ast",
  "draconic-diagnostics",
  "draconic-parser",
+ "draconic-runtime",
 ]
 
 [[package]]

@@ -519,8 +519,15 @@ fn classify_bytes_or_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()
     }
 }
 
+fn catalog_callee(expr: &Expr) -> Option<&'static draconic_check::HostApiEntry> {
+    match expr {
+        Expr::IdentName { name, .. } => draconic_check::lookup_host_api(name),
+        _ => None,
+    }
+}
+
 fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
+    catalog_callee(expr).is_some_and(|entry| entry.name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {
@@ -1806,6 +1813,31 @@ mod tests {
 
     fn lower_src(src: &str) -> Module {
         compile_source(src).expect("compile")
+    }
+
+    #[test]
+    fn classify_fs_idents_resolve_through_catalog() {
+        let entry = draconic_check::lookup_host_api("readFileText")
+            .expect("readFileText must be a HOST_APIS row");
+        assert!(
+            entry.note.starts_with("H04"),
+            "host_fs claims H04 catalog rows, note={}",
+            entry.note
+        );
+        let src = format!("let t = {}(\"hello.txt\");", entry.name);
+        let m = lower_src(&src);
+        assert!(is_host_fs_module(&m));
+        assert!(draconic_check::lookup_host_api("notAHostApi").is_none());
+        for api in draconic_check::host_apis() {
+            if !api.note.starts_with("H04") {
+                continue;
+            }
+            assert!(
+                draconic_check::lookup_host_api(api.name).is_some(),
+                "{} must resolve through the catalog",
+                api.name
+            );
+        }
     }
 
     #[test]

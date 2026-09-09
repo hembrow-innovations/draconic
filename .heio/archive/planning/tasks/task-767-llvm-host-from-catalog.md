@@ -2,14 +2,14 @@
 id: "task-767-llvm-host-from-catalog"
 title: "LLVM host names read the catalog"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-765-host-catalog-sync"]
 sprint: "rust-dev-audit"
 slice: "slice-757-host-catalog"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T19:00:00Z"
 ---
 
 # LLVM host names read the catalog
@@ -60,10 +60,14 @@ Those names resolve through the catalog. Classifier still exists.
 - size-file-budget: do not add files over 1000
 
 **Acceptance criteria:**
-- [ ] host_fs host identifiers come from the catalog
-- [ ] is_host_fs_module still in emit_llvm_ir_raw
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] do not edit other host_* files
+- [x] host_fs host identifiers come from the catalog
+- [x] is_host_fs_module still in emit_llvm_ir_raw
+- [x] cargo test -p draconic-backend-llvm
+- [x] do not edit other host_* files
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-backend-llvm --offline` — win — test result: ok. 314 passed.
 
 **Out of scope:**
 - Folding host_fs into the walker

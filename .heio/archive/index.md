@@ -2,8 +2,23 @@
 
 One-liners of what landed. Newest first.
 
+- **task-767-llvm-host-from-catalog** — LLVM host_fs classifies host call names via the catalog
+- **task-769-frontend-compile-target** — Frontend check/compile can pass CompileTarget; CLI js build uses it
+- **task-766-js-prelude-from-catalog** — JS prelude injects host polyfills from catalog names
+- **task-765-host-catalog-sync** — catalog_sync fails if a host name lacks its Runtime ABI symbol or JS polyfill
+- **task-759-llvm-default-walker** — leftover LLVM IR falls through to the shared es_expr walker
+- **task-758-llvm-shared-emitter** — share crate-private SlotTy and Emitter for es_expr and es_functions
+- **task-742-cli-split-main** — split cli main.rs into cmd_* modules under file budget
+- **task-772-cli-frontend-load-policy** — CLI fmt/repl reuse Frontend Script-then-Module parse_source
+- **task-745-cli-split-tests-build** — split cli tests/build.rs into core, link, and package integration tests under file budget
+- **task-744-cli-split-c-header** — split cli c_header.rs emit seam under file budget
+- **task-739-runtime-split-lib** — split runtime lib.rs clang archive and GC/promise tests under file budget
 - **task-741-runtime-split-host-abi-tests** — split runtime host_abi_tests.rs by host seam under file budget
+- **task-738-runtime-extract-inline-mods** — extract runtime crypto/testing/url into sibling file modules
+- **task-737-pkg-split-resolve** — split pkg resolve.rs into tag/direct modules under file budget
 - **task-736-pkg-split-cache** — split pkg cache.rs into fetch/checkout modules under file budget
+- **task-734-js-pointer-codes** — attach POINTER_UNSUPPORTED (E0403) on JS pointer native-only diagnostics
+- **task-733-js-split-emit** — split JS backend lib.rs/emit.rs into es_* and native modules under file budget
 - **task-735-pkg-split-lib** — split pkg lib.rs into manifest/parse/validate/write under file budget
 - **task-732-ir-split-lower** — split IR lowering until every crates/draconic-ir .rs file is ≤1000
 - **task-731-ir-extract-types** — extract IR Module/stmt/expr types from lib.rs
