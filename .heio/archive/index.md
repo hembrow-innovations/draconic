@@ -2,6 +2,9 @@
 
 One-liners of what landed. Newest first.
 
+- **task-727-check-extract-binder** — Binder helpers live in private binder.rs; one Stmt walk remains
+- **task-771-check-bind-in-check** — bind and check share one Stmt/Expr walk; bind() wraps it
+- **task-740-runtime-split-abi** — split runtime abi.rs catalog and JS polyfills under file budget
 - **task-767-llvm-host-from-catalog** — LLVM host_fs classifies host call names via the catalog
 - **task-769-frontend-compile-target** — Frontend check/compile can pass CompileTarget; CLI js build uses it
 - **task-766-js-prelude-from-catalog** — JS prelude injects host polyfills from catalog names

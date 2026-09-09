@@ -2,14 +2,14 @@
 id: "task-727-check-extract-binder"
 title: "Extract Binder from check lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-771-check-bind-in-check"]
 sprint: "rust-dev-audit"
 slice: "slice-709-check-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:45:00Z"
 ---
 
 # Extract Binder from check lib.rs
@@ -60,10 +60,10 @@ binder*.rs ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] mod binder in lib.rs
-- [ ] binder files ≤1000
-- [ ] lib.rs shorter than 9342
-- [ ] cargo test -p draconic-check
+- [x] mod binder in lib.rs
+- [x] binder files ≤1000
+- [x] lib.rs shorter than 9342
+- [x] cargo test -p draconic-check
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -74,3 +74,7 @@ binder*.rs ≤1000.
 
 **Explain this part:**
 Do not recreate bind_stmt as a full parallel walk. Do not extract Checker here. That is the next task.
+
+## Gauntlet
+
+- **Round 1:** `cargo test -p draconic-check --offline -- --skip catalog_sync` — win — `mod binder` plus `binder.rs` (796 lines); one `check_stmt` walk; lib.rs 8072 lines; 277 passed. `catalog_sync` skipped (unrelated dirty host_api from task-726).
