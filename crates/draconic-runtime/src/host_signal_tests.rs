@@ -61,7 +61,6 @@ int main(void) {
 }
 
 #[cfg(unix)]
-
 #[test]
 fn host_signal_default_terminate_without_watch() {
     // H14.01 default: no watch → OS SIG_DFL terminate on SIGTERM (subprocess).
@@ -115,7 +114,6 @@ int main(void) {
 }
 
 #[cfg(unix)]
-
 #[test]
 fn host_signal_ignore_survives_raise() {
     // H14.02: ignore → raise does not terminate; no handler job.
@@ -176,7 +174,6 @@ int main(void) {
 }
 
 #[cfg(unix)]
-
 #[test]
 fn host_signal_restore_default_terminates() {
     // H14.02: ignore then restore → raise terminates (SIG_DFL).
