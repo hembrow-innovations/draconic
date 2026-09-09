@@ -1768,3 +1768,13 @@ fn implicit_global_compound_fixture_present() {
 fn implicit_global_compound_runs() {
     assert_fixture_runs_declared_targets("es/legacy/implicit_global_compound");
 }
+
+#[test]
+fn implicit_global_logical_fixture_present() {
+    assert_fixture_present("es/legacy/implicit_global_logical");
+}
+
+#[test]
+fn implicit_global_logical_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/implicit_global_logical");
+}

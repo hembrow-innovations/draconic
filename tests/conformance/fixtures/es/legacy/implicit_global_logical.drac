@@ -1,0 +1,93 @@
+// E17.02.173: unresolvable logical assignment does not create a global.
+// GetValue-first: ||= / &&= / ??= throw ReferenceError, do not create
+// globalThis properties, and do not evaluate RHS. Already-created implicit
+// globals still update or short-circuit. Strict-mode unresolvable stays
+// ReferenceError.
+// Locks language.ecma:expressions.
+
+// Unresolvable ||= throws ReferenceError, does not create a global, skips RHS.
+function orOrMissing() {
+  let n = 0;
+  try {
+    ila_or_miss_e1702173 ||= (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.ila_or_miss_e1702173 === "undefined"
+    );
+  }
+}
+let a = orOrMissing();
+
+// Unresolvable &&= throws and does not create a global.
+function andAndMissing() {
+  let n = 0;
+  try {
+    ila_and_miss_e1702173 &&= (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.ila_and_miss_e1702173 === "undefined"
+    );
+  }
+}
+let b = andAndMissing();
+
+// Unresolvable ??= throws and does not create a global.
+function qqMissing() {
+  let n = 0;
+  try {
+    ila_qq_miss_e1702173 ??= (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.ila_qq_miss_e1702173 === "undefined"
+    );
+  }
+}
+let c = qqMissing();
+
+// Already-created falsy implicit global still updates under ||=.
+ila_exist_or_e1702173 = 0;
+ila_exist_or_e1702173 ||= 5;
+let d = ila_exist_or_e1702173 === 5 && globalThis.ila_exist_or_e1702173 === 5;
+
+// Already-created truthy implicit global short-circuits ||= (skips RHS).
+ila_exist_or_skip_e1702173 = 1;
+let skipN = 0;
+ila_exist_or_skip_e1702173 ||= (skipN = skipN + 1, 9);
+let e =
+  ila_exist_or_skip_e1702173 === 1 &&
+  globalThis.ila_exist_or_skip_e1702173 === 1 &&
+  skipN === 0;
+
+// Already-created truthy implicit global still updates under &&=.
+ila_exist_and_e1702173 = 1;
+ila_exist_and_e1702173 &&= 7;
+let f = ila_exist_and_e1702173 === 7 && globalThis.ila_exist_and_e1702173 === 7;
+
+// Already-created nullish implicit global still updates under ??=.
+ila_exist_qq_e1702173 = null;
+ila_exist_qq_e1702173 ??= 4;
+let g = ila_exist_qq_e1702173 === 4 && globalThis.ila_exist_qq_e1702173 === 4;
+
+// Strict-mode unresolvable ||= stays ReferenceError.
+function strictOrOr() {
+  "use strict";
+  try {
+    ila_strict_or_e1702173 ||= 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.ila_strict_or_e1702173 === "undefined"
+    );
+  }
+}
+let h = strictOrOr();
