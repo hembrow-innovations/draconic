@@ -2,14 +2,14 @@
 id: "task-738-runtime-extract-inline-mods"
 title: "Extract runtime crypto testing url file modules"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-714-runtime-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:30:00Z"
 ---
 
 # Extract runtime crypto testing url file modules
@@ -60,9 +60,9 @@ Sibling files, each ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] crypto.rs testing.rs url.rs exist
-- [ ] each ≤1000
-- [ ] cargo test -p draconic-runtime
+- [x] crypto.rs testing.rs url.rs exist
+- [x] each ≤1000
+- [x] cargo test -p draconic-runtime
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +73,7 @@ Sibling files, each ≤1000.
 
 **Explain this part:**
 Keep pub use so polyfill names do not move.
+
+## Gauntlet
+
+- round 1: `cargo test -p draconic-runtime --offline` plus file-module and loc checks — win — 160 passed, crypto.rs 127 / testing.rs 87 / url.rs 371, lib.rs uses `pub mod crypto;`
