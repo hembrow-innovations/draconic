@@ -2,14 +2,14 @@
 id: "task-742-cli-split-main"
 title: "Split cli main.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-772-cli-frontend-load-policy"]
 sprint: "rust-dev-audit"
 slice: "slice-715-cli-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:00:00Z"
 ---
 
 # Split cli main.rs
@@ -60,9 +60,9 @@ main.rs ≤1000, no clap.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] main.rs ≤1000
-- [ ] no clap dependency
-- [ ] cargo test -p draconic-cli
+- [x] main.rs ≤1000
+- [x] no clap dependency
+- [x] cargo test -p draconic-cli
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -73,3 +73,7 @@ main.rs ≤1000, no clap.
 
 **Explain this part:**
 Keep compile_path / check_path. unsafe isatty only.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-cli --offline` — win. main.rs 274; no clap; test result ok.
