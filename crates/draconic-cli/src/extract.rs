@@ -6,11 +6,22 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use draconic_ast::{
-    AccessorKind, Arg, ArrayPatternElement, ArrowBody, AssignOp, BindingKind, BindingPattern,
-    ClassElement, Expr, ObjectKey, ObjectPatternProp, ObjectProp, Param, Program, Stmt, TypeAnn,
+    AccessorKind, Arg, ArrowBody, AssignOp, BindingKind, BindingPattern, ClassElement, Expr,
+    ObjectKey, ObjectProp, Param, Program, Stmt, TypeAnn,
 };
 use draconic_diagnostics::Span;
 use draconic_parser::parse_module;
+
+#[path = "extract_json.rs"]
+mod extract_json;
+use extract_json::emit_json;
+
+#[path = "extract_instances.rs"]
+mod extract_instances;
+use extract_instances::{
+    apply_instance_binding, clear_for_binding, delete_bound_names, delete_params,
+    seed_import_locals, take_assign_target, take_let_binding,
+};
 
 struct NamedSpan {
     name: String,
@@ -514,7 +525,7 @@ fn accessor_id(
     Some(format!("{class_id}.{kind_name}.{name}"))
 }
 
-fn unwrap_parens(expr: &Expr) -> &Expr {
+pub(super) fn unwrap_parens(expr: &Expr) -> &Expr {
     match expr {
         Expr::Paren { expr, .. } | Expr::As { expr, .. } => unwrap_parens(expr),
         other => other,
@@ -551,142 +562,6 @@ fn loop_ctx(parent: &WalkCtx) -> WalkCtx {
     let mut inner = parent.clone();
     inner.module_level = false;
     inner
-}
-
-fn delete_params(params: &[Param], names: &mut HashSet<String>) {
-    for param in params {
-        delete_bound_names(&param.binding, names);
-    }
-}
-
-fn delete_bound_names(binding: &BindingPattern, names: &mut HashSet<String>) {
-    binding.for_each_ident(&mut |id| {
-        names.remove(&id.name);
-    });
-}
-
-fn seed_import_locals(stmt: &Stmt, names: &mut HashSet<String>) {
-    let Stmt::ImportDeclaration {
-        specifiers,
-        namespace,
-        type_only,
-        ..
-    } = stmt
-    else {
-        return;
-    };
-    if *type_only {
-        return;
-    }
-    for spec in specifiers {
-        if spec.is_type {
-            continue;
-        }
-        names.insert(spec.local.name.clone());
-    }
-    if let Some(ns) = namespace {
-        names.insert(ns.name.clone());
-    }
-}
-
-fn take_let_binding(binding: &BindingPattern, init: Option<&Expr>, names: &mut HashSet<String>) {
-    match binding {
-        BindingPattern::Ident(id) => apply_instance_binding(&id.name, init, names),
-        other => delete_bound_names(other, names),
-    }
-}
-
-fn apply_instance_binding(name: &str, value: Option<&Expr>, names: &mut HashSet<String>) {
-    let Some(value) = value else {
-        names.remove(name);
-        return;
-    };
-    match unwrap_parens(value) {
-        Expr::New { callee, .. } => {
-            if ctor_unwraps_to_ident_or_member(callee) {
-                names.insert(name.to_string());
-            } else {
-                names.remove(name);
-            }
-        }
-        Expr::Ident(id) if names.contains(&id.name) => {
-            names.insert(name.to_string());
-        }
-        _ => {
-            names.remove(name);
-        }
-    }
-}
-
-fn ctor_unwraps_to_ident_or_member(callee: &Expr) -> bool {
-    match unwrap_parens(callee) {
-        Expr::Ident(_) => true,
-        Expr::MemberExpression {
-            computed, private, ..
-        } if !*computed && !*private => true,
-        _ => false,
-    }
-}
-
-fn take_assign_target(target: &Expr, value: &Expr, names: &mut HashSet<String>) {
-    match unwrap_parens(target) {
-        Expr::Ident(id) => apply_instance_binding(&id.name, Some(value), names),
-        Expr::ArrayPattern { elements, .. } => {
-            for el in elements {
-                match el {
-                    ArrayPatternElement::Elision => {}
-                    ArrayPatternElement::Pattern { binding, .. }
-                    | ArrayPatternElement::Rest(binding) => {
-                        delete_bound_names(binding, names);
-                    }
-                }
-            }
-        }
-        Expr::ObjectPattern { properties, .. } => {
-            for prop in properties {
-                match prop {
-                    ObjectPatternProp::Prop { binding, .. } | ObjectPatternProp::Rest(binding) => {
-                        delete_bound_names(binding, names);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn clear_for_binding(stmt: &Stmt, names: &mut HashSet<String>) {
-    match stmt {
-        Stmt::Let { binding, .. } => delete_bound_names(binding, names),
-        Stmt::Expression { expr, .. } => match unwrap_parens(expr) {
-            Expr::Ident(id) => {
-                names.remove(&id.name);
-            }
-            Expr::ArrayPattern { elements, .. } => {
-                for el in elements {
-                    match el {
-                        ArrayPatternElement::Elision => {}
-                        ArrayPatternElement::Pattern { binding, .. }
-                        | ArrayPatternElement::Rest(binding) => {
-                            delete_bound_names(binding, names);
-                        }
-                    }
-                }
-            }
-            Expr::ObjectPattern { properties, .. } => {
-                for prop in properties {
-                    match prop {
-                        ObjectPatternProp::Prop { binding, .. }
-                        | ObjectPatternProp::Rest(binding) => {
-                            delete_bound_names(binding, names);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        },
-        _ => {}
-    }
 }
 
 fn stamp_assigned_object_methods(
@@ -1057,85 +932,4 @@ fn line_at(source: &str, byte: u32) -> u32 {
         .filter(|&&b| b == b'\n')
         .count() as u32
         + 1
-}
-
-fn emit_json(extract: &ExtractV1) -> String {
-    let mut s = String::from("{\"version\":1,");
-    s.push_str("\"functions\":");
-    emit_array(&mut s, &extract.functions);
-    s.push_str(",\"classes\":");
-    emit_array(&mut s, &extract.classes);
-    s.push_str(",\"typeAliases\":");
-    emit_array(&mut s, &extract.type_aliases);
-    s.push_str(",\"externFunctions\":");
-    emit_array(&mut s, &extract.extern_functions);
-    s.push_str(",\"methods\":");
-    emit_array(&mut s, &extract.methods);
-    s.push_str(",\"constructors\":");
-    emit_array(&mut s, &extract.constructors);
-    s.push_str(",\"accessors\":");
-    emit_array(&mut s, &extract.accessors);
-    s.push_str(",\"imports\":");
-    emit_array(&mut s, &extract.imports);
-    s.push_str(",\"exports\":");
-    emit_array(&mut s, &extract.exports);
-    s.push_str(",\"calls\":");
-    emit_array(&mut s, &extract.calls);
-    s.push('}');
-    s
-}
-
-fn emit_array(s: &mut String, items: &[NamedSpan]) {
-    s.push('[');
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 {
-            s.push(',');
-        }
-        s.push('{');
-        s.push_str("\"name\":");
-        push_json_string(s, &item.name);
-        s.push_str(",\"startLine\":");
-        s.push_str(&item.start_line.to_string());
-        s.push_str(",\"endLine\":");
-        s.push_str(&item.end_line.to_string());
-        if let Some(enclosing) = &item.enclosing {
-            s.push_str(",\"enclosing\":");
-            push_json_string(s, enclosing);
-        }
-        if let Some(abi) = &item.abi {
-            s.push_str(",\"abi\":");
-            push_json_string(s, abi);
-        }
-        if item.native {
-            s.push_str(",\"native\":true");
-        }
-        if item.member {
-            s.push_str(",\"member\":true");
-        }
-        if item.is_static {
-            s.push_str(",\"static\":true");
-        }
-        if let Some(accessor) = item.accessor {
-            s.push_str(",\"accessor\":");
-            push_json_string(s, accessor);
-        }
-        s.push('}');
-    }
-    s.push(']');
-}
-
-fn push_json_string(s: &mut String, value: &str) {
-    s.push('"');
-    for c in value.chars() {
-        match c {
-            '"' => s.push_str("\\\""),
-            '\\' => s.push_str("\\\\"),
-            '\n' => s.push_str("\\n"),
-            '\r' => s.push_str("\\r"),
-            '\t' => s.push_str("\\t"),
-            c if (c as u32) < 0x20 => s.push_str(&format!("\\u{:04x}", c as u32)),
-            c => s.push(c),
-        }
-    }
-    s.push('"');
 }
