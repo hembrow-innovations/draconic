@@ -2,16 +2,15 @@
 id: "task-771-check-bind-in-check"
 title: "Bind inside check one walk"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-709-check-file-budget"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
-
 # Bind inside check one walk
 
 ## Blocked by
@@ -59,10 +58,10 @@ One walk. Public check / check_module / bind entries stay.
 - size-file-budget: no new file over 1000; do not grow lib.rs
 
 **Acceptance criteria:**
-- [ ] not two full bind_stmt + check_stmt walks
-- [ ] cargo test -p draconic-check
-- [ ] public check/bind entries remain
-- [ ] if diagnostics change order, stop and ticket
+- [x] not two full bind_stmt + check_stmt walks
+- [x] cargo test -p draconic-check
+- [x] public check/bind entries remain
+- [x] if diagnostics change order, stop and ticket
 
 **Out of scope:**
 - Extracting binder.rs as a second pass (task-727 waits and must not recreate two walks)
@@ -72,3 +71,8 @@ One walk. Public check / check_module / bind entries stay.
 
 **Explain this part:**
 Keep bind() if callers need BoundProgram. Implement it through the one walk, not a parallel visitor.
+
+## Gauntlet
+
+- **Round 1:** `cargo test -p draconic-check --offline -- --skip catalog_sync` — lose — bind-only could emit type-parameter and extern ABI diagnostics.
+- **Round 2:** same command — win — one `check_stmt`/`check_expr` walk; `bind_stmt`/`bind_expr` gone; lib.rs 8866 lines; 277 passed. `catalog_sync` skipped (unrelated dirty host_api from task-726).

@@ -403,15 +403,19 @@ fn format_type_full(
 
 /// Bind scopes and resolve identifiers for a minimal Program.
 pub fn bind(program: Program) -> Result<BoundProgram, Diagnostic> {
-    let mut binder = Binder::new();
-    binder.bind_program(program, false)
+    let mut checker = Checker::new();
+    checker.typecheck = false;
+    checker.analyze(&program, false)?;
+    Ok(checker.into_bound(program))
 }
 
 /// Bind under Module goal (E19.67): top-level functions are lexical, not var-like.
 pub fn bind_module(program: Program) -> Result<BoundProgram, Diagnostic> {
-    let mut binder = Binder::new();
-    binder.strict = true;
-    binder.bind_program(program, true)
+    let mut checker = Checker::new();
+    checker.typecheck = false;
+    checker.binder.strict = true;
+    checker.analyze(&program, true)?;
+    Ok(checker.into_bound(program))
 }
 
 pub fn check(program: Program) -> Result<CheckedProgram, Diagnostic> {
@@ -451,33 +455,16 @@ fn check_with_module_goal(
     module_goal: bool,
     target: Option<CompileTarget>,
 ) -> Result<CheckedProgram, Diagnostic> {
-    let bound = if module_goal {
-        bind_module(program)?
-    } else {
-        bind(program)?
-    };
-    let mut checker = Checker::new(&bound);
+    let mut checker = Checker::new();
+    checker.typecheck = true;
     // Module evaluation may be async when the body uses top-level await.
     checker.in_async = module_goal;
     checker.host_target = target;
-    checker.check_program()?;
-    let symbol_types = checker.symbol_types;
-    let expr_types = checker.expr_types;
-    let shapes = checker.shapes;
-    let unions = checker.unions;
-    let intersections = checker.intersections;
-    let generic_fns = checker.generic_fns;
-    let type_aliases = checker.type_aliases;
-    Ok(CheckedProgram {
-        bound,
-        symbol_types,
-        expr_types,
-        shapes,
-        unions,
-        intersections,
-        generic_fns,
-        type_aliases,
-    })
+    if module_goal {
+        checker.binder.strict = true;
+    }
+    checker.analyze(&program, module_goal)?;
+    Ok(checker.into_checked(program))
 }
 
 /// Whether a labelled item is (or wraps) an iteration statement — needed for
@@ -1271,57 +1258,6 @@ impl Binder {
         self.builtins.insert(name.to_string(), id);
     }
 
-    fn bind_program(
-        &mut self,
-        program: Program,
-        module_goal: bool,
-    ) -> Result<BoundProgram, Diagnostic> {
-        if stmt_list_has_use_strict(&program.body) {
-            self.strict = true;
-        }
-        // E19.67: Module top-level uses Block-like LexicallyDeclaredNames (functions are
-        // lexical). Script/FunctionBody use TopLevel*DeclaredNames (functions are var-like).
-        let top_level = !module_goal;
-        self.bind_stmt_list(&program.body, top_level)?;
-
-        Ok(BoundProgram {
-            program,
-            symbols: std::mem::take(&mut self.symbols),
-            resolutions: std::mem::take(&mut self.resolutions),
-        })
-    }
-
-    /// Two-pass list bind: declare lexical bindings in this scope, then bind each statement.
-    ///
-    /// `top_level`: Script or FunctionBody (TopLevel*DeclaredNames early errors).
-    /// Module program body passes `false` so functions are lexical (E19.67).
-    fn bind_stmt_list(&mut self, stmts: &[Stmt], top_level: bool) -> Result<(), Diagnostic> {
-        // E19.24: LexicallyDeclaredNames / VarDeclaredNames early errors.
-        check_statement_list_early_errors(stmts, self.strict, top_level)?;
-        for stmt in stmts {
-            self.declare_list_item(stmt)?;
-        }
-        for stmt in stmts {
-            self.bind_stmt(stmt)?;
-        }
-        Ok(())
-    }
-
-    /// Bind a function/method/arrow block body with FunctionBody (top-level) early errors.
-    fn bind_function_body(&mut self, body: &Stmt) -> Result<(), Diagnostic> {
-        // Body gets its own block scope (named FE / `let arguments` / nested `function`
-        // can shadow). Param∩body-lexical conflicts are checked separately.
-        match body {
-            Stmt::Block { body, .. } => {
-                self.push_scope();
-                self.bind_stmt_list(body, true)?;
-                self.pop_scope();
-                Ok(())
-            }
-            other => self.bind_stmt(other),
-        }
-    }
-
     /// E19.39: LexicallyDeclaredNames of FunctionBody must not intersect BoundNames of formals.
     fn check_params_body_lexical_conflict(
         &self,
@@ -1856,947 +1792,6 @@ impl Binder {
         Ok(())
     }
 
-    fn bind_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
-        match stmt {
-            Stmt::Expression { expr, .. } => self.bind_expr(expr),
-            Stmt::Let { binding, init, .. } => {
-                if let Some(init) = init {
-                    self.bind_expr(init)?;
-                }
-                self.bind_pattern_defaults(binding)?;
-                Ok(())
-            }
-            Stmt::TypeAlias { .. } => Ok(()),
-            // F06.02: name declared in list pass; no body or param scope to bind.
-            Stmt::ExternFunctionDeclaration { .. } => Ok(()),
-            Stmt::Empty { .. } => Ok(()),
-            Stmt::Block { body, .. } => {
-                self.push_scope();
-                self.bind_stmt_list(body, false)?;
-                self.pop_scope();
-                Ok(())
-            }
-            Stmt::If {
-                test,
-                consequent,
-                alternate,
-                ..
-            } => {
-                self.bind_expr(test)?;
-                self.bind_stmt(consequent)?;
-                if let Some(alt) = alternate {
-                    self.bind_stmt(alt)?;
-                }
-                Ok(())
-            }
-            Stmt::While { test, body, .. } => {
-                self.bind_expr(test)?;
-                self.bind_stmt(body)
-            }
-            Stmt::DoWhile { body, test, .. } => {
-                self.bind_stmt(body)?;
-                self.bind_expr(test)
-            }
-            Stmt::For {
-                init,
-                test,
-                update,
-                body,
-                ..
-            } => {
-                // `for (let/const …)` introduces a loop-scoped binding visible in
-                // test, update, and body. `for (var …)` is function-scoped (already hoisted).
-                if let Some(Stmt::Let {
-                    kind,
-                    binding,
-                    init: let_init,
-                    ..
-                }) = init.as_deref()
-                {
-                    if matches!(
-                        kind,
-                        BindingKind::Let
-                            | BindingKind::Const
-                            | BindingKind::Using
-                            | BindingKind::AwaitUsing
-                    ) {
-                        // E19.67: ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) empty.
-                        let mut bound = Vec::new();
-                        binding.for_each_ident(&mut |id| {
-                            bound.push((id.name.clone(), id.span));
-                        });
-                        let mut body_vars = Vec::new();
-                        collect_var_declared_names_stmt(body, &mut body_vars);
-                        for (name, span) in &bound {
-                            if body_vars.iter().any(|(n, _)| n == name) {
-                                return Err(Diagnostic::new(
-                                    format!("duplicate declaration of `{name}`"),
-                                    *span,
-                                ));
-                            }
-                        }
-                        self.push_scope();
-                        self.declare_binding(binding, *kind)?;
-                        // Pattern defaults (`[cls = class {}]`) bind free refs + class expr locals.
-                        self.bind_pattern_defaults(binding)?;
-                        if let Some(e) = let_init {
-                            self.bind_expr(e)?;
-                        }
-                        if let Some(t) = test {
-                            self.bind_expr(t)?;
-                        }
-                        if let Some(u) = update {
-                            self.bind_expr(u)?;
-                        }
-                        self.bind_stmt(body)?;
-                        self.pop_scope();
-                        return Ok(());
-                    }
-                }
-                if let Some(init) = init {
-                    self.bind_stmt(init)?;
-                }
-                if let Some(t) = test {
-                    self.bind_expr(t)?;
-                }
-                if let Some(u) = update {
-                    self.bind_expr(u)?;
-                }
-                self.bind_stmt(body)
-            }
-            Stmt::ForIn {
-                left, right, body, ..
-            } => self.bind_for_in_of(left, right, body, true),
-            Stmt::ForOf {
-                left, right, body, ..
-            } => self.bind_for_in_of(left, right, body, false),
-            Stmt::Break { .. } | Stmt::Continue { .. } => Ok(()),
-            Stmt::Labeled { body, .. } => self.bind_stmt(body),
-            Stmt::Switch {
-                discriminant,
-                cases,
-                ..
-            } => {
-                self.bind_expr(discriminant)?;
-                // Switch body is one block scope for all case clauses (ES lexical).
-                self.push_scope();
-                let mut all_stmts = Vec::new();
-                for case in cases {
-                    if let Some(test) = &case.test {
-                        self.bind_expr(test)?;
-                    }
-                    all_stmts.extend(case.body.iter());
-                }
-                // E19.24: CaseBlock LexicallyDeclaredNames / VarDeclaredNames early errors.
-                check_statement_list_early_errors(all_stmts.iter().copied(), self.strict, false)?;
-                // Two-pass bind over concatenated case bodies.
-                for stmt in &all_stmts {
-                    self.declare_list_item(stmt)?;
-                }
-                for stmt in all_stmts {
-                    self.bind_stmt(stmt)?;
-                }
-                self.pop_scope();
-                Ok(())
-            }
-            Stmt::FunctionDeclaration {
-                name,
-                params,
-                body,
-                is_async,
-                is_generator,
-                span,
-                ..
-            } => {
-                // Name already declared in the enclosing list's first pass.
-                // Function scope is a var environment.
-                let prev_strict = self.strict;
-                if body_has_use_strict(body) {
-                    // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
-                    if !is_simple_parameter_list(params) {
-                        return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list"
-                                .to_string(),
-                            *span,
-                        ));
-                    }
-                    self.strict = true;
-                }
-                // E19.49: BindingIdentifier of FunctionDeclaration in strict function code.
-                if self.strict && (name.name == "eval" || name.name == "arguments") {
-                    return Err(Diagnostic::new(
-                        format!("binding `{}` is invalid in strict mode", name.name),
-                        name.span,
-                    ));
-                }
-                // Plain/async/generator functions cannot contain SuperCall/SuperProperty.
-                if params_contain_super(params) || stmt_contains_super(body) {
-                    return Err(Diagnostic::new(
-                        "function cannot contain super".to_string(),
-                        *span,
-                    ));
-                }
-                let prev_super = self.super_allowed;
-                self.super_allowed = false;
-                self.push_scope_kind(true);
-                // E17.02.04: only plain (non-async/generator) functions allow sloppy dups.
-                let allow_sloppy_dups = !*is_async && !*is_generator;
-                self.bind_params(params, allow_sloppy_dups)?;
-                self.install_arguments_object()?;
-                // FunctionBody uses TopLevel*DeclaredNames early errors (E19.24).
-                self.check_params_body_lexical_conflict(params, body)?;
-                self.bind_function_body(body)?;
-                self.pop_scope();
-                self.super_allowed = prev_super;
-                self.strict = prev_strict;
-                Ok(())
-            }
-            Stmt::ClassDeclaration {
-                super_class, body, ..
-            } => {
-                // Name already declared in the enclosing list's first pass.
-                if let Some(sc) = super_class {
-                    self.bind_expr(sc)?;
-                }
-                for el in body {
-                    match el {
-                        ClassElement::Constructor { params, body, .. } => {
-                            // Class bodies are always strict mode code.
-                            let prev_strict = self.strict;
-                            let prev_super = self.super_allowed;
-                            self.strict = true;
-                            self.super_allowed = true;
-                            self.push_scope_kind(true);
-                            self.bind_params(params, false)?;
-                            self.install_arguments_object()?;
-                            self.check_params_body_lexical_conflict(params, body)?;
-                            self.bind_function_body(body)?;
-                            self.pop_scope();
-                            self.super_allowed = prev_super;
-                            self.strict = prev_strict;
-                        }
-                        ClassElement::Method {
-                            key,
-                            params,
-                            body,
-                            span,
-                            ..
-                        }
-                        | ClassElement::Accessor {
-                            key,
-                            params,
-                            body,
-                            span,
-                            ..
-                        } => {
-                            self.bind_object_key(key)?;
-                            if body_has_use_strict(body) && !is_simple_parameter_list(params) {
-                                return Err(Diagnostic::new(
-                                    "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
-                                    *span,
-                                ));
-                            }
-                            let prev_strict = self.strict;
-                            let prev_super = self.super_allowed;
-                            self.strict = true;
-                            self.super_allowed = true;
-                            self.push_scope_kind(true);
-                            self.bind_params(params, false)?;
-                            self.install_arguments_object()?;
-                            self.check_params_body_lexical_conflict(params, body)?;
-                            self.bind_function_body(body)?;
-                            self.pop_scope();
-                            self.super_allowed = prev_super;
-                            self.strict = prev_strict;
-                        }
-                        ClassElement::Field { key, value, .. } => {
-                            self.bind_object_key(key)?;
-                            if let Some(v) = value {
-                                // E19.82.05: field inits allow SuperProperty (lexical home object).
-                                let prev_super = self.super_allowed;
-                                self.super_allowed = true;
-                                self.bind_expr(v)?;
-                                self.super_allowed = prev_super;
-                            }
-                        }
-                        ClassElement::StaticBlock { body, .. } => {
-                            // No `arguments`; block body provides its own scope.
-                            let prev_strict = self.strict;
-                            self.strict = true;
-                            self.bind_stmt(body)?;
-                            self.strict = prev_strict;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Stmt::Return { argument, .. } => {
-                if let Some(arg) = argument {
-                    self.bind_expr(arg)?;
-                }
-                Ok(())
-            }
-            Stmt::Throw { argument, .. } => self.bind_expr(argument),
-            Stmt::Try {
-                block,
-                handler_param,
-                handler,
-                finalizer,
-                ..
-            } => {
-                self.bind_stmt(block)?;
-                if let Some(handler) = handler {
-                    // Catch binding is scoped to the catch block only.
-                    // Early error: CatchParameter ∩ LexicallyDeclaredNames(Block).
-                    // Annex B.3.4: CatchParameter ∩ VarDeclaredNames(Block) is allowed.
-                    if let Some(param) = handler_param {
-                        if let Some((name, span)) = catch_lexical_conflict(param, handler) {
-                            return Err(Diagnostic::new(
-                                format!("duplicate declaration of `{name}`"),
-                                span,
-                            ));
-                        }
-                    }
-                    self.push_scope();
-                    if let Some(param) = handler_param {
-                        // CatchParameter is a lexical binding (like `let`).
-                        if matches!(param, BindingPattern::Member(_)) {
-                            return Err(Diagnostic::new(
-                                "member expression is not a valid catch binding".to_string(),
-                                param.span(),
-                            ));
-                        }
-                        self.declare_binding(param, BindingKind::Let)?;
-                        self.bind_pattern_defaults(param)?;
-                    }
-                    self.bind_stmt(handler)?;
-                    self.pop_scope();
-                }
-                if let Some(finalizer) = finalizer {
-                    self.bind_stmt(finalizer)?;
-                }
-                Ok(())
-            }
-            Stmt::With { object, body, .. } => {
-                self.bind_expr(object)?;
-                self.with_depth += 1;
-                let result = self.bind_stmt(body);
-                self.with_depth -= 1;
-                result
-            }
-            Stmt::ImportDeclaration { span, .. }
-            | Stmt::ExportNamedDeclaration { span, .. }
-            | Stmt::ExportDefaultDeclaration { span, .. }
-            | Stmt::ExportAllDeclaration { span, .. } => Err(Diagnostic::new(
-                "import/export must be linked before bind/check".to_string(),
-                *span,
-            )),
-        }
-    }
-
-    fn bind_for_in_of(
-        &mut self,
-        left: &Stmt,
-        right: &Expr,
-        body: &Stmt,
-        is_for_in: bool,
-    ) -> Result<(), Diagnostic> {
-        // `for (let/const binding in/of right)` — loop-scoped bindings.
-        // `for (var binding in/of right)` — function-scoped (already hoisted).
-        // Annex B.3.5: `for (var name = init in right)` only.
-        if let Stmt::Let {
-            kind,
-            binding,
-            init,
-            ..
-        } = left
-        {
-            if init.is_some() && !(is_for_in && *kind == BindingKind::Var) {
-                return Err(Diagnostic::new(
-                    "for-in/of binding cannot have an initializer".to_string(),
-                    binding.span(),
-                ));
-            }
-            // ForDeclaration BoundNames ∩ VarDeclaredNames(Statement) must be empty.
-            if kind.is_lexical() {
-                let mut bound = Vec::new();
-                binding.for_each_ident(&mut |id| {
-                    bound.push((id.name.clone(), id.span));
-                });
-                let mut body_vars = Vec::new();
-                collect_var_declared_names_stmt(body, &mut body_vars);
-                for (name, span) in &bound {
-                    if body_vars.iter().any(|(n, _)| n == name) {
-                        return Err(Diagnostic::new(
-                            format!("duplicate declaration of `{name}`"),
-                            *span,
-                        ));
-                    }
-                }
-            }
-            if matches!(
-                kind,
-                BindingKind::Let
-                    | BindingKind::Const
-                    | BindingKind::Using
-                    | BindingKind::AwaitUsing
-            ) {
-                self.push_scope();
-                self.declare_binding(binding, *kind)?;
-                self.bind_pattern_defaults(binding)?;
-                if let Some(e) = init {
-                    self.bind_expr(e)?;
-                }
-                self.bind_expr(right)?;
-                self.bind_stmt(body)?;
-                self.pop_scope();
-                Ok(())
-            } else {
-                // var: already hoisted into the enclosing var environment.
-                self.bind_pattern_defaults(binding)?;
-                if let Some(e) = init {
-                    self.bind_expr(e)?;
-                }
-                self.bind_expr(right)?;
-                self.bind_stmt(body)
-            }
-        } else {
-            self.bind_stmt(left)?;
-            self.bind_expr(right)?;
-            self.bind_stmt(body)
-        }
-    }
-
-    fn bind_expr(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
-        match expr {
-            Expr::Ident(id) => self.bind_ident_use(id),
-            Expr::Number(_)
-            | Expr::BigInt(_)
-            | Expr::String(_)
-            | Expr::RegExp { .. }
-            | Expr::Boolean { .. }
-            | Expr::Null { .. }
-            | Expr::This { .. }
-            | Expr::Super { .. }
-            | Expr::NewTarget { .. }
-            | Expr::ImportMeta { .. } => Ok(()),
-            Expr::ImportCall {
-                source, options, ..
-            } => {
-                self.bind_expr(source)?;
-                if let Some(opts) = options {
-                    self.bind_expr(opts)?;
-                }
-                Ok(())
-            }
-            Expr::TemplateLiteral { expressions, .. } => {
-                for e in expressions {
-                    self.bind_expr(e)?;
-                }
-                Ok(())
-            }
-            Expr::TaggedTemplate {
-                tag, expressions, ..
-            } => {
-                self.bind_expr(tag)?;
-                for e in expressions {
-                    self.bind_expr(e)?;
-                }
-                Ok(())
-            }
-            Expr::Unary { op, arg, span } => {
-                // E19.39: `delete IdentifierReference` is early SyntaxError in strict mode
-                // (including parenthesized forms: `delete ((id))`).
-                if matches!(op, UnaryOp::Delete) && self.strict {
-                    let mut inner = arg.as_ref();
-                    while let Expr::Paren { expr, .. } = inner {
-                        inner = expr.as_ref();
-                    }
-                    if matches!(inner, Expr::Ident(_)) {
-                        return Err(Diagnostic::new(
-                            "cannot delete unqualified identifier in strict mode".to_string(),
-                            *span,
-                        ));
-                    }
-                }
-                self.bind_expr(arg)
-            }
-            Expr::Binary { left, right, .. } => {
-                self.bind_expr(left)?;
-                self.bind_expr(right)
-            }
-            Expr::Conditional {
-                test,
-                consequent,
-                alternate,
-                ..
-            } => {
-                self.bind_expr(test)?;
-                self.bind_expr(consequent)?;
-                self.bind_expr(alternate)
-            }
-            Expr::Assign { target, value, .. } => {
-                // E19.49: strict mode — `eval`/`arguments` are not valid simple assignment targets.
-                if self.strict {
-                    if let Some((name, span)) = strict_forbidden_assign_target(target) {
-                        return Err(Diagnostic::new(
-                            format!("cannot assign to `{name}` in strict mode"),
-                            span,
-                        ));
-                    }
-                }
-                self.bind_expr(target)?;
-                self.bind_expr(value)
-            }
-            Expr::Update { arg, .. } => {
-                // E19.49: strict mode — `eval`/`arguments` are not valid update targets.
-                if self.strict {
-                    if let Some((name, span)) = strict_forbidden_assign_target(arg) {
-                        return Err(Diagnostic::new(
-                            format!("cannot assign to `{name}` in strict mode"),
-                            span,
-                        ));
-                    }
-                }
-                self.bind_expr(arg)
-            }
-            Expr::Call { callee, args, .. } | Expr::New { callee, args, .. } => {
-                self.bind_expr(callee)?;
-                for arg in args {
-                    match arg {
-                        Arg::Expr(expr) | Arg::Spread(expr) => self.bind_expr(expr)?,
-                    }
-                }
-                Ok(())
-            }
-            Expr::FunctionExpression {
-                name,
-                params,
-                body,
-                is_async,
-                is_generator,
-                is_method,
-                span,
-                ..
-            } => {
-                // Name (if any) is local to the function body only (ES named FE).
-                let prev_strict = self.strict;
-                if body_has_use_strict(body) {
-                    // E19.39: ContainsUseStrict && !IsSimpleParameterList → SyntaxError.
-                    if !is_simple_parameter_list(params) {
-                        return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list"
-                                .to_string(),
-                            *span,
-                        ));
-                    }
-                    self.strict = true;
-                }
-                // E19.39: object/class methods (is_method) cannot contain SuperCall.
-                if *is_method
-                    && (params_contain_super_call(params) || stmt_contains_super_call(body))
-                {
-                    return Err(Diagnostic::new(
-                        "method cannot contain super call".to_string(),
-                        *span,
-                    ));
-                }
-                // Non-method functions cannot contain SuperCall/SuperProperty at all.
-                if !*is_method && (params_contain_super(params) || stmt_contains_super(body)) {
-                    return Err(Diagnostic::new(
-                        "function cannot contain super".to_string(),
-                        *span,
-                    ));
-                }
-                let prev_super = self.super_allowed;
-                // Methods allow SuperProperty (and nested arrows inherit); plain FE clears it.
-                self.super_allowed = *is_method;
-                // Named FE: name lives in an outer env so params may shadow it
-                // (e.g. `function await(await) {}` — E19.52).
-                let named = name.is_some();
-                if named {
-                    self.push_scope_kind(true);
-                    if let Some(name) = name {
-                        self.declare(name.name.clone(), name.span, BindingKind::Function)?;
-                    }
-                }
-                self.push_scope_kind(true);
-                // E17.02.04: methods / async / generators use UniqueFormalParameters.
-                let allow_sloppy_dups = !*is_async && !*is_generator && !*is_method;
-                self.bind_params(params, allow_sloppy_dups)?;
-                self.install_arguments_object()?;
-                self.check_params_body_lexical_conflict(params, body)?;
-                self.bind_function_body(body)?;
-                self.super_allowed = prev_super;
-                self.pop_scope();
-                if named {
-                    self.pop_scope();
-                }
-                self.strict = prev_strict;
-                Ok(())
-            }
-            Expr::ClassExpression {
-                name,
-                super_class,
-                body,
-                span,
-                ..
-            } => {
-                // Name (if any) is local to the class body only (ES named class expression).
-                // Anonymous class expressions get a synthetic binding keyed by the expr span.
-                self.push_scope_kind(true);
-                if let Some(name) = name {
-                    self.declare(name.name.clone(), name.span, BindingKind::Function)?;
-                } else {
-                    self.declare("__class".into(), *span, BindingKind::Function)?;
-                }
-                if let Some(sc) = super_class {
-                    self.bind_expr(sc)?;
-                }
-                for el in body {
-                    match el {
-                        ClassElement::Constructor { params, body, .. } => {
-                            let prev_strict = self.strict;
-                            let prev_super = self.super_allowed;
-                            self.strict = true;
-                            self.super_allowed = true;
-                            self.push_scope_kind(true);
-                            self.bind_params(params, false)?;
-                            self.install_arguments_object()?;
-                            self.check_params_body_lexical_conflict(params, body)?;
-                            self.bind_function_body(body)?;
-                            self.pop_scope();
-                            self.super_allowed = prev_super;
-                            self.strict = prev_strict;
-                        }
-                        ClassElement::Method {
-                            key,
-                            params,
-                            body,
-                            span,
-                            ..
-                        }
-                        | ClassElement::Accessor {
-                            key,
-                            params,
-                            body,
-                            span,
-                            ..
-                        } => {
-                            self.bind_object_key(key)?;
-                            if body_has_use_strict(body) && !is_simple_parameter_list(params) {
-                                return Err(Diagnostic::new(
-                                    "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
-                                    *span,
-                                ));
-                            }
-                            let prev_strict = self.strict;
-                            let prev_super = self.super_allowed;
-                            self.strict = true;
-                            self.super_allowed = true;
-                            self.push_scope_kind(true);
-                            self.bind_params(params, false)?;
-                            self.install_arguments_object()?;
-                            self.check_params_body_lexical_conflict(params, body)?;
-                            self.bind_function_body(body)?;
-                            self.pop_scope();
-                            self.super_allowed = prev_super;
-                            self.strict = prev_strict;
-                        }
-                        ClassElement::Field { key, value, .. } => {
-                            self.bind_object_key(key)?;
-                            if let Some(v) = value {
-                                // E19.82.05: field inits allow SuperProperty (lexical home object).
-                                let prev_super = self.super_allowed;
-                                self.super_allowed = true;
-                                self.bind_expr(v)?;
-                                self.super_allowed = prev_super;
-                            }
-                        }
-                        ClassElement::StaticBlock { body, .. } => {
-                            let prev_strict = self.strict;
-                            self.strict = true;
-                            self.bind_stmt(body)?;
-                            self.strict = prev_strict;
-                        }
-                    }
-                }
-                self.pop_scope();
-                Ok(())
-            }
-            Expr::ArrowFunction {
-                params, body, span, ..
-            } => {
-                let prev_strict = self.strict;
-                let body_strict = match body {
-                    ArrowBody::Block(stmt) => body_has_use_strict(stmt),
-                    ArrowBody::Expr(_) => false,
-                };
-                if body_strict {
-                    if !is_simple_parameter_list(params) {
-                        return Err(Diagnostic::new(
-                            "\"use strict\" not allowed in function with non-simple parameter list"
-                                .to_string(),
-                            *span,
-                        ));
-                    }
-                    self.strict = true;
-                }
-                // SuperCall/SuperProperty in arrows: lexical — allowed when nested in a
-                // Super-enabled context (ctor/method/field). Outer early errors reject
-                // SuperCall in methods/fields/static-blocks via Contains SuperCall (E19.82.05).
-                // SuperProperty only when nested in method/constructor/field (lexical super).
-                let body_super = match body {
-                    ArrowBody::Expr(e) => expr_contains_super(e),
-                    ArrowBody::Block(s) => stmt_contains_super(s),
-                };
-                if !self.super_allowed && (params_contain_super(params) || body_super) {
-                    return Err(Diagnostic::new(
-                        "arrow function cannot contain super".to_string(),
-                        *span,
-                    ));
-                }
-                self.push_scope_kind(true);
-                self.bind_params(params, false)?;
-                match body {
-                    ArrowBody::Expr(expr) => self.bind_expr(expr)?,
-                    ArrowBody::Block(stmt) => {
-                        self.check_params_body_lexical_conflict(params, stmt)?;
-                        self.bind_function_body(stmt)?;
-                    }
-                }
-                self.pop_scope();
-                self.strict = prev_strict;
-                Ok(())
-            }
-            Expr::ObjectExpression { properties, .. } => {
-                for prop in properties {
-                    match prop {
-                        ObjectProp::Property { key, value, .. } => {
-                            match key {
-                                ObjectKey::Ident(_) | ObjectKey::String(_) => {}
-                                ObjectKey::Computed(expr) => self.bind_expr(expr)?,
-                            }
-                            self.bind_expr(value)?;
-                        }
-                        ObjectProp::Accessor {
-                            key,
-                            params,
-                            body,
-                            span,
-                            ..
-                        } => {
-                            match key {
-                                ObjectKey::Ident(_) | ObjectKey::String(_) => {}
-                                ObjectKey::Computed(expr) => self.bind_expr(expr)?,
-                            }
-                            let prev_strict = self.strict;
-                            if body_has_use_strict(body) {
-                                if !is_simple_parameter_list(params) {
-                                    return Err(Diagnostic::new(
-                                        "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
-                                        *span,
-                                    ));
-                                }
-                                self.strict = true;
-                            }
-                            if params_contain_super_call(params) || stmt_contains_super_call(body) {
-                                return Err(Diagnostic::new(
-                                    "method cannot contain super call".to_string(),
-                                    *span,
-                                ));
-                            }
-                            self.push_scope_kind(true);
-                            self.bind_params(params, false)?;
-                            self.install_arguments_object()?;
-                            self.check_params_body_lexical_conflict(params, body)?;
-                            self.bind_function_body(body)?;
-                            self.pop_scope();
-                            self.strict = prev_strict;
-                        }
-                        ObjectProp::Spread { expr, .. } => self.bind_expr(expr)?,
-                    }
-                }
-                Ok(())
-            }
-            Expr::ArrayExpression { elements, .. } => {
-                for el in elements {
-                    match el {
-                        ArrayElement::Expr(expr) | ArrayElement::Spread(expr) => {
-                            self.bind_expr(expr)?;
-                        }
-                        ArrayElement::Elision => {}
-                    }
-                }
-                Ok(())
-            }
-            Expr::MemberExpression {
-                object,
-                property,
-                computed,
-                ..
-            } => {
-                self.bind_expr(object)?;
-                if *computed {
-                    self.bind_expr(property)?;
-                }
-                // Non-computed property name is not a variable reference.
-                Ok(())
-            }
-            Expr::PrivateIn { object, .. } => self.bind_expr(object),
-            Expr::Paren { expr, .. } => self.bind_expr(expr),
-            Expr::As { expr, .. } => self.bind_expr(expr),
-            Expr::ArrayPattern { elements, .. } => {
-                for el in elements {
-                    match el {
-                        ArrayPatternElement::Elision => {}
-                        ArrayPatternElement::Pattern { binding, default } => {
-                            self.bind_assign_pattern(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ArrayPatternElement::Rest(binding) => {
-                            self.bind_assign_pattern(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            Expr::ObjectPattern { properties, .. } => {
-                for p in properties {
-                    match p {
-                        ObjectPatternProp::Prop {
-                            key,
-                            binding,
-                            default,
-                            ..
-                        } => {
-                            self.bind_object_key(key)?;
-                            self.bind_assign_pattern(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ObjectPatternProp::Rest(binding) => {
-                            self.bind_assign_pattern(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn bind_assign_pattern(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
-        match pat {
-            BindingPattern::Ident(id) => {
-                // E19.39: strict mode — `eval`/`arguments` are not valid simple assignment targets.
-                if self.strict && (id.name == "eval" || id.name == "arguments") {
-                    return Err(Diagnostic::new(
-                        format!("cannot assign to `{}` in strict mode", id.name),
-                        id.span,
-                    ));
-                }
-                self.bind_expr(&Expr::Ident(id.clone()))
-            }
-            BindingPattern::Member(expr) => self.bind_expr(expr),
-            BindingPattern::Array { elements, .. } => {
-                for el in elements {
-                    match el {
-                        ArrayPatternElement::Elision => {}
-                        ArrayPatternElement::Pattern { binding, default } => {
-                            self.bind_assign_pattern(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ArrayPatternElement::Rest(binding) => {
-                            self.bind_assign_pattern(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            BindingPattern::Object { properties, .. } => {
-                for p in properties {
-                    match p {
-                        ObjectPatternProp::Prop {
-                            key,
-                            binding,
-                            default,
-                            ..
-                        } => {
-                            self.bind_object_key(key)?;
-                            self.bind_assign_pattern(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ObjectPatternProp::Rest(binding) => {
-                            self.bind_assign_pattern(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
-
-    /// Bind free references in pattern default initializers (`pat = expr`)
-    /// and computed property names in object patterns.
-    fn bind_pattern_defaults(&mut self, pat: &BindingPattern) -> Result<(), Diagnostic> {
-        match pat {
-            BindingPattern::Ident(_) | BindingPattern::Member(_) => Ok(()),
-            BindingPattern::Array { elements, .. } => {
-                for el in elements {
-                    match el {
-                        ArrayPatternElement::Elision => {}
-                        ArrayPatternElement::Pattern { binding, default } => {
-                            self.bind_pattern_defaults(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ArrayPatternElement::Rest(binding) => {
-                            self.bind_pattern_defaults(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-            BindingPattern::Object { properties, .. } => {
-                for p in properties {
-                    match p {
-                        ObjectPatternProp::Prop {
-                            key,
-                            binding,
-                            default,
-                            ..
-                        } => {
-                            self.bind_object_key(key)?;
-                            self.bind_pattern_defaults(binding)?;
-                            if let Some(def) = default {
-                                self.bind_expr(def)?;
-                            }
-                        }
-                        ObjectPatternProp::Rest(binding) => {
-                            self.bind_pattern_defaults(binding)?;
-                        }
-                    }
-                }
-                Ok(())
-            }
-        }
-    }
-
-    fn bind_object_key(&mut self, key: &ObjectKey) -> Result<(), Diagnostic> {
-        match key {
-            ObjectKey::Ident(_) | ObjectKey::String(_) => Ok(()),
-            ObjectKey::Computed(expr) => self.bind_expr(expr),
-        }
-    }
-
     fn bind_params(&mut self, params: &[Param], allow_sloppy_dups: bool) -> Result<(), Diagnostic> {
         // E19.24: strict FormalParameters / ArrowParameters cannot bind `eval` or `arguments`.
         if self.strict {
@@ -2857,12 +1852,6 @@ impl Binder {
                 self.declare_binding(&p.binding, BindingKind::Let)?;
             }
         }
-        for p in params {
-            self.bind_pattern_defaults(&p.binding)?;
-            if let Some(default) = &p.default {
-                self.bind_expr(default)?;
-            }
-        }
         Ok(())
     }
 
@@ -2908,8 +1897,10 @@ impl Binder {
     }
 }
 
-struct Checker<'a> {
-    bound: &'a BoundProgram,
+struct Checker {
+    binder: Binder,
+    /// When false, the walk only resolves symbols (`bind`). When true, it also checks types.
+    typecheck: bool,
     symbol_types: Vec<Type>,
     /// True when the binding's type came from a type annotation (not inference).
     /// Untyped JS assignment may widen inferred bindings (E19.12 / E19.48).
@@ -2943,10 +1934,12 @@ struct Checker<'a> {
     host_target: Option<CompileTarget>,
 }
 
-impl<'a> Checker<'a> {
-    fn new(bound: &'a BoundProgram) -> Self {
-        let mut symbol_types = vec![Type::Any; bound.symbols().len()];
-        for s in bound.symbols() {
+impl Checker {
+    fn new() -> Self {
+        let binder = Binder::new();
+        let n = binder.symbols.len();
+        let mut symbol_types = vec![Type::Any; n];
+        for s in &binder.symbols {
             // Host globals installed with Span::dummy() (E08.05+).
             if s.span == Span::dummy() {
                 symbol_types[s.id.0 as usize] = match s.name.as_str() {
@@ -2969,9 +1962,9 @@ impl<'a> Checker<'a> {
                 };
             }
         }
-        let n = bound.symbols().len();
         Self {
-            bound,
+            binder,
+            typecheck: true,
             symbol_types,
             symbol_annotated: vec![false; n],
             fn_sigs: vec![None; n],
@@ -2991,9 +1984,29 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_program(&mut self) -> Result<(), Diagnostic> {
+    fn sync_symbols(&mut self) {
+        while self.symbol_types.len() < self.binder.symbols.len() {
+            self.symbol_types.push(Type::Any);
+            self.symbol_annotated.push(false);
+            self.fn_sigs.push(None);
+        }
+    }
+
+    fn resolve_span(&self, span: Span) -> Option<SymbolId> {
+        self.binder.resolutions.get(&span).copied()
+    }
+
+    fn symbols(&self) -> &[Symbol] {
+        &self.binder.symbols
+    }
+
+    fn symbol(&self, id: SymbolId) -> &Symbol {
+        &self.binder.symbols[id.0 as usize]
+    }
+
+    fn declare_type_aliases(&mut self, body: &[Stmt]) -> Result<(), Diagnostic> {
         // Program-level type aliases (T02/T04): declare names, then resolve non-generic bodies.
-        for stmt in &self.bound.program.body {
+        for stmt in body {
             if let Stmt::TypeAlias {
                 name, type_params, ..
             } = stmt
@@ -3023,10 +2036,7 @@ impl<'a> Checker<'a> {
                 }
             }
         }
-        let alias_bodies: Vec<(String, Vec<String>, TypeAnn)> = self
-            .bound
-            .program
-            .body
+        let alias_bodies: Vec<(String, Vec<String>, TypeAnn)> = body
             .iter()
             .filter_map(|s| match s {
                 Stmt::TypeAlias {
@@ -3060,11 +2070,277 @@ impl<'a> Checker<'a> {
                     .insert(name, GenericAlias { params, body: ty });
             }
         }
+        Ok(())
+    }
+
+    fn into_bound(self, program: Program) -> BoundProgram {
+        BoundProgram {
+            program,
+            symbols: self.binder.symbols,
+            resolutions: self.binder.resolutions,
+        }
+    }
+
+    fn into_checked(self, program: Program) -> CheckedProgram {
+        CheckedProgram {
+            bound: BoundProgram {
+                program,
+                symbols: self.binder.symbols,
+                resolutions: self.binder.resolutions,
+            },
+            symbol_types: self.symbol_types,
+            expr_types: self.expr_types,
+            shapes: self.shapes,
+            unions: self.unions,
+            intersections: self.intersections,
+            generic_fns: self.generic_fns,
+            type_aliases: self.type_aliases,
+        }
+    }
+
+    fn analyze(&mut self, program: &Program, module_goal: bool) -> Result<(), Diagnostic> {
+        if stmt_list_has_use_strict(&program.body) {
+            self.binder.strict = true;
+        }
+        if self.typecheck {
+            self.declare_type_aliases(&program.body)?;
+        }
         let mut labels = Vec::new();
-        for stmt in &self.bound.program.body {
-            self.check_stmt(stmt, 0, 0, 0, &mut labels)?;
+        self.walk_stmt_list(&program.body, !module_goal, 0, 0, 0, &mut labels)
+    }
+
+    /// Declare list bindings, then walk each statement (bind + optional typecheck).
+    fn walk_stmt_list(
+        &mut self,
+        stmts: &[Stmt],
+        top_level: bool,
+        loop_depth: u32,
+        switch_depth: u32,
+        fn_depth: u32,
+        labels: &mut Vec<(String, bool)>,
+    ) -> Result<(), Diagnostic> {
+        check_statement_list_early_errors(stmts, self.binder.strict, top_level)?;
+        for stmt in stmts {
+            self.binder.declare_list_item(stmt)?;
+        }
+        self.sync_symbols();
+        for stmt in stmts {
+            self.check_stmt(stmt, loop_depth, switch_depth, fn_depth, labels)?;
         }
         Ok(())
+    }
+
+    fn walk_function_body(
+        &mut self,
+        body: &Stmt,
+        fn_depth: u32,
+        labels: &mut Vec<(String, bool)>,
+    ) -> Result<(), Diagnostic> {
+        match body {
+            Stmt::Block { body, .. } => {
+                self.binder.push_scope();
+                self.walk_stmt_list(body, true, 0, 0, fn_depth, labels)?;
+                self.binder.pop_scope();
+                Ok(())
+            }
+            other => self.check_stmt(other, 0, 0, fn_depth, labels),
+        }
+    }
+
+    fn walk_method_like(
+        &mut self,
+        params: &[Param],
+        body: &Stmt,
+        is_async: bool,
+        is_generator: bool,
+        fn_depth: u32,
+        super_allowed: bool,
+        class_strict: bool,
+    ) -> Result<(), Diagnostic> {
+        let prev_strict = self.binder.strict;
+        let prev_super = self.binder.super_allowed;
+        if class_strict {
+            self.binder.strict = true;
+        }
+        self.binder.super_allowed = super_allowed;
+        self.binder.push_scope_kind(true);
+        let result = (|| {
+            self.binder.bind_params(params, false)?;
+            self.binder.install_arguments_object()?;
+            self.sync_symbols();
+            self.binder
+                .check_params_body_lexical_conflict(params, body)?;
+            self.check_params_await_yield(params, is_async && is_generator, is_generator)?;
+            let mut inner_labels = Vec::new();
+            let prev_async = self.in_async;
+            let prev_generator = self.in_generator;
+            self.in_async = is_async;
+            self.in_generator = is_generator;
+            let r = self.walk_function_body(body, fn_depth, &mut inner_labels);
+            self.in_async = prev_async;
+            self.in_generator = prev_generator;
+            r
+        })();
+        self.binder.pop_scope();
+        self.binder.super_allowed = prev_super;
+        self.binder.strict = prev_strict;
+        result
+    }
+
+    fn walk_class_elements(
+        &mut self,
+        body: &[ClassElement],
+        fn_depth: u32,
+    ) -> Result<(), Diagnostic> {
+        for el in body {
+            match el {
+                ClassElement::Constructor { params, body, .. } => {
+                    self.walk_method_like(params, body, false, false, fn_depth + 1, true, true)?;
+                }
+                ClassElement::Method {
+                    key,
+                    params,
+                    body,
+                    is_async,
+                    is_generator,
+                    span,
+                    ..
+                } => {
+                    self.check_object_key(key)?;
+                    if body_has_use_strict(body) && !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
+                            *span,
+                        ));
+                    }
+                    self.walk_method_like(
+                        params,
+                        body,
+                        *is_async,
+                        *is_generator,
+                        fn_depth + 1,
+                        true,
+                        true,
+                    )?;
+                }
+                ClassElement::Accessor {
+                    key,
+                    params,
+                    body,
+                    span,
+                    ..
+                } => {
+                    self.check_object_key(key)?;
+                    if body_has_use_strict(body) && !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
+                            *span,
+                        ));
+                    }
+                    self.walk_method_like(
+                        params,
+                        body,
+                        false,
+                        false,
+                        fn_depth + 1,
+                        true,
+                        true,
+                    )?;
+                }
+                ClassElement::Field { key, value, .. } => {
+                    self.check_object_key(key)?;
+                    if let Some(v) = value {
+                        let prev_super = self.binder.super_allowed;
+                        self.binder.super_allowed = true;
+                        let r = self.check_expr(v);
+                        self.binder.super_allowed = prev_super;
+                        r?;
+                    }
+                }
+                ClassElement::StaticBlock { body, .. } => {
+                    let prev_strict = self.binder.strict;
+                    let mut inner_labels = Vec::new();
+                    let prev_async = self.in_async;
+                    let prev_generator = self.in_generator;
+                    self.binder.strict = true;
+                    self.in_async = false;
+                    self.in_generator = false;
+                    let r = self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels);
+                    self.in_async = prev_async;
+                    self.in_generator = prev_generator;
+                    self.binder.strict = prev_strict;
+                    r?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn check_for_in_of(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+        is_for_in: bool,
+        _is_await: bool,
+        _span: Option<Span>,
+        loop_depth: u32,
+        switch_depth: u32,
+        fn_depth: u32,
+        labels: &mut Vec<(String, bool)>,
+    ) -> Result<(), Diagnostic> {
+        if let Stmt::Let {
+            kind,
+            binding,
+            init,
+            ..
+        } = left
+        {
+            if init.is_some() && !(is_for_in && *kind == BindingKind::Var) {
+                return Err(Diagnostic::new(
+                    "for-in/of binding cannot have an initializer".to_string(),
+                    binding.span(),
+                ));
+            }
+            if kind.is_lexical() {
+                let mut bound = Vec::new();
+                binding.for_each_ident(&mut |id| {
+                    bound.push((id.name.clone(), id.span));
+                });
+                let mut body_vars = Vec::new();
+                collect_var_declared_names_stmt(body, &mut body_vars);
+                for (name, span) in &bound {
+                    if body_vars.iter().any(|(n, _)| n == name) {
+                        return Err(Diagnostic::new(
+                            format!("duplicate declaration of `{name}`"),
+                            *span,
+                        ));
+                    }
+                }
+            }
+            if kind.is_lexical() {
+                self.binder.push_scope();
+                let result = (|| {
+                    self.binder.declare_binding(binding, *kind)?;
+                    self.sync_symbols();
+                    self.check_for_in_of_left(left)?;
+                    self.check_expr(right)?;
+                    self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+                })();
+                self.binder.pop_scope();
+                result
+            } else {
+                self.check_for_in_of_left(left)?;
+                self.check_expr(right)?;
+                self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+            }
+        } else {
+            self.check_stmt(left, loop_depth, switch_depth, fn_depth, labels)?;
+            self.check_expr(right)?;
+            self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+        }
     }
 
     /// Left side of `for-in` / `for-of`: `let`/`const`/`var` binding or assignable LHS.
@@ -3094,9 +2370,10 @@ impl<'a> Checker<'a> {
                 expr: Expr::Ident(id),
                 ..
             } => {
+                self.binder.bind_ident_use(id)?;
                 // E17.02.09 / E19.05: free IdentifierReference is runtime PutValue
                 // (non-strict creates a global; strict → ReferenceError), not a check error.
-                if let Some(sym) = self.bound.resolve(id.span) {
+                if let Some(sym) = self.resolve_span(id.span) {
                     let ty = self.symbol_types[sym.0 as usize];
                     self.record(id.span, ty);
                 } else {
@@ -3199,7 +2476,6 @@ impl<'a> Checker<'a> {
         match binding {
             BindingPattern::Ident(name) => {
                 let id = self
-                    .bound
                     .symbols()
                     .iter()
                     .find(|s| s.span == name.span)
@@ -3270,7 +2546,14 @@ impl<'a> Checker<'a> {
     ) -> Result<(), Diagnostic> {
         match binding {
             BindingPattern::Ident(id) => {
-                let Some(sym) = self.bound.resolve(id.span) else {
+                if self.binder.strict && (id.name == "eval" || id.name == "arguments") {
+                    return Err(Diagnostic::new(
+                        format!("cannot assign to `{}` in strict mode", id.name),
+                        id.span,
+                    ));
+                }
+                self.binder.bind_ident_use(id)?;
+                let Some(sym) = self.resolve_span(id.span) else {
                     // Free / with-chain assign target (global object property).
                     self.record(id.span, Type::Any);
                     return Ok(());
@@ -3356,6 +2639,9 @@ impl<'a> Checker<'a> {
     /// T07.02: reject an annotated non-void function whose body can fall off the end
     /// without returning a value (e.g. `function f(): number { let x = 1; }`).
     fn check_missing_return(&self, body: &Stmt, ret_ty: Type) -> Result<(), Diagnostic> {
+        if !self.typecheck {
+            return Ok(());
+        }
         // `any` accepts `undefined` (fall-off-end); `void` is not a Draconic annotation.
         if ret_ty == Type::Any || stmt_cannot_fall_through(body) {
             return Ok(());
@@ -3393,7 +2679,13 @@ impl<'a> Checker<'a> {
                 return_type,
                 span,
                 ..
-            } => self.check_extern_function_declaration(name, params, return_type, *span),
+            } => {
+                if self.typecheck {
+                    self.check_extern_function_declaration(name, params, return_type, *span)
+                } else {
+                    Ok(())
+                }
+            }
             Stmt::Let {
                 kind,
                 binding,
@@ -3404,15 +2696,15 @@ impl<'a> Checker<'a> {
             } => {
                 // Bare `const` without init is rejected in the parser; for-in/of
                 // left may be `const name` with no initializer.
-                if *kind == BindingKind::AwaitUsing && !self.in_async {
+                if self.typecheck && *kind == BindingKind::AwaitUsing && !self.in_async {
                     return Err(Diagnostic::new(
                         "await using is only valid in async functions and modules".to_string(),
                         *span,
                     ));
                 }
                 let ann_ty = match type_ann {
-                    Some(ann) => Some(self.resolve_type_ann(ann)?),
-                    None => None,
+                    Some(ann) if self.typecheck => Some(self.resolve_type_ann(ann)?),
+                    _ => None,
                 };
                 let init_ty = if let Some(init) = init {
                     self.check_expr(init)?
@@ -3433,10 +2725,13 @@ impl<'a> Checker<'a> {
                 if let (BindingPattern::Ident(name), Some(init)) = (binding, init) {
                     if let Some(params) = fn_params_of_expr(init) {
                         if let Some(sig) = self.fn_sig_from_params(params) {
-                            if let Some(sym) =
-                                self.bound.symbols().iter().find(|s| s.span == name.span)
+                            if let Some(id) = self
+                                .symbols()
+                                .iter()
+                                .find(|s| s.span == name.span)
+                                .map(|s| s.id)
                             {
-                                self.fn_sigs[sym.id.0 as usize] = Some(sig);
+                                self.fn_sigs[id.0 as usize] = Some(sig);
                             }
                         }
                     }
@@ -3445,10 +2740,11 @@ impl<'a> Checker<'a> {
             }
             Stmt::Empty { .. } => Ok(()),
             Stmt::Block { body, .. } => {
-                for s in body {
-                    self.check_stmt(s, loop_depth, switch_depth, fn_depth, labels)?;
-                }
-                Ok(())
+                self.binder.push_scope();
+                let result =
+                    self.walk_stmt_list(body, false, loop_depth, switch_depth, fn_depth, labels);
+                self.binder.pop_scope();
+                result
             }
             Stmt::If {
                 test,
@@ -3484,6 +2780,65 @@ impl<'a> Checker<'a> {
                 body,
                 ..
             } => {
+                if let Some(Stmt::Let {
+                    kind,
+                    binding,
+                    type_ann,
+                    init: let_init,
+                    span: let_span,
+                    ..
+                }) = init.as_deref()
+                {
+                    if matches!(
+                        kind,
+                        BindingKind::Let
+                            | BindingKind::Const
+                            | BindingKind::Using
+                            | BindingKind::AwaitUsing
+                    ) {
+                        let mut bound = Vec::new();
+                        binding.for_each_ident(&mut |id| {
+                            bound.push((id.name.clone(), id.span));
+                        });
+                        let mut body_vars = Vec::new();
+                        collect_var_declared_names_stmt(body, &mut body_vars);
+                        for (name, span) in &bound {
+                            if body_vars.iter().any(|(n, _)| n == name) {
+                                return Err(Diagnostic::new(
+                                    format!("duplicate declaration of `{name}`"),
+                                    *span,
+                                ));
+                            }
+                        }
+                        self.binder.push_scope();
+                        let result = (|| {
+                            self.binder.declare_binding(binding, *kind)?;
+                            self.sync_symbols();
+                            self.check_stmt(
+                                &Stmt::Let {
+                                    kind: *kind,
+                                    binding: binding.clone(),
+                                    type_ann: type_ann.clone(),
+                                    init: let_init.clone(),
+                                    span: *let_span,
+                                },
+                                loop_depth,
+                                switch_depth,
+                                fn_depth,
+                                labels,
+                            )?;
+                            if let Some(t) = test {
+                                self.check_expr(t)?;
+                            }
+                            if let Some(u) = update {
+                                self.check_expr(u)?;
+                            }
+                            self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+                        })();
+                        self.binder.pop_scope();
+                        return result;
+                    }
+                }
                 if let Some(init) = init {
                     self.check_stmt(init, loop_depth, switch_depth, fn_depth, labels)?;
                 }
@@ -3497,11 +2852,18 @@ impl<'a> Checker<'a> {
             }
             Stmt::ForIn {
                 left, right, body, ..
-            } => {
-                self.check_for_in_of_left(left)?;
-                self.check_expr(right)?;
-                self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
-            }
+            } => self.check_for_in_of(
+                left,
+                right,
+                body,
+                true,
+                false,
+                None,
+                loop_depth,
+                switch_depth,
+                fn_depth,
+                labels,
+            ),
             Stmt::ForOf {
                 left,
                 right,
@@ -3509,34 +2871,47 @@ impl<'a> Checker<'a> {
                 is_await,
                 span,
             } => {
-                if *is_await && !self.in_async {
+                if self.typecheck && *is_await && !self.in_async {
                     return Err(Diagnostic::new(
                         "for await is only valid in async functions and modules".to_string(),
                         *span,
                     ));
                 }
-                self.check_for_in_of_left(left)?;
-                self.check_expr(right)?;
-                self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
+                self.check_for_in_of(
+                    left,
+                    right,
+                    body,
+                    false,
+                    *is_await,
+                    Some(*span),
+                    loop_depth,
+                    switch_depth,
+                    fn_depth,
+                    labels,
+                )
             }
             Stmt::Break { label, span } => {
-                if let Some(label) = label {
-                    if !labels.iter().any(|(n, _)| n == &label.name) {
+                if self.typecheck {
+                    if let Some(label) = label {
+                        if !labels.iter().any(|(n, _)| n == &label.name) {
+                            return Err(Diagnostic::new(
+                                format!("Undefined label `{}`", label.name),
+                                label.span,
+                            ));
+                        }
+                    } else if loop_depth == 0 && switch_depth == 0 {
                         return Err(Diagnostic::new(
-                            format!("Undefined label `{}`", label.name),
-                            label.span,
+                            "Illegal break statement".to_string(),
+                            *span,
                         ));
                     }
-                } else if loop_depth == 0 && switch_depth == 0 {
-                    return Err(Diagnostic::new(
-                        "Illegal break statement".to_string(),
-                        *span,
-                    ));
                 }
                 Ok(())
             }
             Stmt::Continue { label, span } => {
-                if let Some(label) = label {
+                if !self.typecheck {
+                    Ok(())
+                } else if let Some(label) = label {
                     match labels.iter().rev().find(|(n, _)| n == &label.name) {
                         Some((_, true)) => Ok(()),
                         Some((_, false)) => Err(Diagnostic::new(
@@ -3561,7 +2936,7 @@ impl<'a> Checker<'a> {
                 }
             }
             Stmt::Labeled { label, body, span } => {
-                if labels.iter().any(|(n, _)| n == &label.name) {
+                if self.typecheck && labels.iter().any(|(n, _)| n == &label.name) {
                     return Err(Diagnostic::new(
                         format!("Label `{}` has already been declared", label.name),
                         *span,
@@ -3579,15 +2954,33 @@ impl<'a> Checker<'a> {
                 ..
             } => {
                 self.check_expr(discriminant)?;
-                for case in cases {
-                    if let Some(test) = &case.test {
-                        self.check_expr(test)?;
+                self.binder.push_scope();
+                let result = (|| {
+                    let mut all_stmts = Vec::new();
+                    for case in cases {
+                        if let Some(test) = &case.test {
+                            self.check_expr(test)?;
+                        }
+                        all_stmts.extend(case.body.iter());
                     }
-                    for s in &case.body {
-                        self.check_stmt(s, loop_depth, switch_depth + 1, fn_depth, labels)?;
+                    check_statement_list_early_errors(
+                        all_stmts.iter().copied(),
+                        self.binder.strict,
+                        false,
+                    )?;
+                    for stmt in &all_stmts {
+                        self.binder.declare_list_item(stmt)?;
                     }
-                }
-                Ok(())
+                    self.sync_symbols();
+                    for case in cases {
+                        for s in &case.body {
+                            self.check_stmt(s, loop_depth, switch_depth + 1, fn_depth, labels)?;
+                        }
+                    }
+                    Ok(())
+                })();
+                self.binder.pop_scope();
+                result
             }
             Stmt::FunctionDeclaration {
                 name,
@@ -3600,77 +2993,120 @@ impl<'a> Checker<'a> {
                 span,
                 ..
             } => {
-                // E19.49: undeclared function name (e.g. with-body before parse reject) → diagnostic.
-                let Some(id) = self
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == name.span)
-                    .map(|s| s.id)
-                else {
-                    return Err(Diagnostic::new(
-                        format!("function binding `{}` must be declared", name.name),
-                        *span,
-                    ));
-                };
-                let fn_ty = if type_params.is_empty() {
-                    Type::Function
-                } else {
-                    let sig = GenericFnSig {
-                        type_params: type_params.iter().map(|p| p.name.name.clone()).collect(),
-                        param_types: params.iter().map(|p| p.type_ann.clone()).collect(),
-                        return_type: return_type.clone(),
-                    };
-                    let gid = self.generic_fns.len() as u32;
-                    self.generic_fns.push(sig);
-                    Type::GenericFn(gid)
-                };
-                self.symbol_types[id.0 as usize] = fn_ty;
-                let saved_env = self.type_param_env.clone();
-                for tp in type_params {
-                    if self.type_param_env.contains_key(&tp.name.name) {
+                let prev_strict = self.binder.strict;
+                if body_has_use_strict(body) {
+                    if !is_simple_parameter_list(params) {
                         return Err(Diagnostic::new(
-                            format!("duplicate type parameter `{}`", tp.name.name),
-                            tp.name.span,
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
+                            *span,
                         ));
                     }
-                    let pid = self.next_type_param_id;
-                    self.next_type_param_id += 1;
-                    self.type_param_env
-                        .insert(tp.name.name.clone(), Type::TypeParam(pid));
+                    self.binder.strict = true;
                 }
-                // FunctionDeclaration formals: +Await only for async generators.
-                self.check_params_await_yield(params, *is_async && *is_generator, *is_generator)?;
-                // T07.01: record a call signature for non-generic annotated functions so
-                // call sites can check arity and argument types (generics use instantiate_generic_call).
-                if type_params.is_empty() {
-                    if let Some(sig) = self.fn_sig_from_params(params) {
-                        self.fn_sigs[id.0 as usize] = Some(sig);
-                    }
+                if self.binder.strict && (name.name == "eval" || name.name == "arguments") {
+                    return Err(Diagnostic::new(
+                        format!("binding `{}` is invalid in strict mode", name.name),
+                        name.span,
+                    ));
                 }
-                // Fresh label set inside functions (labels do not cross function boundaries).
-                let mut inner_labels = Vec::new();
-                let prev_async = self.in_async;
-                let prev_generator = self.in_generator;
-                let prev_ret = self.expected_return;
-                self.in_async = *is_async;
-                self.in_generator = *is_generator;
-                let ret_ty = match return_type {
-                    Some(ann) => Some(self.resolve_type_ann(ann)?),
-                    None => None,
-                };
-                self.expected_return = ret_ty;
+                if params_contain_super(params) || stmt_contains_super(body) {
+                    return Err(Diagnostic::new(
+                        "function cannot contain super".to_string(),
+                        *span,
+                    ));
+                }
+                let prev_super = self.binder.super_allowed;
+                self.binder.super_allowed = false;
+                self.binder.push_scope_kind(true);
+                let allow_sloppy_dups = !*is_async && !*is_generator;
                 let result = (|| {
-                    self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
-                    if let Some(ty) = ret_ty {
-                        self.check_missing_return(body, ty)?;
+                    self.binder.bind_params(params, allow_sloppy_dups)?;
+                    self.binder.install_arguments_object()?;
+                    self.sync_symbols();
+                    self.binder
+                        .check_params_body_lexical_conflict(params, body)?;
+                    // E19.49: undeclared function name (e.g. with-body before parse reject) → diagnostic.
+                    let Some(id) = self
+                        .symbols()
+                        .iter()
+                        .find(|s| s.span == name.span)
+                        .map(|s| s.id)
+                    else {
+                        return Err(Diagnostic::new(
+                            format!("function binding `{}` must be declared", name.name),
+                            *span,
+                        ));
+                    };
+                    let fn_ty = if type_params.is_empty() {
+                        Type::Function
+                    } else {
+                        let sig = GenericFnSig {
+                            type_params: type_params.iter().map(|p| p.name.name.clone()).collect(),
+                            param_types: params.iter().map(|p| p.type_ann.clone()).collect(),
+                            return_type: return_type.clone(),
+                        };
+                        let gid = self.generic_fns.len() as u32;
+                        self.generic_fns.push(sig);
+                        Type::GenericFn(gid)
+                    };
+                    self.symbol_types[id.0 as usize] = fn_ty;
+                    let saved_env = self.type_param_env.clone();
+                    if self.typecheck {
+                        for tp in type_params {
+                            if self.type_param_env.contains_key(&tp.name.name) {
+                                return Err(Diagnostic::new(
+                                    format!("duplicate type parameter `{}`", tp.name.name),
+                                    tp.name.span,
+                                ));
+                            }
+                            let pid = self.next_type_param_id;
+                            self.next_type_param_id += 1;
+                            self.type_param_env
+                                .insert(tp.name.name.clone(), Type::TypeParam(pid));
+                        }
                     }
-                    Ok(())
+                    self.check_params_await_yield(
+                        params,
+                        *is_async && *is_generator,
+                        *is_generator,
+                    )?;
+                    if type_params.is_empty() {
+                        if let Some(sig) = self.fn_sig_from_params(params) {
+                            self.fn_sigs[id.0 as usize] = Some(sig);
+                        }
+                    }
+                    let mut inner_labels = Vec::new();
+                    let prev_async = self.in_async;
+                    let prev_generator = self.in_generator;
+                    let prev_ret = self.expected_return;
+                    self.in_async = *is_async;
+                    self.in_generator = *is_generator;
+                    let ret_ty = if self.typecheck {
+                        match return_type {
+                            Some(ann) => Some(self.resolve_type_ann(ann)?),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                    self.expected_return = ret_ty;
+                    let body_result =
+                        self.walk_function_body(body, fn_depth + 1, &mut inner_labels);
+                    if body_result.is_ok() {
+                        if let Some(ty) = ret_ty {
+                            self.check_missing_return(body, ty)?;
+                        }
+                    }
+                    self.in_async = prev_async;
+                    self.in_generator = prev_generator;
+                    self.expected_return = prev_ret;
+                    self.type_param_env = saved_env;
+                    body_result
                 })();
-                self.in_async = prev_async;
-                self.in_generator = prev_generator;
-                self.expected_return = prev_ret;
-                self.type_param_env = saved_env;
+                self.binder.pop_scope();
+                self.binder.super_allowed = prev_super;
+                self.binder.strict = prev_strict;
                 result
             }
             Stmt::ClassDeclaration {
@@ -3680,7 +3116,6 @@ impl<'a> Checker<'a> {
                 ..
             } => {
                 let id = self
-                    .bound
                     .symbols()
                     .iter()
                     .find(|s| s.span == name.span)
@@ -3695,79 +3130,10 @@ impl<'a> Checker<'a> {
                 if let Some(sc) = super_class {
                     self.check_expr(sc)?;
                 }
-                for el in body {
-                    match el {
-                        ClassElement::Constructor { params, body, .. } => {
-                            self.check_params_await_yield(params, false, false)?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Method {
-                            key,
-                            params,
-                            body,
-                            is_async,
-                            is_generator,
-                            ..
-                        } => {
-                            self.check_object_key(key)?;
-                            self.check_params_await_yield(
-                                params,
-                                *is_async && *is_generator,
-                                *is_generator,
-                            )?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = *is_async;
-                            self.in_generator = *is_generator;
-                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Accessor {
-                            key, params, body, ..
-                        } => {
-                            self.check_object_key(key)?;
-                            self.check_params_await_yield(params, false, false)?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Field { key, value, .. } => {
-                            self.check_object_key(key)?;
-                            if let Some(v) = value {
-                                self.check_expr(v)?;
-                            }
-                        }
-                        ClassElement::StaticBlock { body, .. } => {
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            // Static blocks are not nested functions for return; treat as fn-like.
-                            self.check_stmt(body, 0, 0, fn_depth + 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                    }
-                }
-                Ok(())
+                self.walk_class_elements(body, fn_depth)
             }
             Stmt::Return { argument, span } => {
-                if fn_depth == 0 {
+                if self.typecheck && fn_depth == 0 {
                     return Err(Diagnostic::new(
                         "Illegal return statement".to_string(),
                         *span,
@@ -3807,9 +3173,30 @@ impl<'a> Checker<'a> {
                 self.check_stmt(block, loop_depth, switch_depth, fn_depth, labels)?;
                 if let Some(handler) = handler {
                     if let Some(param) = handler_param {
-                        self.check_binding_pattern(param, Type::Any)?;
+                        if let Some((name, span)) = catch_lexical_conflict(param, handler) {
+                            return Err(Diagnostic::new(
+                                format!("duplicate declaration of `{name}`"),
+                                span,
+                            ));
+                        }
                     }
-                    self.check_stmt(handler, loop_depth, switch_depth, fn_depth, labels)?;
+                    self.binder.push_scope();
+                    let result = (|| {
+                        if let Some(param) = handler_param {
+                            if matches!(param, BindingPattern::Member(_)) {
+                                return Err(Diagnostic::new(
+                                    "member expression is not a valid catch binding".to_string(),
+                                    param.span(),
+                                ));
+                            }
+                            self.binder.declare_binding(param, BindingKind::Let)?;
+                            self.sync_symbols();
+                            self.check_binding_pattern(param, Type::Any)?;
+                        }
+                        self.check_stmt(handler, loop_depth, switch_depth, fn_depth, labels)
+                    })();
+                    self.binder.pop_scope();
+                    result?;
                 }
                 if let Some(finalizer) = finalizer {
                     self.check_stmt(finalizer, loop_depth, switch_depth, fn_depth, labels)?;
@@ -3818,7 +3205,10 @@ impl<'a> Checker<'a> {
             }
             Stmt::With { object, body, .. } => {
                 self.check_expr(object)?;
-                self.check_stmt(body, loop_depth, switch_depth, fn_depth, labels)
+                self.binder.with_depth += 1;
+                let result = self.check_stmt(body, loop_depth, switch_depth, fn_depth, labels);
+                self.binder.with_depth -= 1;
+                result
             }
             Stmt::ImportDeclaration { span, .. }
             | Stmt::ExportNamedDeclaration { span, .. }
@@ -3911,7 +3301,8 @@ impl<'a> Checker<'a> {
                 Type::Any
             }
             Expr::Ident(id) => {
-                if let Some(sym) = self.bound.resolve(id.span) {
+                self.binder.bind_ident_use(id)?;
+                if let Some(sym) = self.resolve_span(id.span) {
                     let ty = self.symbol_types[sym.0 as usize];
                     self.record(id.span, ty);
                     ty
@@ -3939,30 +3330,48 @@ impl<'a> Checker<'a> {
                 span,
             } => {
                 let from = self.check_expr(inner)?;
-                let to = self.resolve_type_ann(ann)?;
-                if !self.is_assignable(from, to) && !Self::is_dual_world_boundary(from, to) {
-                    let from_s =
-                        format_type_full(from, &self.shapes, &self.unions, &self.intersections);
-                    let to_s =
-                        format_type_full(to, &self.shapes, &self.unions, &self.intersections);
-                    return Err(Diagnostic::new(
-                        format!(
-                            "cannot convert type `{from_s}` to `{to_s}` across dual-worlds boundary"
-                        ),
-                        *span,
-                    ));
+                if !self.typecheck {
+                    self.record(*span, from);
+                    from
+                } else {
+                    let to = self.resolve_type_ann(ann)?;
+                    if !self.is_assignable(from, to) && !Self::is_dual_world_boundary(from, to) {
+                        let from_s =
+                            format_type_full(from, &self.shapes, &self.unions, &self.intersections);
+                        let to_s =
+                            format_type_full(to, &self.shapes, &self.unions, &self.intersections);
+                        return Err(Diagnostic::new(
+                            format!(
+                                "cannot convert type `{from_s}` to `{to_s}` across dual-worlds boundary"
+                            ),
+                            *span,
+                        ));
+                    }
+                    self.record(*span, to);
+                    to
                 }
-                self.record(*span, to);
-                to
             }
             Expr::Unary { op, arg, span } => {
-                if *op == UnaryOp::Await && !self.in_async {
+                // E19.39: `delete IdentifierReference` is early SyntaxError in strict mode
+                // (including parenthesized forms: `delete ((id))`).
+                if matches!(op, UnaryOp::Delete) && self.binder.strict {
+                    if matches!(peel_parens(arg), Expr::Ident(_)) {
+                        return Err(Diagnostic::new(
+                            "cannot delete unqualified identifier in strict mode".to_string(),
+                            *span,
+                        ));
+                    }
+                }
+                if self.typecheck && *op == UnaryOp::Await && !self.in_async {
                     return Err(Diagnostic::new(
                         "await is only valid in async functions and modules".to_string(),
                         *span,
                     ));
                 }
-                if matches!(op, UnaryOp::Yield | UnaryOp::YieldStar) && !self.in_generator {
+                if self.typecheck
+                    && matches!(op, UnaryOp::Yield | UnaryOp::YieldStar)
+                    && !self.in_generator
+                {
                     return Err(Diagnostic::new(
                         "yield is only valid in generator functions".to_string(),
                         *span,
@@ -4010,11 +3419,21 @@ impl<'a> Checker<'a> {
                 value,
                 span,
             } => {
+                // E19.49: strict mode — `eval`/`arguments` are not valid simple assignment targets.
+                if self.binder.strict {
+                    if let Some((name, span)) = strict_forbidden_assign_target(target) {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to `{name}` in strict mode"),
+                            span,
+                        ));
+                    }
+                }
                 let value_ty = self.check_expr(value)?;
                 // E19.60: peel cover parentheses so `(id) = v` is a simple assignment target.
                 match peel_parens(target.as_ref()) {
                     Expr::Ident(id) => {
-                        let Some(sym) = self.bound.resolve(id.span) else {
+                        self.binder.bind_ident_use(id)?;
+                        let Some(sym) = self.resolve_span(id.span) else {
                             // Free / with-chain assign target.
                             self.record(id.span, Type::Any);
                             self.record(*span, value_ty);
@@ -4022,7 +3441,7 @@ impl<'a> Checker<'a> {
                         };
                         // E19.57 / E19.60: const/using/function-name PutValue is runtime
                         // TypeError (or silent); do not compile-reject.
-                        let kind = self.bound.symbol(sym).kind;
+                        let kind = self.symbol(sym).kind;
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let result_ty = if let Some(bin_op) = op.binary_op() {
                             self.check_binary(bin_op, left_ty, value_ty, *span, target, value)?
@@ -4212,17 +3631,27 @@ impl<'a> Checker<'a> {
                 ));
             }
             Expr::Update { arg, span, .. } => {
+                // E19.49: strict mode — `eval`/`arguments` are not valid update targets.
+                if self.binder.strict {
+                    if let Some((name, span)) = strict_forbidden_assign_target(arg) {
+                        return Err(Diagnostic::new(
+                            format!("cannot assign to `{name}` in strict mode"),
+                            span,
+                        ));
+                    }
+                }
                 // E19.60: peel cover parentheses so `(id)++` is a valid update target.
                 match peel_parens(arg.as_ref()) {
                     Expr::Ident(id) => {
-                        let Some(sym) = self.bound.resolve(id.span) else {
+                        self.binder.bind_ident_use(id)?;
+                        let Some(sym) = self.resolve_span(id.span) else {
                             self.record(id.span, Type::Any);
                             self.record(*span, Type::Number);
                             return Ok(Type::Number);
                         };
                         // E19.57 / E19.60: const/using/function-name PutValue is runtime
                         // TypeError (or silent); do not compile-reject.
-                        let kind = self.bound.symbol(sym).kind;
+                        let kind = self.symbol(sym).kind;
                         let left_ty = self.symbol_types[sym.0 as usize];
                         let out = self.check_update_operand(left_ty, *span)?;
                         let immutable = matches!(
@@ -4298,7 +3727,7 @@ impl<'a> Checker<'a> {
                 }
                 // T07.01: annotated non-generic functions get call-site argument checking.
                 if let Expr::Ident(id) = peel_parens(callee) {
-                    if let Some(sym_id) = self.bound.resolve(id.span) {
+                    if let Some(sym_id) = self.resolve_span(id.span) {
                         if let Some(sig) = self.fn_sigs[sym_id.0 as usize].as_ref() {
                             self.check_call_sig(sig, args, &arg_tys, *span)?;
                         }
@@ -4367,7 +3796,7 @@ impl<'a> Checker<'a> {
                 // T07.04: `new` of an annotated non-constructable value (e.g.
                 // `let x: number = 1; new x()`) is a compile diagnostic.
                 if let Expr::Ident(id) = peel_parens(callee) {
-                    if let Some(sym_id) = self.bound.resolve(id.span) {
+                    if let Some(sym_id) = self.resolve_span(id.span) {
                         if self.symbol_annotated[sym_id.0 as usize]
                             && !self.type_is_callable(self.symbol_types[sym_id.0 as usize])
                         {
@@ -4409,43 +3838,103 @@ impl<'a> Checker<'a> {
                 body,
                 is_async,
                 is_generator,
+                is_method,
                 span,
                 ..
             } => {
-                if let Some(name) = name {
-                    let id = self
-                        .bound
-                        .symbols()
-                        .iter()
-                        .find(|s| s.span == name.span)
-                        .map(|s| s.id)
-                        .expect("function expression name must be declared");
-                    self.symbol_types[id.0 as usize] = Type::Function;
-                }
-                // FunctionExpression formals: +Await only for async generators.
-                self.check_params_await_yield(params, *is_async && *is_generator, *is_generator)?;
-                // New function boundary (return allowed; labels do not escape).
-                let mut inner_labels = Vec::new();
-                let prev_async = self.in_async;
-                let prev_generator = self.in_generator;
-                let prev_ret = self.expected_return;
-                self.in_async = *is_async;
-                self.in_generator = *is_generator;
-                let ret_ty = match return_type {
-                    Some(ann) => Some(self.resolve_type_ann(ann)?),
-                    None => None,
-                };
-                self.expected_return = ret_ty;
-                let result = (|| {
-                    self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                    if let Some(ty) = ret_ty {
-                        self.check_missing_return(body, ty)?;
+                let prev_strict = self.binder.strict;
+                if body_has_use_strict(body) {
+                    if !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
+                            *span,
+                        ));
                     }
-                    Ok(())
+                    self.binder.strict = true;
+                }
+                if *is_method
+                    && (params_contain_super_call(params) || stmt_contains_super_call(body))
+                {
+                    return Err(Diagnostic::new(
+                        "method cannot contain super call".to_string(),
+                        *span,
+                    ));
+                }
+                if !*is_method && (params_contain_super(params) || stmt_contains_super(body)) {
+                    return Err(Diagnostic::new(
+                        "function cannot contain super".to_string(),
+                        *span,
+                    ));
+                }
+                let prev_super = self.binder.super_allowed;
+                self.binder.super_allowed = *is_method;
+                let named = name.is_some();
+                if named {
+                    self.binder.push_scope_kind(true);
+                    if let Some(name) = name {
+                        self.binder.declare(
+                            name.name.clone(),
+                            name.span,
+                            BindingKind::Function,
+                        )?;
+                    }
+                }
+                self.binder.push_scope_kind(true);
+                let allow_sloppy_dups = !*is_async && !*is_generator && !*is_method;
+                let result = (|| {
+                    self.binder.bind_params(params, allow_sloppy_dups)?;
+                    self.binder.install_arguments_object()?;
+                    self.sync_symbols();
+                    self.binder
+                        .check_params_body_lexical_conflict(params, body)?;
+                    if let Some(name) = name {
+                        if let Some(id) = self
+                            .symbols()
+                            .iter()
+                            .find(|s| s.span == name.span)
+                            .map(|s| s.id)
+                        {
+                            self.symbol_types[id.0 as usize] = Type::Function;
+                        }
+                    }
+                    self.check_params_await_yield(
+                        params,
+                        *is_async && *is_generator,
+                        *is_generator,
+                    )?;
+                    let mut inner_labels = Vec::new();
+                    let prev_async = self.in_async;
+                    let prev_generator = self.in_generator;
+                    let prev_ret = self.expected_return;
+                    self.in_async = *is_async;
+                    self.in_generator = *is_generator;
+                    let ret_ty = if self.typecheck {
+                        match return_type {
+                            Some(ann) => Some(self.resolve_type_ann(ann)?),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                    self.expected_return = ret_ty;
+                    let body_result = self.walk_function_body(body, 1, &mut inner_labels);
+                    if body_result.is_ok() {
+                        if let Some(ty) = ret_ty {
+                            self.check_missing_return(body, ty)?;
+                        }
+                    }
+                    self.in_async = prev_async;
+                    self.in_generator = prev_generator;
+                    self.expected_return = prev_ret;
+                    body_result
                 })();
-                self.in_async = prev_async;
-                self.in_generator = prev_generator;
-                self.expected_return = prev_ret;
+                self.binder.pop_scope();
+                if named {
+                    self.binder.pop_scope();
+                }
+                self.binder.super_allowed = prev_super;
+                self.binder.strict = prev_strict;
                 result?;
                 self.record(*span, Type::Function);
                 Type::Function
@@ -4456,86 +3945,35 @@ impl<'a> Checker<'a> {
                 body,
                 span,
             } => {
-                let class_span = name.as_ref().map(|n| n.span).unwrap_or(*span);
-                let id = self
-                    .bound
-                    .symbols()
-                    .iter()
-                    .find(|s| s.span == class_span)
-                    .map(|s| s.id)
-                    .expect("class expression binding must be declared");
-                self.symbol_types[id.0 as usize] = Type::Function;
-                if let Some(sc) = super_class {
-                    self.check_expr(sc)?;
-                }
-                for el in body {
-                    match el {
-                        ClassElement::Constructor { params, body, .. } => {
-                            self.check_params_await_yield(params, false, false)?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Method {
-                            key,
-                            params,
-                            body,
-                            is_async,
-                            is_generator,
-                            ..
-                        } => {
-                            self.check_object_key(key)?;
-                            self.check_params_await_yield(
-                                params,
-                                *is_async && *is_generator,
-                                *is_generator,
-                            )?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = *is_async;
-                            self.in_generator = *is_generator;
-                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Accessor {
-                            key, params, body, ..
-                        } => {
-                            self.check_object_key(key)?;
-                            self.check_params_await_yield(params, false, false)?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
-                        ClassElement::Field { key, value, .. } => {
-                            self.check_object_key(key)?;
-                            if let Some(v) = value {
-                                self.check_expr(v)?;
-                            }
-                        }
-                        ClassElement::StaticBlock { body, .. } => {
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
-                        }
+                self.binder.push_scope_kind(true);
+                let result = (|| {
+                    if let Some(name) = name {
+                        self.binder.declare(
+                            name.name.clone(),
+                            name.span,
+                            BindingKind::Function,
+                        )?;
+                    } else {
+                        self.binder
+                            .declare("__class".into(), *span, BindingKind::Function)?;
                     }
-                }
+                    self.sync_symbols();
+                    let class_span = name.as_ref().map(|n| n.span).unwrap_or(*span);
+                    if let Some(id) = self
+                        .symbols()
+                        .iter()
+                        .find(|s| s.span == class_span)
+                        .map(|s| s.id)
+                    {
+                        self.symbol_types[id.0 as usize] = Type::Function;
+                    }
+                    if let Some(sc) = super_class {
+                        self.check_expr(sc)?;
+                    }
+                    self.walk_class_elements(body, 0)
+                })();
+                self.binder.pop_scope();
+                result?;
                 self.record(*span, Type::Function);
                 Type::Function
             }
@@ -4546,36 +3984,81 @@ impl<'a> Checker<'a> {
                 is_async,
                 span,
             } => {
-                // Async arrows: UniqueFormalParameters[~Yield, +Await].
-                self.check_params_await_yield(params, *is_async, false)?;
-                let mut inner_labels = Vec::new();
-                let prev_async = self.in_async;
-                let prev_generator = self.in_generator;
-                let prev_ret = self.expected_return;
-                self.in_async = *is_async;
-                self.in_generator = false;
-                let ret_ty = match return_type {
-                    Some(ann) => Some(self.resolve_type_ann(ann)?),
-                    None => None,
+                let prev_strict = self.binder.strict;
+                let body_strict = match body {
+                    ArrowBody::Block(stmt) => body_has_use_strict(stmt),
+                    ArrowBody::Expr(_) => false,
                 };
-                self.expected_return = ret_ty;
-                match body {
-                    ArrowBody::Expr(expr) => {
-                        let body_ty = self.check_expr(expr)?;
-                        if let Some(expected) = ret_ty {
-                            self.require_assignable_expr(body_ty, expected, expr)?;
-                        }
+                if body_strict {
+                    if !is_simple_parameter_list(params) {
+                        return Err(Diagnostic::new(
+                            "\"use strict\" not allowed in function with non-simple parameter list"
+                                .to_string(),
+                            *span,
+                        ));
                     }
-                    ArrowBody::Block(stmt) => {
-                        self.check_stmt(stmt, 0, 0, 1, &mut inner_labels)?;
-                        if let Some(ty) = ret_ty {
-                            self.check_missing_return(stmt, ty)?;
-                        }
-                    }
+                    self.binder.strict = true;
                 }
-                self.in_async = prev_async;
-                self.in_generator = prev_generator;
-                self.expected_return = prev_ret;
+                let body_super = match body {
+                    ArrowBody::Expr(e) => expr_contains_super(e),
+                    ArrowBody::Block(s) => stmt_contains_super(s),
+                };
+                if !self.binder.super_allowed && (params_contain_super(params) || body_super) {
+                    return Err(Diagnostic::new(
+                        "arrow function cannot contain super".to_string(),
+                        *span,
+                    ));
+                }
+                self.binder.push_scope_kind(true);
+                let result = (|| {
+                    self.binder.bind_params(params, false)?;
+                    self.sync_symbols();
+                    if let ArrowBody::Block(stmt) = body {
+                        self.binder
+                            .check_params_body_lexical_conflict(params, stmt)?;
+                    }
+                    self.check_params_await_yield(params, *is_async, false)?;
+                    let mut inner_labels = Vec::new();
+                    let prev_async = self.in_async;
+                    let prev_generator = self.in_generator;
+                    let prev_ret = self.expected_return;
+                    self.in_async = *is_async;
+                    self.in_generator = false;
+                    let ret_ty = if self.typecheck {
+                        match return_type {
+                            Some(ann) => Some(self.resolve_type_ann(ann)?),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+                    self.expected_return = ret_ty;
+                    let body_result = match body {
+                        ArrowBody::Expr(expr) => {
+                            let body_ty = self.check_expr(expr)?;
+                            if let Some(expected) = ret_ty {
+                                self.require_assignable_expr(body_ty, expected, expr)?;
+                            }
+                            Ok(())
+                        }
+                        ArrowBody::Block(stmt) => {
+                            let r = self.walk_function_body(stmt, 1, &mut inner_labels);
+                            if r.is_ok() {
+                                if let Some(ty) = ret_ty {
+                                    self.check_missing_return(stmt, ty)?;
+                                }
+                            }
+                            r
+                        }
+                    };
+                    self.in_async = prev_async;
+                    self.in_generator = prev_generator;
+                    self.expected_return = prev_ret;
+                    body_result
+                })();
+                self.binder.pop_scope();
+                self.binder.strict = prev_strict;
+                result?;
                 self.record(*span, Type::Function);
                 Type::Function
             }
@@ -4603,20 +4086,53 @@ impl<'a> Checker<'a> {
                             }
                         }
                         ObjectProp::Accessor {
-                            key, params, body, ..
+                            key,
+                            params,
+                            body,
+                            span,
+                            ..
                         } => {
                             if let ObjectKey::Computed(expr) = key {
                                 self.check_expr(expr)?;
                             }
-                            self.check_params_await_yield(params, false, false)?;
-                            let mut inner_labels = Vec::new();
-                            let prev_async = self.in_async;
-                            let prev_generator = self.in_generator;
-                            self.in_async = false;
-                            self.in_generator = false;
-                            self.check_stmt(body, 0, 0, 1, &mut inner_labels)?;
-                            self.in_async = prev_async;
-                            self.in_generator = prev_generator;
+                            if body_has_use_strict(body) && !is_simple_parameter_list(params) {
+                                return Err(Diagnostic::new(
+                                    "\"use strict\" not allowed in function with non-simple parameter list".to_string(),
+                                    *span,
+                                ));
+                            }
+                            if params_contain_super_call(params) || stmt_contains_super_call(body)
+                            {
+                                return Err(Diagnostic::new(
+                                    "method cannot contain super call".to_string(),
+                                    *span,
+                                ));
+                            }
+                            let prev_strict = self.binder.strict;
+                            if body_has_use_strict(body) {
+                                self.binder.strict = true;
+                            }
+                            self.binder.push_scope_kind(true);
+                            let acc_result = (|| {
+                                self.binder.bind_params(params, false)?;
+                                self.binder.install_arguments_object()?;
+                                self.sync_symbols();
+                                self.binder
+                                    .check_params_body_lexical_conflict(params, body)?;
+                                self.check_params_await_yield(params, false, false)?;
+                                let mut inner_labels = Vec::new();
+                                let prev_async = self.in_async;
+                                let prev_generator = self.in_generator;
+                                self.in_async = false;
+                                self.in_generator = false;
+                                let r = self.walk_function_body(body, 1, &mut inner_labels);
+                                self.in_async = prev_async;
+                                self.in_generator = prev_generator;
+                                r
+                            })();
+                            self.binder.pop_scope();
+                            self.binder.strict = prev_strict;
+                            acc_result?;
                             // Accessors make the shape dynamic for structural typing.
                             structural = false;
                         }
@@ -4691,7 +4207,7 @@ impl<'a> Checker<'a> {
 
     fn check_params(&mut self, params: &[Param]) -> Result<(), Diagnostic> {
         for (i, p) in params.iter().enumerate() {
-            if p.rest {
+            if self.typecheck && p.rest {
                 if i != params.len() - 1 {
                     return Err(Diagnostic::new(
                         "rest parameter must be last formal parameter".to_string(),
@@ -4705,9 +4221,13 @@ impl<'a> Checker<'a> {
                     ));
                 }
             }
-            let ann_ty = match &p.type_ann {
-                Some(ann) => Some(self.resolve_type_ann(ann)?),
-                None => None,
+            let ann_ty = if self.typecheck {
+                match &p.type_ann {
+                    Some(ann) => Some(self.resolve_type_ann(ann)?),
+                    None => None,
+                }
+            } else {
+                None
             };
             if let Some(default) = &p.default {
                 let def_ty = self.check_expr(default)?;
@@ -5260,6 +4780,9 @@ impl<'a> Checker<'a> {
         to: Type,
         from_expr: &Expr,
     ) -> Result<(), Diagnostic> {
+        if !self.typecheck {
+            return Ok(());
+        }
         // T07.05: a fresh object literal must not name properties absent from an
         // annotated (strict) shape.
         if let Some(diag) = self.excess_prop_diag(from_expr, to) {
@@ -5614,7 +5137,7 @@ impl<'a> Checker<'a> {
         } else {
             return empty;
         };
-        let Some(sym) = self.bound.resolve(ident.span) else {
+        let Some(sym) = self.resolve_span(ident.span) else {
             return empty;
         };
         let cur = self.symbol_types[sym.0 as usize];
@@ -5642,7 +5165,9 @@ impl<'a> Checker<'a> {
     }
 
     fn record(&mut self, span: Span, ty: Type) {
-        self.expr_types.insert(span, ty);
+        if self.typecheck {
+            self.expr_types.insert(span, ty);
+        }
     }
 
     /// True when `expr` is an identifier resolving to the host global `name`.
@@ -5650,10 +5175,10 @@ impl<'a> Checker<'a> {
         let Expr::Ident(id) = expr else {
             return false;
         };
-        let Some(sym_id) = self.bound.resolve(id.span) else {
+        let Some(sym_id) = self.resolve_span(id.span) else {
             return false;
         };
-        let sym = self.bound.symbol(sym_id);
+        let sym = self.symbol(sym_id);
         sym.name == name && sym.span == Span::dummy()
     }
 
@@ -5678,7 +5203,6 @@ impl<'a> Checker<'a> {
         }
 
         let Some(id) = self
-            .bound
             .symbols()
             .iter()
             .find(|s| s.span == name.span)
@@ -5883,6 +5407,9 @@ impl<'a> Checker<'a> {
     }
 
     fn check_unary(&self, op: UnaryOp, arg: Type, span: Span) -> Result<Type, Diagnostic> {
+        if !self.typecheck {
+            return Ok(Type::Any);
+        }
         match op {
             // Unary `+` is ToNumber (ECMA-262); BigInt throws at runtime — reject statically.
             UnaryOp::Plus => {
@@ -5963,6 +5490,9 @@ impl<'a> Checker<'a> {
         left_expr: &Expr,
         right_expr: &Expr,
     ) -> Result<Type, Diagnostic> {
+        if !self.typecheck {
+            return Ok(Type::Any);
+        }
         match op {
             // Binary `+`: string preference (ToString) else numeric (ToNumber), per ECMA-262.
             // Object/Function sides use runtime ToPrimitive (valueOf/toString); static type is Any.
