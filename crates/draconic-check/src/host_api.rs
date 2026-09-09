@@ -227,10 +227,10 @@ mod tests {
     fn catalog_abi_src() -> &'static str {
         concat!(
             include_str!("../../draconic-runtime/src/abi.rs"),
-            include_str!("../../draconic-runtime/src/abi_host.rs"),
-            include_str!("../../draconic-runtime/src/abi_host_io.rs"),
-            include_str!("../../draconic-runtime/src/abi_host_net.rs"),
-            include_str!("../../draconic-runtime/src/abi_host_symbols.rs"),
+            include_str!("../../draconic-runtime/src/abi/abi_host.rs"),
+            include_str!("../../draconic-runtime/src/abi/abi_host_io.rs"),
+            include_str!("../../draconic-runtime/src/abi/abi_host_net.rs"),
+            include_str!("../../draconic-runtime/src/abi/abi_host_symbols.rs"),
         )
     }
 
@@ -256,13 +256,13 @@ mod tests {
     fn catalog_js_polyfill_src() -> &'static str {
         concat!(
             include_str!("../../draconic-runtime/src/host_js_bridge.rs"),
-            include_str!("../../draconic-runtime/src/host_process_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_worker_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_cancel_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_timer_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_stdio_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_path_polyfill.rs"),
-            include_str!("../../draconic-runtime/src/host_fs_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_process_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_worker_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_cancel_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_timer_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_stdio_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_path_polyfill.rs"),
+            include_str!("../../draconic-runtime/src/abi/host_fs_polyfill.rs"),
         )
     }
 
