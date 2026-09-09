@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-749-llvm-split-es-expr** — split llvm es_expr.rs by classify/stmt-emit/value-emit/number-emit seams under file budget
 - **task-748-llvm-split-es-classes** — split llvm es_classes.rs by class extract/private/ctor/ok/emit seams under file budget
 - **task-747-llvm-split-es-builtins** — split llvm es_builtins.rs by builtin feature seams under file budget
 - **task-746-llvm-split-lib** — split llvm lib.rs into native_link plus emit test siblings under file budget
