@@ -2,14 +2,14 @@
 id: "task-728-check-extract-checker"
 title: "Extract Checker from check lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-727-check-extract-binder"]
 sprint: "rust-dev-audit"
 slice: "slice-709-check-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:55:00Z"
 ---
 
 # Extract Checker from check lib.rs
@@ -60,9 +60,9 @@ checker*.rs ≤1000. lib.rs smaller.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] mod checker in lib.rs
-- [ ] checker files ≤1000
-- [ ] cargo test -p draconic-check
+- [x] mod checker in lib.rs
+- [x] checker files ≤1000
+- [x] cargo test -p draconic-check
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ checker*.rs ≤1000. lib.rs smaller.
 
 **Explain this part:**
 Public check/check_module/check_for_target stay on the crate root.
+
+## Gauntlet
+
+- **Round 1:** `cargo test -p draconic-check --offline -- --skip catalog_sync` — win — `mod checker` plus checker.rs / checker_stmt.rs / checker_expr.rs / checker_type.rs / checker_assign.rs / checker_ops.rs, each ≤1000; one `check_stmt` walk; lib.rs 4189 lines; 277 passed. `catalog_sync` skipped (unrelated dirty host_api from task-726).
