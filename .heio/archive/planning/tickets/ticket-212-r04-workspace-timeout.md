@@ -2,15 +2,14 @@
 id: "ticket-212-r04-workspace-timeout"
 title: "R04 workspace tests did not finish (O3 oracle-budget / workspace-timeout)"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # R04 workspace tests did not finish (O3 oracle-budget / workspace-timeout)
 
 Reviewer miss on [[slice-393-r04-workspace-timeout]]. This is a budget miss, not a new ROADMAP atom. R04 / R04.01 / R04.02 stay `done` on ROADMAP.md.

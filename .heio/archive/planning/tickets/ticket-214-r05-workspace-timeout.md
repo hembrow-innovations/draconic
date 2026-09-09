@@ -1,16 +1,16 @@
 ---
 id: "ticket-214-r05-workspace-timeout"
-title: "R05 workspace tests timeout then exit 101 (O2 oracle-budget / workspace-timeout)"
+title: "R05 workspace tests timeout then exit 101 (O2 oracle-budget /
+  workspace-timeout)"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # R05 workspace tests timeout then exit 101 (O2 oracle-budget / workspace-timeout)
 
 Reviewer miss on [[slice-397-r05-workspace-timeout]]. First CHECK was a budget miss; a 20m reverify then exited 101. R05 / R05.01 stay `done` on ROADMAP.md. Not a new language atom.

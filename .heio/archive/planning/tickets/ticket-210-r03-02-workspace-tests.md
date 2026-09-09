@@ -2,15 +2,14 @@
 id: "ticket-210-r03-02-workspace-tests"
 title: "R03.02 workspace tests still exit 101"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # R03.02 workspace tests still exit 101
 
 Reviewer miss on [[slice-389-r03-02-workspace-tests]]. R03.02 stays `done` on ROADMAP.md. Beat the workspace oracle, not a new language atom.

@@ -2,15 +2,14 @@
 id: "ticket-208-l10-workspace-timeout"
 title: "L10 workspace tests did not finish (O3 oracle-budget / workspace-timeout)"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # L10 workspace tests did not finish (O3 oracle-budget / workspace-timeout)
 
 Reviewer miss on [[slice-377-l10-workspace-timeout]]. This is a budget miss, not a new ROADMAP atom. L10 stays `done` on ROADMAP.md.

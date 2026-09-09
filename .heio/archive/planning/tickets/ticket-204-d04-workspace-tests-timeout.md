@@ -2,15 +2,14 @@
 id: "ticket-204-d04-workspace-tests-timeout"
 title: "D04 workspace tests timeout and release_artifact fail"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # D04 workspace tests timeout and release_artifact fail
 
 Reviewer miss on [[slice-254-d04-workspace-tests-timeout]]. O1 is a budget miss, not a new ROADMAP atom. O4 is a product fail on `release_artifact`. D04 / D04.02 / D01.01 stay `done` on ROADMAP.md.

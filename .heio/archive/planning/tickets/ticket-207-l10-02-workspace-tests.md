@@ -2,15 +2,14 @@
 id: "ticket-207-l10-02-workspace-tests"
 title: "L10.02 workspace tests still exit 101"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 labels: bug
 tags: []
 sprint: "platform"
 created_at: "2026-09-05T21:15:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-09T09:15:36Z"
 ---
-
 # L10.02 workspace tests still exit 101
 
 Reviewer miss on [[slice-375-l10-02-workspace-timeout]]. L10.02 stays `done` on ROADMAP.md. Beat the workspace oracle, not a new language atom.
