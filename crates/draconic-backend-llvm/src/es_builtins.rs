@@ -47,6 +47,7 @@
 //!
 //! Emits Runtime prints of final top-level number/string/bool/null locals.
 
+use std::cell::{Cell, RefCell};
 use std::fmt::Write as _;
 
 use draconic_diagnostics::{Diagnostic, Span};
@@ -84,7 +85,25 @@ mod eval;
 #[path = "es_builtins_member.rs"]
 mod member;
 
-struct Interp;
+struct Interp {
+    regexp: RefCell<RegExpStatics>,
+    next: Cell<u64>,
+}
+
+impl Interp {
+    fn new() -> Self {
+        Self {
+            regexp: RefCell::new(RegExpStatics::default()),
+            next: Cell::new(1),
+        }
+    }
+
+    fn alloc_id(&self) -> u64 {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        id
+    }
+}
 
 pub(crate) fn is_es_builtins_module(module: &Module) -> bool {
     classify(module).is_some()

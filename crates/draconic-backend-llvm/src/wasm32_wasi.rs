@@ -6,7 +6,6 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 
 use draconic_diagnostics::{Diagnostic, Span};
 
@@ -25,7 +24,7 @@ struct WasmTools {
 /// Compile LLVM IR (from the shared IR) to a wasm32/wasi object.
 pub fn compile_object_for_wasm32_wasi(llvm_ir: &str, out_obj: &Path) -> Result<(), Diagnostic> {
     let tools = wasm_tools()?;
-    compile_object_with(tools, llvm_ir, out_obj)
+    compile_object_with(&tools, llvm_ir, out_obj)
 }
 
 /// Link LLVM IR emitted from the shared IR into a `.wasm` artifact.
@@ -36,7 +35,7 @@ pub fn link_wasm32_wasi(llvm_ir: &str, out_wasm: &Path) -> Result<(), Diagnostic
     let tools = wasm_tools()?;
     let work = work_dir("draconic-wasm32-wasi-link")?;
     let obj = work.join("program.o");
-    compile_object_with(tools, llvm_ir, &obj)?;
+    compile_object_with(&tools, llvm_ir, &obj)?;
 
     if let Some(parent) = out_wasm.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
@@ -130,12 +129,8 @@ fn compile_object_with(tools: &WasmTools, llvm_ir: &str, out_obj: &Path) -> Resu
     Ok(())
 }
 
-fn wasm_tools() -> Result<&'static WasmTools, Diagnostic> {
-    static TOOLS: OnceLock<Result<WasmTools, String>> = OnceLock::new();
-    match TOOLS.get_or_init(discover_wasm_tools) {
-        Ok(tools) => Ok(tools),
-        Err(msg) => Err(Diagnostic::new(msg.clone(), Span::dummy())),
-    }
+fn wasm_tools() -> Result<WasmTools, Diagnostic> {
+    discover_wasm_tools().map_err(|msg| Diagnostic::new(msg, Span::dummy()))
 }
 
 fn discover_wasm_tools() -> Result<WasmTools, String> {

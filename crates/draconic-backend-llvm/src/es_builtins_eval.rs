@@ -8,9 +8,9 @@ use draconic_ir::{
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+    pub(crate) fn eval_body(&self, body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
         for stmt in body {
-            match Self::eval_stmt(stmt, env)? {
+            match self.eval_stmt(stmt, env)? {
                 Flow::Normal => {}
                 other => return Ok(other),
             }
@@ -18,11 +18,11 @@ impl super::Interp {
         Ok(Flow::Normal)
     }
 
-    pub(crate) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+    pub(crate) fn eval_stmt(&self, stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
                 let v = match init {
-                    Some(e) => match Self::eval_expr(e, env)? {
+                    Some(e) => match self.eval_expr(e, env)? {
                         Ok(v) => v,
                         Err(flow) => return Ok(flow),
                     },
@@ -31,16 +31,16 @@ impl super::Interp {
                 env.insert(*local, v);
                 Ok(Flow::Normal)
             }
-            Stmt::Expr { expr } => match Self::eval_expr(expr, env)? {
+            Stmt::Expr { expr } => match self.eval_expr(expr, env)? {
                 Ok(_) => Ok(Flow::Normal),
                 Err(flow) => Ok(flow),
             },
-            Stmt::Throw { value } => match Self::eval_expr(value, env)? {
+            Stmt::Throw { value } => match self.eval_expr(value, env)? {
                 Ok(v) => Ok(Flow::Throw(v)),
                 Err(flow) => Ok(flow),
             },
             Stmt::Return { value: None } => Ok(Flow::Return(JsVal::Undef)),
-            Stmt::Return { value: Some(e) } => match Self::eval_expr(e, env)? {
+            Stmt::Return { value: Some(e) } => match self.eval_expr(e, env)? {
                 Ok(v) => Ok(Flow::Return(v)),
                 Err(flow) => Ok(flow),
             },
@@ -50,13 +50,13 @@ impl super::Interp {
                 handler,
                 finalizer,
             } => {
-                let mut completion = match Self::eval_body(block, env)? {
+                let mut completion = match self.eval_body(block, env)? {
                     Flow::Throw(exc) => {
                         if let Some(handler) = handler {
                             if let Some(Pattern::Local(pid)) = handler_param {
                                 env.insert(*pid, exc);
                             }
-                            Self::eval_body(handler, env)?
+                            self.eval_body(handler, env)?
                         } else {
                             Flow::Throw(exc)
                         }
@@ -64,27 +64,27 @@ impl super::Interp {
                     other => other,
                 };
                 if let Some(fin) = finalizer {
-                    match Self::eval_body(fin, env)? {
+                    match self.eval_body(fin, env)? {
                         Flow::Normal => {}
                         abrupt => completion = abrupt,
                     }
                 }
                 Ok(completion)
             }
-            Stmt::Block { body } => Self::eval_body(body, env),
+            Stmt::Block { body } => self.eval_body(body, env),
             Stmt::If {
                 test,
                 consequent,
                 alternate,
             } => {
-                let t = match Self::eval_expr(test, env)? {
+                let t = match self.eval_expr(test, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 };
                 if to_boolean(&t) {
-                    Self::eval_stmt(consequent, env)
+                    self.eval_stmt(consequent, env)
                 } else if let Some(alt) = alternate {
-                    Self::eval_stmt(alt, env)
+                    self.eval_stmt(alt, env)
                 } else {
                     Ok(Flow::Normal)
                 }
@@ -94,7 +94,7 @@ impl super::Interp {
     }
 
     /// `Ok(Ok(v))` = value; `Ok(Err(flow))` = abrupt throw; `Err(())` = unsupported.
-    pub(crate) fn eval_expr(
+    pub(crate) fn eval_expr(&self, 
         expr: &Expr,
         env: &mut HashMap<LocalId, JsVal>,
     ) -> Result<Result<JsVal, Flow>, ()> {
@@ -131,7 +131,7 @@ impl super::Interp {
             }
             Expr::This { .. } => Ok(Ok(current_this())),
             Expr::NewTarget { .. } => Ok(Ok(current_new_target())),
-            Expr::Function { .. } => Ok(Ok(user_fn_from_expr(expr).ok_or(())?)),
+            Expr::Function { .. } => Ok(Ok(user_fn_from_expr(self, expr).ok_or(())?)),
             Expr::Unary { op, arg, .. } => {
                 match op {
                     UnaryOp::Delete => {
@@ -143,11 +143,11 @@ impl super::Interp {
                                 optional: false,
                                 ..
                             } => {
-                                let mut obj = match Self::eval_expr(object, env)? {
+                                let mut obj = match self.eval_expr(object, env)? {
                                     Ok(o) => o,
                                     Err(flow) => return Ok(Err(flow)),
                                 };
-                                let key = match Self::eval_key(property, env)? {
+                                let key = match self.eval_key(property, env)? {
                                     Ok(k) => k,
                                     Err(flow) => return Ok(Err(flow)),
                                 };
@@ -171,7 +171,7 @@ impl super::Interp {
                         }
                     }
                     _ => {
-                        let v = match Self::eval_expr(arg, env)? {
+                        let v = match self.eval_expr(arg, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
@@ -189,7 +189,7 @@ impl super::Interp {
             Expr::Binary {
                 left, op, right, ..
             } => {
-                let l = match Self::eval_expr(left, env)? {
+                let l = match self.eval_expr(left, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
@@ -198,23 +198,23 @@ impl super::Interp {
                         if !to_boolean(&l) {
                             return Ok(Ok(l));
                         }
-                        Self::eval_expr(right, env)
+                        self.eval_expr(right, env)
                     }
                     BinaryOp::Or => {
                         if to_boolean(&l) {
                             return Ok(Ok(l));
                         }
-                        Self::eval_expr(right, env)
+                        self.eval_expr(right, env)
                     }
                     BinaryOp::EqEqEq | BinaryOp::EqEq => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
                         Ok(Ok(JsVal::Bool(strict_eq(&l, &r))))
                     }
                     BinaryOp::NotEqEq | BinaryOp::NotEq => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
@@ -222,17 +222,17 @@ impl super::Interp {
                     }
                     BinaryOp::Comma => {
                         let _ = l;
-                        Self::eval_expr(right, env)
+                        self.eval_expr(right, env)
                     }
                     BinaryOp::Nullish => {
                         if matches!(l, JsVal::Null | JsVal::Undef) {
-                            Self::eval_expr(right, env)
+                            self.eval_expr(right, env)
                         } else {
                             Ok(Ok(l))
                         }
                     }
                     BinaryOp::Add => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
@@ -250,28 +250,28 @@ impl super::Interp {
                         }
                     }
                     BinaryOp::Sub => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
                         Ok(Ok(JsVal::Num(to_number(&l)? - to_number(&r)?)))
                     }
                     BinaryOp::Mul => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
                         Ok(Ok(JsVal::Num(to_number(&l)? * to_number(&r)?)))
                     }
                     BinaryOp::Div => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
                         Ok(Ok(JsVal::Num(to_number(&l)? / to_number(&r)?)))
                     }
                     BinaryOp::Rem => {
-                        let r = match Self::eval_expr(right, env)? {
+                        let r = match self.eval_expr(right, env)? {
                             Ok(v) => v,
                             Err(flow) => return Ok(Err(flow)),
                         };
@@ -286,14 +286,14 @@ impl super::Interp {
                 alternate,
                 ..
             } => {
-                let t = match Self::eval_expr(test, env)? {
+                let t = match self.eval_expr(test, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
                 if to_boolean(&t) {
-                    Self::eval_expr(consequent, env)
+                    self.eval_expr(consequent, env)
                 } else {
-                    Self::eval_expr(alternate, env)
+                    self.eval_expr(alternate, env)
                 }
             }
             Expr::Member {
@@ -302,32 +302,32 @@ impl super::Interp {
                 optional: false,
                 ..
             } => {
-                let obj = match Self::eval_expr(object, env)? {
+                let obj = match self.eval_expr(object, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                let key = match Self::eval_key(property, env)? {
+                let key = match self.eval_key(property, env)? {
                     Ok(k) => k,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                Ok(Ok(Self::member_get(&obj, &key, env)?))
+                Ok(Ok(self.member_get(&obj, &key, env)?))
             }
             Expr::New { callee, args, .. } => {
-                let c = match Self::eval_expr(callee, env)? {
+                let c = match self.eval_expr(callee, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
                 let mut arg_vals = Vec::new();
                 for a in args {
                     match a {
-                        Arg::Expr(e) => match Self::eval_expr(e, env)? {
+                        Arg::Expr(e) => match self.eval_expr(e, env)? {
                             Ok(v) => arg_vals.push(v),
                             Err(flow) => return Ok(Err(flow)),
                         },
                         _ => return Err(()),
                     }
                 }
-                Ok(Ok(Self::eval_new(&c, &arg_vals, env)?))
+                Ok(Ok(self.eval_new(&c, &arg_vals, env)?))
             }
             Expr::Call {
                 callee,
@@ -338,7 +338,7 @@ impl super::Interp {
                 let mut arg_vals = Vec::new();
                 for a in args {
                     match a {
-                        Arg::Expr(e) => match Self::eval_expr(e, env)? {
+                        Arg::Expr(e) => match self.eval_expr(e, env)? {
                             Ok(v) => arg_vals.push(v),
                             Err(flow) => return Ok(Err(flow)),
                         },
@@ -353,26 +353,26 @@ impl super::Interp {
                     ..
                 } = callee.as_ref()
                 {
-                    let mut obj = match Self::eval_expr(object, env)? {
+                    let mut obj = match self.eval_expr(object, env)? {
                         Ok(v) => v,
                         Err(flow) => return Ok(Err(flow)),
                     };
-                    let key = match Self::eval_key(property, env)? {
+                    let key = match self.eval_key(property, env)? {
                         Ok(k) => k,
                         Err(flow) => return Ok(Err(flow)),
                     };
-                    let result = Self::eval_method_call(&mut obj, &key, &arg_vals, env)?;
+                    let result = self.eval_method_call(&mut obj, &key, &arg_vals, env)?;
                     // Write back mutated Map/Set (and any other instance) to local receiver.
                     if let Expr::Local { id, .. } = object.as_ref() {
                         env.insert(*id, obj);
                     }
                     return Ok(Ok(result));
                 }
-                let c = match Self::eval_expr(callee, env)? {
+                let c = match self.eval_expr(callee, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                Ok(Ok(Self::eval_call(&c, &arg_vals, env)?))
+                Ok(Ok(self.eval_call(&c, &arg_vals, env)?))
             }
             Expr::Assign {
                 target: AssignTarget::Local(id),
@@ -380,7 +380,7 @@ impl super::Interp {
                 value,
                 ..
             } => {
-                let v = match Self::eval_expr(value, env)? {
+                let v = match self.eval_expr(value, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
@@ -396,19 +396,19 @@ impl super::Interp {
                 value,
                 ..
             } => {
-                let v = match Self::eval_expr(value, env)? {
+                let v = match self.eval_expr(value, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                let mut obj = match Self::eval_expr(object, env)? {
+                let mut obj = match self.eval_expr(object, env)? {
                     Ok(o) => o,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                let key = match Self::eval_key(property, env)? {
+                let key = match self.eval_key(property, env)? {
                     Ok(k) => k,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                Self::member_set(&mut obj, &key, v.clone(), env)?;
+                self.member_set(&mut obj, &key, v.clone(), env)?;
                 if let Expr::Local { id, .. } = object.as_ref() {
                     env.insert(*id, obj);
                 } else if matches!(object.as_ref(), Expr::This { .. }) {
@@ -424,7 +424,7 @@ impl super::Interp {
                 let mut out = Vec::new();
                 for el in elements {
                     match el {
-                        ArrayElement::Expr(e) => match Self::eval_expr(e, env)? {
+                        ArrayElement::Expr(e) => match self.eval_expr(e, env)? {
                             Ok(v) => out.push(v),
                             Err(flow) => return Ok(Err(flow)),
                         },
@@ -443,7 +443,7 @@ impl super::Interp {
                             key: ObjectPropKey::Static(k),
                             value,
                         } => {
-                            let v = match Self::eval_expr(value, env)? {
+                            let v = match self.eval_expr(value, env)? {
                                 Ok(v) => v,
                                 Err(flow) => return Ok(Err(flow)),
                             };
@@ -459,11 +459,11 @@ impl super::Interp {
                             key: ObjectPropKey::Computed(ke),
                             value,
                         } => {
-                            let key = match Self::eval_key(ke, env)? {
+                            let key = match self.eval_key(ke, env)? {
                                 Ok(k) => k,
                                 Err(flow) => return Ok(Err(flow)),
                             };
-                            let v = match Self::eval_expr(value, env)? {
+                            let v = match self.eval_expr(value, env)? {
                                 Ok(v) => v,
                                 Err(flow) => return Ok(Err(flow)),
                             };
@@ -475,7 +475,7 @@ impl super::Interp {
                             key: ObjectPropKey::Static(k),
                             value,
                         } => {
-                            let fnv = match Self::eval_expr(value, env)? {
+                            let fnv = match self.eval_expr(value, env)? {
                                 Ok(v) => v,
                                 Err(flow) => return Ok(Err(flow)),
                             };
@@ -490,11 +490,11 @@ impl super::Interp {
                             key: ObjectPropKey::Computed(ke),
                             value,
                         } => {
-                            let key = match Self::eval_key(ke, env)? {
+                            let key = match self.eval_key(ke, env)? {
                                 Ok(k) => k,
                                 Err(flow) => return Ok(Err(flow)),
                             };
-                            let fnv = match Self::eval_expr(value, env)? {
+                            let fnv = match self.eval_expr(value, env)? {
                                 Ok(v) => v,
                                 Err(flow) => return Ok(Err(flow)),
                             };
@@ -506,19 +506,19 @@ impl super::Interp {
                         ObjectProp::Spread(_) => return Err(()),
                     }
                 }
-                Ok(Ok(new_object_with_proto(props, proto)))
+                Ok(Ok(new_object_with_proto(self, props, proto)))
             }
             _ => Err(()),
         }
     }
 
-    pub(crate) fn eval_key(
+    pub(crate) fn eval_key(&self, 
         expr: &Expr,
         env: &mut HashMap<LocalId, JsVal>,
     ) -> Result<Result<String, Flow>, ()> {
         match expr {
             Expr::String { value, .. } => Ok(Ok(js_string_to_utf8(value))),
-            e => match Self::eval_expr(e, env)? {
+            e => match self.eval_expr(e, env)? {
                 Ok(JsVal::Str(s)) => Ok(Ok(s)),
                 Ok(JsVal::Num(n)) => Ok(Ok(format!("{}", n as i64))),
                 Ok(_) => Err(()),

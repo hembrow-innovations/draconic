@@ -1,8 +1,9 @@
 use super::*;
 
-pub(super) fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+impl Ids {
+pub(super) fn eval_body(&self, body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
     for s in body {
-        match eval_stmt(s, env)? {
+        match self.eval_stmt(s, env)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -10,23 +11,23 @@ pub(super) fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Res
     Ok(Flow::Normal)
 }
 
-pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+pub(super) fn eval_stmt(&self, stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
     match stmt {
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => ok_val(eval_expr(e, env)?)?,
+                Some(e) => self.ok_val(self.eval_expr(e, env)?)?,
                 None => JsVal::Undef,
             };
             env.insert(*local, v);
             Ok(Flow::Normal)
         }
         Stmt::Expr { expr } => {
-            let _ = ok_val(eval_expr(expr, env)?)?;
+            let _ = self.ok_val(self.eval_expr(expr, env)?)?;
             Ok(Flow::Normal)
         }
-        Stmt::Throw { value } => Ok(Flow::Throw(ok_val(eval_expr(value, env)?)?)),
+        Stmt::Throw { value } => Ok(Flow::Throw(self.ok_val(self.eval_expr(value, env)?)?)),
         Stmt::Return { value: None } => Ok(Flow::Return(JsVal::Undef)),
-        Stmt::Return { value: Some(e) } => Ok(Flow::Return(ok_val(eval_expr(e, env)?)?)),
+        Stmt::Return { value: Some(e) } => Ok(Flow::Return(self.ok_val(self.eval_expr(e, env)?)?)),
         Stmt::Function {
             local,
             params,
@@ -34,8 +35,8 @@ pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Resul
             is_async: false,
             is_generator: false,
         } => {
-            let ids = param_ids(params)?;
-            env.insert(*local, new_fn(ids, body.clone()));
+            let ids = self.param_ids(params)?;
+            env.insert(*local, self.new_fn(ids, body.clone()));
             Ok(Flow::Normal)
         }
         Stmt::If {
@@ -43,29 +44,29 @@ pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Resul
             consequent,
             alternate,
         } => {
-            let t = ok_val(eval_expr(test, env)?)?;
-            if to_bool(&t) {
-                eval_stmt(consequent, env)
+            let t = self.ok_val(self.eval_expr(test, env)?)?;
+            if self.to_bool(&t) {
+                self.eval_stmt(consequent, env)
             } else if let Some(a) = alternate {
-                eval_stmt(a, env)
+                self.eval_stmt(a, env)
             } else {
                 Ok(Flow::Normal)
             }
         }
-        Stmt::Block { body } => eval_body(body, env),
+        Stmt::Block { body } => self.eval_body(body, env),
         Stmt::Try {
             block,
             handler_param,
             handler,
             finalizer,
         } => {
-            let completion = match eval_body(block, env)? {
+            let completion = match self.eval_body(block, env)? {
                 Flow::Throw(exc) => {
                     if let Some(h) = handler {
                         if let Some(Pattern::Local(pid)) = handler_param {
                             env.insert(*pid, exc);
                         }
-                        eval_body(h, env)?
+                        self.eval_body(h, env)?
                     } else {
                         Flow::Throw(exc)
                     }
@@ -73,7 +74,7 @@ pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Resul
                 other => other,
             };
             if let Some(fin) = finalizer {
-                match eval_body(fin, env)? {
+                match self.eval_body(fin, env)? {
                     Flow::Normal => Ok(completion),
                     abrupt => Ok(abrupt),
                 }
@@ -85,7 +86,7 @@ pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Resul
     }
 }
 
-pub(super) fn param_ids(params: &[Param]) -> Result<Vec<LocalId>, ()> {
+pub(super) fn param_ids(&self, params: &[Param]) -> Result<Vec<LocalId>, ()> {
     params
         .iter()
         .map(|p| match &p.pattern {
@@ -95,14 +96,14 @@ pub(super) fn param_ids(params: &[Param]) -> Result<Vec<LocalId>, ()> {
         .collect()
 }
 
-pub(super) fn ok_val(r: Result<JsVal, Flow>) -> Result<JsVal, ()> {
+pub(super) fn ok_val(&self, r: Result<JsVal, Flow>) -> Result<JsVal, ()> {
     match r {
         Ok(v) => Ok(v),
         Err(_) => Err(()),
     }
 }
 
-pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
+pub(super) fn eval_expr(&self, expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::Number { raw, .. } => Ok(Ok(JsVal::Num(raw.parse().map_err(|_| ())?))),
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
@@ -119,27 +120,27 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             is_generator: false,
             ..
         } => {
-            let ids = param_ids(params)?;
-            Ok(Ok(new_fn(ids, body.clone())))
+            let ids = self.param_ids(params)?;
+            Ok(Ok(self.new_fn(ids, body.clone())))
         }
-        Expr::Unary { op, arg, .. } => eval_unary(*op, arg, env),
+        Expr::Unary { op, arg, .. } => self.eval_unary(*op, arg, env),
         Expr::Binary {
             left, op, right, ..
-        } => eval_binary(left, *op, right, env),
+        } => self.eval_binary(left, *op, right, env),
         Expr::Conditional {
             test,
             consequent,
             alternate,
             ..
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match self.eval_expr(test, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            if to_bool(&t) {
-                eval_expr(consequent, env)
+            if self.to_bool(&t) {
+                self.eval_expr(consequent, env)
             } else {
-                eval_expr(alternate, env)
+                self.eval_expr(alternate, env)
             }
         }
         Expr::Member {
@@ -148,23 +149,23 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             optional: false,
             ..
         } => {
-            let obj = match eval_expr(object, env)? {
+            let obj = match self.eval_expr(object, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            let key = match eval_key(property, env)? {
+            let key = match self.eval_key(property, env)? {
                 Ok(k) => k,
                 Err(f) => return Ok(Err(f)),
             };
-            Ok(Ok(member_get(&obj, &key, env)?))
+            Ok(Ok(self.member_get(&obj, &key, env)?))
         }
         Expr::New { callee, args, .. } => {
-            let c = match eval_expr(callee, env)? {
+            let c = match self.eval_expr(callee, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            let av = eval_args(args, env)?;
-            Ok(Ok(eval_new(&c, &av, env)?))
+            let av = self.eval_args(args, env)?;
+            Ok(Ok(self.eval_new(&c, &av, env)?))
         }
         Expr::Call {
             callee,
@@ -172,7 +173,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             optional: false,
             ..
         } => {
-            let av = match eval_args_flow(args, env)? {
+            let av = match self.eval_args_flow(args, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
@@ -183,26 +184,26 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
                 ..
             } = callee.as_ref()
             {
-                let obj = match eval_expr(object, env)? {
+                let obj = match self.eval_expr(object, env)? {
                     Ok(v) => v,
                     Err(f) => return Ok(Err(f)),
                 };
-                let key = match eval_key(property, env)? {
+                let key = match self.eval_key(property, env)? {
                     Ok(k) => k,
                     Err(f) => return Ok(Err(f)),
                 };
                 let mut obj = obj;
-                let result = method_call(&mut obj, &key, &av, env)?;
+                let result = self.method_call(&mut obj, &key, &av, env)?;
                 if let Expr::Local { id, .. } = object.as_ref() {
                     env.insert(*id, obj);
                 }
                 return Ok(Ok(result));
             }
-            let c = match eval_expr(callee, env)? {
+            let c = match self.eval_expr(callee, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            Ok(Ok(call_val(&c, &av, JsVal::Undef, env)?))
+            Ok(Ok(self.call_val(&c, &av, JsVal::Undef, env)?))
         }
         Expr::Assign {
             target: AssignTarget::Local(id),
@@ -210,7 +211,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match self.eval_expr(value, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
@@ -225,19 +226,19 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match self.eval_expr(value, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            let mut obj = match eval_expr(object, env)? {
+            let mut obj = match self.eval_expr(object, env)? {
                 Ok(o) => o,
                 Err(f) => return Ok(Err(f)),
             };
-            let key = match eval_key(property, env)? {
+            let key = match self.eval_key(property, env)? {
                 Ok(k) => k,
                 Err(f) => return Ok(Err(f)),
             };
-            member_set(&mut obj, &key, v.clone(), env)?;
+            self.member_set(&mut obj, &key, v.clone(), env)?;
             if let Expr::Local { id, .. } = object.as_ref() {
                 env.insert(*id, obj);
             }
@@ -248,7 +249,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
             let mut out = Vec::new();
             for el in elements {
                 match el {
-                    ArrayElement::Expr(e) => out.push(match eval_expr(e, env)? {
+                    ArrayElement::Expr(e) => out.push(match self.eval_expr(e, env)? {
                         Ok(v) => v,
                         Err(f) => return Ok(Err(f)),
                     }),
@@ -257,7 +258,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
                 }
             }
             Ok(Ok(JsVal::Object {
-                id: next_id(),
+                id: self.next_id(),
                 props: Rc::new(RefCell::new(Vec::new())),
                 proto: Rc::new(RefCell::new(JsVal::Builtin("Array.prototype"))),
             }))
@@ -271,7 +272,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
                         key: ObjectPropKey::Static(k),
                         value,
                     } => {
-                        let v = match eval_expr(value, env)? {
+                        let v = match self.eval_expr(value, env)? {
                             Ok(v) => v,
                             Err(f) => return Ok(Err(f)),
                         };
@@ -286,11 +287,11 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
                         key: ObjectPropKey::Computed(ke),
                         value,
                     } => {
-                        let key = match eval_key(ke, env)? {
+                        let key = match self.eval_key(ke, env)? {
                             Ok(k) => k,
                             Err(f) => return Ok(Err(f)),
                         };
-                        let v = match eval_expr(value, env)? {
+                        let v = match self.eval_expr(value, env)? {
                             Ok(v) => v,
                             Err(f) => return Ok(Err(f)),
                         };
@@ -300,7 +301,7 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
                 }
             }
             Ok(Ok(JsVal::Object {
-                id: next_id(),
+                id: self.next_id(),
                 props: Rc::new(RefCell::new(props)),
                 proto: Rc::new(RefCell::new(proto)),
             }))
@@ -309,21 +310,21 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
     }
 }
 
-pub(super) fn eval_args(args: &[Arg], env: &mut HashMap<LocalId, JsVal>) -> Result<Vec<JsVal>, ()> {
-    match eval_args_flow(args, env)? {
+pub(super) fn eval_args(&self, args: &[Arg], env: &mut HashMap<LocalId, JsVal>) -> Result<Vec<JsVal>, ()> {
+    match self.eval_args_flow(args, env)? {
         Ok(v) => Ok(v),
         Err(_) => Err(()),
     }
 }
 
-pub(super) fn eval_args_flow(
+pub(super) fn eval_args_flow(&self, 
     args: &[Arg],
     env: &mut HashMap<LocalId, JsVal>,
 ) -> Result<Result<Vec<JsVal>, Flow>, ()> {
     let mut out = Vec::new();
     for a in args {
         match a {
-            Arg::Expr(e) => match eval_expr(e, env)? {
+            Arg::Expr(e) => match self.eval_expr(e, env)? {
                 Ok(v) => out.push(v),
                 Err(f) => return Ok(Err(f)),
             },
@@ -333,10 +334,10 @@ pub(super) fn eval_args_flow(
     Ok(Ok(out))
 }
 
-pub(super) fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<String, Flow>, ()> {
+pub(super) fn eval_key(&self, expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<String, Flow>, ()> {
     match expr {
         Expr::String { value, .. } => Ok(Ok(value.to_string_lossy())),
-        e => match eval_expr(e, env)? {
+        e => match self.eval_expr(e, env)? {
             Ok(JsVal::Str(s)) => Ok(Ok(s)),
             Ok(JsVal::Num(n)) => Ok(Ok(format!("{}", n as i64))),
             Ok(_) => Err(()),
@@ -345,7 +346,7 @@ pub(super) fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result
     }
 }
 
-pub(super) fn eval_unary(
+pub(super) fn eval_unary(&self, 
     op: UnaryOp,
     arg: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
@@ -359,11 +360,11 @@ pub(super) fn eval_unary(
                 ..
             } = arg
             {
-                let obj = match eval_expr(object, env)? {
+                let obj = match self.eval_expr(object, env)? {
                     Ok(v) => v,
                     Err(f) => return Ok(Err(f)),
                 };
-                let key = match eval_key(property, env)? {
+                let key = match self.eval_key(property, env)? {
                     Ok(k) => k,
                     Err(f) => return Ok(Err(f)),
                 };
@@ -378,27 +379,27 @@ pub(super) fn eval_unary(
                 }
                 return Ok(Ok(JsVal::Bool(true)));
             }
-            let _ = match eval_expr(arg, env)? {
+            let _ = match self.eval_expr(arg, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
             Ok(Ok(JsVal::Bool(true)))
         }
         UnaryOp::Void => {
-            let _ = match eval_expr(arg, env)? {
+            let _ = match self.eval_expr(arg, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
             Ok(Ok(JsVal::Undef))
         }
         _ => {
-            let v = match eval_expr(arg, env)? {
+            let v = match self.eval_expr(arg, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
             match op {
-                UnaryOp::TypeOf => Ok(Ok(JsVal::Str(typeof_str(&v)))),
-                UnaryOp::Not => Ok(Ok(JsVal::Bool(!to_bool(&v)))),
+                UnaryOp::TypeOf => Ok(Ok(JsVal::Str(self.typeof_str(&v)))),
+                UnaryOp::Not => Ok(Ok(JsVal::Bool(!self.to_bool(&v)))),
                 UnaryOp::Minus => match v {
                     JsVal::Num(n) => Ok(Ok(JsVal::Num(-n))),
                     _ => Err(()),
@@ -413,57 +414,57 @@ pub(super) fn eval_unary(
     }
 }
 
-pub(super) fn eval_binary(
+pub(super) fn eval_binary(&self, 
     left: &Expr,
     op: BinaryOp,
     right: &Expr,
     env: &mut HashMap<LocalId, JsVal>,
 ) -> Result<Result<JsVal, Flow>, ()> {
-    let l = match eval_expr(left, env)? {
+    let l = match self.eval_expr(left, env)? {
         Ok(v) => v,
         Err(f) => return Ok(Err(f)),
     };
     match op {
         BinaryOp::And => {
-            if !to_bool(&l) {
+            if !self.to_bool(&l) {
                 return Ok(Ok(l));
             }
-            eval_expr(right, env)
+            self.eval_expr(right, env)
         }
         BinaryOp::Or => {
-            if to_bool(&l) {
+            if self.to_bool(&l) {
                 return Ok(Ok(l));
             }
-            eval_expr(right, env)
+            self.eval_expr(right, env)
         }
         BinaryOp::Comma => {
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
             Ok(Ok(r))
         }
         BinaryOp::EqEqEq | BinaryOp::EqEq => {
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            Ok(Ok(JsVal::Bool(strict_eq(&l, &r))))
+            Ok(Ok(JsVal::Bool(self.strict_eq(&l, &r))))
         }
         BinaryOp::NotEqEq | BinaryOp::NotEq => {
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            Ok(Ok(JsVal::Bool(!strict_eq(&l, &r))))
+            Ok(Ok(JsVal::Bool(!self.strict_eq(&l, &r))))
         }
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(f) => return Ok(Err(f)),
             };
-            let ln = to_num(&l)?;
-            let rn = to_num(&r)?;
+            let ln = self.to_num(&l)?;
+            let rn = self.to_num(&r)?;
             let n = match op {
                 BinaryOp::Add => ln + rn,
                 BinaryOp::Sub => ln - rn,
@@ -478,7 +479,7 @@ pub(super) fn eval_binary(
     }
 }
 
-pub(super) fn to_bool(v: &JsVal) -> bool {
+pub(super) fn to_bool(&self, v: &JsVal) -> bool {
     match v {
         JsVal::Bool(b) => *b,
         JsVal::Undef | JsVal::Null => false,
@@ -488,7 +489,7 @@ pub(super) fn to_bool(v: &JsVal) -> bool {
     }
 }
 
-pub(super) fn to_num(v: &JsVal) -> Result<f64, ()> {
+pub(super) fn to_num(&self, v: &JsVal) -> Result<f64, ()> {
     match v {
         JsVal::Num(n) => Ok(*n),
         JsVal::Bool(true) => Ok(1.0),
@@ -497,7 +498,7 @@ pub(super) fn to_num(v: &JsVal) -> Result<f64, ()> {
     }
 }
 
-pub(super) fn typeof_str(v: &JsVal) -> String {
+pub(super) fn typeof_str(&self, v: &JsVal) -> String {
     match v {
         JsVal::Num(_) => "number".into(),
         JsVal::Bool(_) => "boolean".into(),
@@ -514,7 +515,7 @@ pub(super) fn typeof_str(v: &JsVal) -> String {
     }
 }
 
-pub(super) fn strict_eq(a: &JsVal, b: &JsVal) -> bool {
+pub(super) fn strict_eq(&self, a: &JsVal, b: &JsVal) -> bool {
     match (a, b) {
         (JsVal::Num(x), JsVal::Num(y)) => x == y,
         (JsVal::Bool(x), JsVal::Bool(y)) => x == y,
@@ -530,13 +531,13 @@ pub(super) fn strict_eq(a: &JsVal, b: &JsVal) -> bool {
     }
 }
 
-pub(super) fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+pub(super) fn member_get(&self, obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
     match obj {
         JsVal::Object { props, proto, .. } => {
             if let Some((_, slot)) = props.borrow().iter().find(|(k, _)| k == key) {
                 return match slot {
                     Slot::Data(v) => Ok(v.clone()),
-                    Slot::Accessor { get: Some(g), .. } => call_val(g, &[], obj.clone(), env),
+                    Slot::Accessor { get: Some(g), .. } => self.call_val(g, &[], obj.clone(), env),
                     Slot::Accessor { get: None, .. } => Ok(JsVal::Undef),
                 };
             }
@@ -547,7 +548,7 @@ pub(super) fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVa
             if matches!(p, JsVal::Null) {
                 return Ok(JsVal::Undef);
             }
-            member_get(&p, key, env)
+            self.member_get(&p, key, env)
         }
         JsVal::UserFn { props, .. } => {
             if let Some(v) = get_data(&props.borrow(), key) {
@@ -574,7 +575,7 @@ pub(super) fn member_get(obj: &JsVal, key: &str, env: &mut HashMap<LocalId, JsVa
     }
 }
 
-pub(super) fn member_set(
+pub(super) fn member_set(&self, 
     obj: &mut JsVal,
     key: &str,
     val: JsVal,
@@ -593,7 +594,7 @@ pub(super) fn member_set(
                 .map(|(_, s)| s.clone());
             match existing {
                 Some(Slot::Accessor { set: Some(s), .. }) => {
-                    call_val(&s, &[val], obj.clone(), env)?;
+                    self.call_val(&s, &[val], obj.clone(), env)?;
                     Ok(())
                 }
                 Some(Slot::Accessor { set: None, .. }) => Ok(()),
@@ -611,7 +612,7 @@ pub(super) fn member_set(
     }
 }
 
-pub(super) fn eval_new(
+pub(super) fn eval_new(&self, 
     callee: &JsVal,
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
@@ -636,14 +637,14 @@ pub(super) fn eval_new(
                 .unwrap_or(JsVal::Builtin("Object.prototype"));
             let this_obj = match proto {
                 JsVal::Object { .. } | JsVal::Null | JsVal::UserFn { .. } | JsVal::Builtin(_) => {
-                    new_obj(proto)
+                    self.new_obj(proto)
                 }
-                _ => new_obj(JsVal::Builtin("Object.prototype")),
+                _ => self.new_obj(JsVal::Builtin("Object.prototype")),
             };
             let params = params.clone();
             let body = body.clone();
             let result = with_new_target(callee.clone(), || {
-                call_user(&params, &body, this_obj.clone(), args, env)
+                self.call_user(&params, &body, this_obj.clone(), args, env)
             })?;
             if is_objectish(&result) && !matches!(result, JsVal::Undef) {
                 Ok(result)
@@ -655,7 +656,7 @@ pub(super) fn eval_new(
     }
 }
 
-pub(super) fn method_call(
+pub(super) fn method_call(&self, 
     recv: &mut JsVal,
     key: &str,
     args: &[JsVal],
@@ -726,7 +727,7 @@ pub(super) fn method_call(
         JsVal::UserFn { params, body, .. } if key == "call" => {
             let this_arg = args.first().cloned().unwrap_or(JsVal::Undef);
             let rest: Vec<_> = args.iter().skip(1).cloned().collect();
-            return call_user(&params.clone(), &body.clone(), this_arg, &rest, env);
+            return self.call_user(&params.clone(), &body.clone(), this_arg, &rest, env);
         }
         JsVal::Builtin("Object") => match key {
             "isExtensible" => return Ok(JsVal::Bool(true)),
@@ -746,7 +747,7 @@ pub(super) fn method_call(
                     Some(JsVal::Str(s)) => s.as_str(),
                     _ => return Err(()),
                 };
-                return get_own_desc(t, k);
+                return self.get_own_desc(t, k);
             }
             "defineProperty" => {
                 let mut t = args.first().cloned().ok_or(())?;
@@ -755,7 +756,7 @@ pub(super) fn method_call(
                     _ => return Err(()),
                 };
                 let desc = args.get(2).ok_or(())?;
-                define_prop(&mut t, &k, desc, env)?;
+                self.define_prop(&mut t, &k, desc, env)?;
                 // writeback by id
                 if let Some(id) = obj_id(&t) {
                     for v in env.values_mut() {
@@ -770,16 +771,16 @@ pub(super) fn method_call(
         },
         _ => {}
     }
-    let c = member_get(recv, key, env)?;
+    let c = self.member_get(recv, key, env)?;
     match c {
-        JsVal::UserFn { params, body, .. } => call_user(&params, &body, recv.clone(), args, env),
-        JsVal::Builtin(name) => call_builtin(name, args, env),
+        JsVal::UserFn { params, body, .. } => self.call_user(&params, &body, recv.clone(), args, env),
+        JsVal::Builtin(name) => self.call_builtin(name, args, env),
         JsVal::Undef => Err(()),
-        other => call_val(&other, args, JsVal::Undef, env),
+        other => self.call_val(&other, args, JsVal::Undef, env),
     }
 }
 
-pub(super) fn get_own_desc(target: &JsVal, key: &str) -> Result<JsVal, ()> {
+pub(super) fn get_own_desc(&self, target: &JsVal, key: &str) -> Result<JsVal, ()> {
     let slot = match target {
         JsVal::Object { props, .. } | JsVal::UserFn { props, .. } => props
             .borrow()
@@ -790,7 +791,7 @@ pub(super) fn get_own_desc(target: &JsVal, key: &str) -> Result<JsVal, ()> {
     };
     match slot {
         Some(Slot::Data(v)) => Ok(JsVal::Object {
-            id: next_id(),
+            id: self.next_id(),
             props: Rc::new(RefCell::new(vec![
                 ("value".into(), Slot::Data(v)),
                 ("writable".into(), Slot::Data(JsVal::Bool(true))),
@@ -811,7 +812,7 @@ pub(super) fn get_own_desc(target: &JsVal, key: &str) -> Result<JsVal, ()> {
                 props.push(("set".into(), Slot::Data(s)));
             }
             Ok(JsVal::Object {
-                id: next_id(),
+                id: self.next_id(),
                 props: Rc::new(RefCell::new(props)),
                 proto: Rc::new(RefCell::new(JsVal::Builtin("Object.prototype"))),
             })
@@ -820,7 +821,7 @@ pub(super) fn get_own_desc(target: &JsVal, key: &str) -> Result<JsVal, ()> {
     }
 }
 
-pub(super) fn define_prop(
+pub(super) fn define_prop(&self, 
     target: &mut JsVal,
     key: &str,
     desc: &JsVal,
@@ -854,20 +855,20 @@ pub(super) fn define_prop(
     Ok(())
 }
 
-pub(super) fn call_val(
+pub(super) fn call_val(&self, 
     callee: &JsVal,
     args: &[JsVal],
     this: JsVal,
     env: &mut HashMap<LocalId, JsVal>,
 ) -> Result<JsVal, ()> {
     match callee {
-        JsVal::UserFn { params, body, .. } => call_user(params, body, this, args, env),
-        JsVal::Builtin(name) => call_builtin(name, args, env),
+        JsVal::UserFn { params, body, .. } => self.call_user(params, body, this, args, env),
+        JsVal::Builtin(name) => self.call_builtin(name, args, env),
         _ => Err(()),
     }
 }
 
-pub(super) fn call_builtin(
+pub(super) fn call_builtin(&self, 
     name: &str,
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
@@ -890,7 +891,7 @@ pub(super) fn call_builtin(
                 Some(JsVal::Str(s)) => s.as_str(),
                 _ => return Err(()),
             };
-            get_own_desc(t, k)
+            self.get_own_desc(t, k)
         }
         "Object.defineProperty" => {
             let mut t = args.first().cloned().ok_or(())?;
@@ -899,7 +900,7 @@ pub(super) fn call_builtin(
                 _ => return Err(()),
             };
             let desc = args.get(2).ok_or(())?;
-            define_prop(&mut t, &k, desc, env)?;
+            self.define_prop(&mut t, &k, desc, env)?;
             if let Some(id) = obj_id(&t) {
                 for v in env.values_mut() {
                     if obj_id(v) == Some(id) {
@@ -920,7 +921,7 @@ pub(super) fn call_builtin(
     }
 }
 
-pub(super) fn call_user(
+pub(super) fn call_user(&self, 
     params: &[LocalId],
     body: &[Stmt],
     this: JsVal,
@@ -932,7 +933,7 @@ pub(super) fn call_user(
         saved.push((*pid, env.get(pid).cloned()));
         env.insert(*pid, args.get(i).cloned().unwrap_or(JsVal::Undef));
     }
-    let flow = with_this(this, || eval_body(body, env))?;
+    let flow = with_this(this, || self.eval_body(body, env))?;
     for (pid, prev) in saved {
         match prev {
             Some(v) => {
@@ -948,4 +949,5 @@ pub(super) fn call_user(
         Flow::Return(v) => Ok(v),
         Flow::Throw(_) => Err(()),
     }
+}
 }

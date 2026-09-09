@@ -12,53 +12,38 @@ pub(super) struct RegExpStatics {
     right_context: String,
 }
 
-thread_local! {
-    pub(super) static REGEXP_STATICS: std::cell::RefCell<RegExpStatics> =
-        std::cell::RefCell::new(RegExpStatics::default());
-}
-
-pub(super) fn reset_regexp_statics() {
-    REGEXP_STATICS.with(|cell| {
-        *cell.borrow_mut() = RegExpStatics::default();
-    });
-}
-
-pub(super) fn update_regexp_statics(m: &ReMatch, input: &str) {
+pub(super) fn update_regexp_statics(interp: &Interp, m: &ReMatch, input: &str) {
     let chars: Vec<char> = input.chars().collect();
-    REGEXP_STATICS.with(|cell| {
-        let mut s = cell.borrow_mut();
-        s.input = input.to_string();
-        s.last_match = m.full.clone();
-        s.left_context = chars[..m.start].iter().collect();
-        s.right_context = chars[m.end..].iter().collect();
-        for i in 0..9 {
-            s.dollar[i] = m.captures.get(i).cloned().unwrap_or_default();
-        }
-        s.last_paren = m.captures.last().cloned().unwrap_or_default();
-    });
+    let mut s = interp.regexp.borrow_mut();
+    s.input = input.to_string();
+    s.last_match = m.full.clone();
+    s.left_context = chars[..m.start].iter().collect();
+    s.right_context = chars[m.end..].iter().collect();
+    for i in 0..9 {
+        s.dollar[i] = m.captures.get(i).cloned().unwrap_or_default();
+    }
+    s.last_paren = m.captures.last().cloned().unwrap_or_default();
 }
 
-pub(super) fn regexp_static_get(key: &str) -> Option<String> {
-    REGEXP_STATICS.with(|cell| {
-        let s = cell.borrow();
-        match key {
-            "input" | "$_" => Some(s.input.clone()),
-            "$1" => Some(s.dollar[0].clone()),
-            "$2" => Some(s.dollar[1].clone()),
-            "$3" => Some(s.dollar[2].clone()),
-            "$4" => Some(s.dollar[3].clone()),
-            "$5" => Some(s.dollar[4].clone()),
-            "$6" => Some(s.dollar[5].clone()),
-            "$7" => Some(s.dollar[6].clone()),
-            "$8" => Some(s.dollar[7].clone()),
-            "$9" => Some(s.dollar[8].clone()),
-            "lastMatch" | "$&" => Some(s.last_match.clone()),
-            "lastParen" | "$+" => Some(s.last_paren.clone()),
-            "leftContext" | "$`" => Some(s.left_context.clone()),
-            "rightContext" | "$'" => Some(s.right_context.clone()),
-            _ => None,
-        }
-    })
+pub(super) fn regexp_static_get(interp: &Interp, key: &str) -> Option<String> {
+    let s = interp.regexp.borrow();
+    match key {
+        "input" | "$_" => Some(s.input.clone()),
+        "$1" => Some(s.dollar[0].clone()),
+        "$2" => Some(s.dollar[1].clone()),
+        "$3" => Some(s.dollar[2].clone()),
+        "$4" => Some(s.dollar[3].clone()),
+        "$5" => Some(s.dollar[4].clone()),
+        "$6" => Some(s.dollar[5].clone()),
+        "$7" => Some(s.dollar[6].clone()),
+        "$8" => Some(s.dollar[7].clone()),
+        "$9" => Some(s.dollar[8].clone()),
+        "lastMatch" | "$&" => Some(s.last_match.clone()),
+        "lastParen" | "$+" => Some(s.last_paren.clone()),
+        "leftContext" | "$`" => Some(s.left_context.clone()),
+        "rightContext" | "$'" => Some(s.right_context.clone()),
+        _ => None,
+    }
 }
 
 pub(super) fn regexp_flags_ok(flags: &str) -> bool {

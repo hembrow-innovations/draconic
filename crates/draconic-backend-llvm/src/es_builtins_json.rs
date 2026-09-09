@@ -1,10 +1,11 @@
 use super::*;
 
 /// Minimal JSON.parse for E15.05 fixture depth (null/bool/number/string/array/object).
-pub(super) fn json_parse(input: &str) -> Result<JsVal, ()> {
+pub(super) fn json_parse(input: &str, interp: &Interp) -> Result<JsVal, ()> {
     let mut p = JsonParser {
         bytes: input.as_bytes(),
         i: 0,
+        interp,
     };
     p.skip_ws();
     let v = p.parse_value()?;
@@ -18,6 +19,7 @@ pub(super) fn json_parse(input: &str) -> Result<JsVal, ()> {
 pub(super) struct JsonParser<'a> {
     bytes: &'a [u8],
     i: usize,
+    interp: &'a Interp,
 }
 
 impl<'a> JsonParser<'a> {
@@ -166,7 +168,7 @@ impl<'a> JsonParser<'a> {
         let mut props = Vec::new();
         if self.peek() == Some(b'}') {
             self.i += 1;
-            return Ok(new_object(props));
+            return Ok(new_object(self.interp, props));
         }
         loop {
             self.skip_ws();
@@ -180,7 +182,7 @@ impl<'a> JsonParser<'a> {
             object_set_data(&mut props, key, val);
             self.skip_ws();
             match self.bump()? {
-                b'}' => return Ok(new_object(props)),
+                b'}' => return Ok(new_object(self.interp, props)),
                 b',' => {}
                 _ => return Err(()),
             }

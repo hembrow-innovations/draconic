@@ -12,10 +12,6 @@ use draconic_runtime::abi::{
     llvm_declares, ES_EXPR_DECLARES, HOST_STDERR_WRITE, HOST_STDOUT_WRITE, PRINT_F64, PRINT_STR,
 };
 
-thread_local! {
-    static SINK_LINES: RefCell<Vec<(bool, String)>> = const { RefCell::new(Vec::new()) };
-}
-
 pub(crate) fn is_es_logging_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -110,12 +106,11 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             env.insert(loc.id, JsVal::Builtin(b));
         }
     }
-    SINK_LINES.with(|s| s.borrow_mut().clear());
-    match eval_body(&module.body, &mut env) {
+    let mut sink_lines = Vec::new();
+    match eval_body(&module.body, &mut env, &mut sink_lines) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
-    let sink_lines = SINK_LINES.with(|s| s.take());
     let mut user_locals = Vec::new();
     let mut values = HashMap::new();
     for stmt in &module.body {
@@ -308,9 +303,13 @@ fn expr_ok(expr: &Expr) -> bool {
     }
 }
 
-fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+fn eval_body(
+    body: &[Stmt],
+    env: &mut HashMap<LocalId, JsVal>,
+    sink: &mut Vec<(bool, String)>,
+) -> Result<Flow, ()> {
     for stmt in body {
-        match eval_stmt(stmt, env)? {
+        match eval_stmt(stmt, env, sink)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -318,11 +317,15 @@ fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, (
     Ok(Flow::Normal)
 }
 
-fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+fn eval_stmt(
+    stmt: &Stmt,
+    env: &mut HashMap<LocalId, JsVal>,
+    sink: &mut Vec<(bool, String)>,
+) -> Result<Flow, ()> {
     match stmt {
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => match eval_expr(e, env)? {
+                Some(e) => match eval_expr(e, env, sink)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 },
@@ -331,11 +334,11 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             env.insert(*local, v);
             Ok(Flow::Normal)
         }
-        Stmt::Expr { expr } => match eval_expr(expr, env)? {
+        Stmt::Expr { expr } => match eval_expr(expr, env, sink)? {
             Ok(_) => Ok(Flow::Normal),
             Err(flow) => Ok(flow),
         },
-        Stmt::Throw { value } => match eval_expr(value, env)? {
+        Stmt::Throw { value } => match eval_expr(value, env, sink)? {
             Ok(v) => Ok(Flow::Throw(v)),
             Err(flow) => Ok(flow),
         },
@@ -345,13 +348,13 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             handler,
             finalizer,
         } => {
-            let mut completion = match eval_body(block, env)? {
+            let mut completion = match eval_body(block, env, sink)? {
                 Flow::Throw(exc) => {
                     if let Some(handler) = handler {
                         if let Some(Pattern::Local(pid)) = handler_param {
                             env.insert(*pid, exc);
                         }
-                        eval_body(handler, env)?
+                        eval_body(handler, env, sink)?
                     } else {
                         Flow::Throw(exc)
                     }
@@ -359,19 +362,23 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
                 other => other,
             };
             if let Some(fin) = finalizer {
-                match eval_body(fin, env)? {
+                match eval_body(fin, env, sink)? {
                     Flow::Normal => {}
                     abrupt => completion = abrupt,
                 }
             }
             Ok(completion)
         }
-        Stmt::Block { body } => eval_body(body, env),
+        Stmt::Block { body } => eval_body(body, env, sink),
         _ => Err(()),
     }
 }
 
-fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
+fn eval_expr(
+    expr: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+    sink: &mut Vec<(bool, String)>,
+) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::Number { raw, .. } => Ok(Ok(JsVal::Num(raw.parse().map_err(|_| ())?))),
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
@@ -380,7 +387,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::Local { id, .. } => Ok(Ok(env.get(id).cloned().ok_or(())?)),
         Expr::IdentName { name, .. } => Ok(Ok(JsVal::Builtin(builtin_for_name(name).ok_or(())?))),
         Expr::Unary { op, arg, .. } => {
-            let v = match eval_expr(arg, env)? {
+            let v = match eval_expr(arg, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -400,7 +407,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
         Expr::Binary {
             op, left, right, ..
         } => {
-            let l = match eval_expr(left, env)? {
+            let l = match eval_expr(left, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -408,15 +415,15 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 if !to_boolean(&l) {
                     return Ok(Ok(l));
                 }
-                return eval_expr(right, env);
+                return eval_expr(right, env, sink);
             }
             if *op == BinaryOp::Or {
                 if to_boolean(&l) {
                     return Ok(Ok(l));
                 }
-                return eval_expr(right, env);
+                return eval_expr(right, env, sink);
             }
-            let r = match eval_expr(right, env)? {
+            let r = match eval_expr(right, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -449,14 +456,14 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             alternate,
             ..
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match eval_expr(test, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
             if to_boolean(&t) {
-                eval_expr(consequent, env)
+                eval_expr(consequent, env, sink)
             } else {
-                eval_expr(alternate, env)
+                eval_expr(alternate, env, sink)
             }
         }
         Expr::Member {
@@ -465,11 +472,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             optional: false,
             ..
         } => {
-            let obj = match eval_expr(object, env)? {
+            let obj = match eval_expr(object, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let key = match eval_key(property, env)? {
+            let key = match eval_key(property, env, sink)? {
                 Ok(k) => k,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -484,7 +491,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => match eval_expr(e, env)? {
+                    Arg::Expr(e) => match eval_expr(e, env, sink)? {
                         Ok(v) => arg_vals.push(v),
                         Err(flow) => return Ok(Err(flow)),
                     },
@@ -498,25 +505,25 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 ..
             } = callee.as_ref()
             {
-                let obj = match eval_expr(object, env)? {
+                let obj = match eval_expr(object, env, sink)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                let key = match eval_key(property, env)? {
+                let key = match eval_key(property, env, sink)? {
                     Ok(k) => k,
                     Err(flow) => return Ok(Err(flow)),
                 };
-                return match eval_method_call(&obj, &key, &arg_vals) {
+                return match eval_method_call(&obj, &key, &arg_vals, sink) {
                     Ok(v) => Ok(Ok(v)),
                     Err(Some(flow)) => Ok(Err(flow)),
                     Err(None) => Err(()),
                 };
             }
-            let c = match eval_expr(callee, env)? {
+            let c = match eval_expr(callee, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            match eval_call_fn(&c, &arg_vals) {
+            match eval_call_fn(&c, &arg_vals, sink) {
                 Ok(v) => Ok(Ok(v)),
                 Err(Some(flow)) => Ok(Err(flow)),
                 Err(None) => Err(()),
@@ -528,7 +535,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match eval_expr(value, env, sink)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -539,10 +546,14 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
     }
 }
 
-fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<String, Flow>, ()> {
+fn eval_key(
+    expr: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+    sink: &mut Vec<(bool, String)>,
+) -> Result<Result<String, Flow>, ()> {
     match expr {
         Expr::String { value, .. } => Ok(Ok(js_string_to_utf8(value))),
-        e => match eval_expr(e, env)? {
+        e => match eval_expr(e, env, sink)? {
             Ok(JsVal::Str(s)) => Ok(Ok(s)),
             Ok(JsVal::Num(n)) => Ok(Ok(format!("{}", n as i64))),
             Ok(_) => Err(()),
@@ -605,7 +616,11 @@ fn make_logger(level: u8, sink: bool) -> JsVal {
     })))
 }
 
-fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+fn eval_call_fn(
+    callee: &JsVal,
+    args: &[JsVal],
+    sink: &mut Vec<(bool, String)>,
+) -> Result<JsVal, Option<Flow>> {
     match callee {
         JsVal::Builtin(BuiltinId::CreateLogger) => {
             let rank = if args.is_empty() {
@@ -625,16 +640,21 @@ fn eval_call_fn(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
             };
             Ok(make_logger(rank, sink))
         }
-        JsVal::LogMethod { kind, logger } => call_method(*kind, logger, args),
+        JsVal::LogMethod { kind, logger } => call_method(*kind, logger, args, sink),
         _ => Err(None),
     }
 }
 
-fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+fn eval_method_call(
+    recv: &JsVal,
+    key: &str,
+    args: &[JsVal],
+    sink: &mut Vec<(bool, String)>,
+) -> Result<JsVal, Option<Flow>> {
     match recv {
         JsVal::Logger(state) => {
             let kind = method_for_key(key).ok_or(None)?;
-            call_method(kind, state, args)
+            call_method(kind, state, args, sink)
         }
         _ => Err(None),
     }
@@ -658,22 +678,23 @@ fn call_method(
     kind: Method,
     logger: &Rc<RefCell<LoggerState>>,
     args: &[JsVal],
+    sink: &mut Vec<(bool, String)>,
 ) -> Result<JsVal, Option<Flow>> {
     match kind {
         Method::Error => {
-            emit_log(logger, 3, args);
+            emit_log(logger, 3, args, sink);
             Ok(JsVal::Undef)
         }
         Method::Warn => {
-            emit_log(logger, 2, args);
+            emit_log(logger, 2, args, sink);
             Ok(JsVal::Undef)
         }
         Method::Info => {
-            emit_log(logger, 1, args);
+            emit_log(logger, 1, args, sink);
             Ok(JsVal::Undef)
         }
         Method::Debug => {
-            emit_log(logger, 0, args);
+            emit_log(logger, 0, args, sink);
             Ok(JsVal::Undef)
         }
         Method::SetLevel => {
@@ -703,7 +724,12 @@ fn call_method(
     }
 }
 
-fn emit_log(logger: &Rc<RefCell<LoggerState>>, rank: u8, args: &[JsVal]) {
+fn emit_log(
+    logger: &Rc<RefCell<LoggerState>>,
+    rank: u8,
+    args: &[JsVal],
+    sink: &mut Vec<(bool, String)>,
+) {
     let mut st = logger.borrow_mut();
     if rank < st.level {
         return;
@@ -716,7 +742,7 @@ fn emit_log(logger: &Rc<RefCell<LoggerState>>, rank: u8, args: &[JsVal]) {
     if st.sink {
         let line = format!("{} {}\n", level_name(rank), msg);
         let stderr = rank >= 2;
-        SINK_LINES.with(|s| s.borrow_mut().push((stderr, line)));
+        sink.push((stderr, line));
     }
 }
 

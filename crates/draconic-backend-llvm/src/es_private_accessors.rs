@@ -3,11 +3,10 @@
 //! Compile-time evaluation of class private fields + get/set `#x` (instance and
 //! static) after IR desugars them to WeakMap/WeakSet + synthetic functions.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -18,9 +17,6 @@ use draconic_ir::{
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
 #[path = "es_private_accessors_eval.rs"]
 mod eval;
-
-use eval::eval_body;
-
 
 pub(crate) fn is_es_private_accessors_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -85,26 +81,37 @@ struct ModuleInfo {
     prints: Vec<JsVal>,
 }
 
-fn next_id() -> u64 {
-    static N: AtomicU64 = AtomicU64::new(1);
-    N.fetch_add(1, Ordering::Relaxed)
+struct Ids {
+    next: Cell<u64>,
 }
 
-fn new_obj(proto: JsVal) -> JsVal {
-    JsVal::Object {
-        id: next_id(),
-        props: Rc::new(RefCell::new(Vec::new())),
-        proto: Rc::new(RefCell::new(proto)),
+impl Ids {
+    fn new() -> Self {
+        Self { next: Cell::new(1) }
     }
-}
 
-fn new_fn(params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
-    let proto = new_obj(JsVal::Builtin("Object.prototype"));
-    JsVal::UserFn {
-        id: next_id(),
-        params,
-        body,
-        props: Rc::new(RefCell::new(vec![("prototype".into(), Slot::Data(proto))])),
+    fn next_id(&self) -> u64 {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        id
+    }
+
+    fn new_obj(&self, proto: JsVal) -> JsVal {
+        JsVal::Object {
+            id: self.next_id(),
+            props: Rc::new(RefCell::new(Vec::new())),
+            proto: Rc::new(RefCell::new(proto)),
+        }
+    }
+
+    fn new_fn(&self, params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
+        let proto = self.new_obj(JsVal::Builtin("Object.prototype"));
+        JsVal::UserFn {
+            id: self.next_id(),
+            params,
+            body,
+            props: Rc::new(RefCell::new(vec![("prototype".into(), Slot::Data(proto))])),
+        }
     }
 }
 
@@ -151,12 +158,12 @@ fn delete_key(props: &Rc<RefCell<Vec<(String, Slot)>>>, key: &str) {
 }
 
 thread_local! {
-    static THIS: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
-    static NEW_TARGET: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
+    static CURRENT_THIS: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
+    static CURRENT_NEW_TARGET: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
 }
 
 fn with_this<R>(t: JsVal, f: impl FnOnce() -> R) -> R {
-    THIS.with(|c| {
+    CURRENT_THIS.with(|c| {
         let prev = c.replace(t);
         let o = f();
         c.replace(prev);
@@ -165,11 +172,11 @@ fn with_this<R>(t: JsVal, f: impl FnOnce() -> R) -> R {
 }
 
 fn current_this() -> JsVal {
-    THIS.with(|c| c.borrow().clone())
+    CURRENT_THIS.with(|c| c.borrow().clone())
 }
 
 fn with_new_target<R>(t: JsVal, f: impl FnOnce() -> R) -> R {
-    NEW_TARGET.with(|c| {
+    CURRENT_NEW_TARGET.with(|c| {
         let prev = c.replace(t);
         let o = f();
         c.replace(prev);
@@ -178,7 +185,7 @@ fn with_new_target<R>(t: JsVal, f: impl FnOnce() -> R) -> R {
 }
 
 fn current_new_target() -> JsVal {
-    NEW_TARGET.with(|c| c.borrow().clone())
+    CURRENT_NEW_TARGET.with(|c| c.borrow().clone())
 }
 
 fn builtin(name: &str) -> Option<JsVal> {
@@ -221,7 +228,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             env.insert(loc.id, v);
         }
     }
-    match eval_body(&module.body, &mut env) {
+    match Ids::new().eval_body(&module.body, &mut env) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }

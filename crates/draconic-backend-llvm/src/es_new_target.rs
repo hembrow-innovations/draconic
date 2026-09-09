@@ -6,11 +6,10 @@
 //! `es_classes` (base + derived `super()`). Emits Runtime prints of final
 //! top-level bool/string/undefined observations.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -22,8 +21,6 @@ use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_STR};
 
 #[path = "es_new_target_eval.rs"]
 mod eval;
-
-use eval::eval_body;
 
 pub(crate) fn is_es_new_target_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -75,12 +72,34 @@ struct FnRec {
 thread_local! {
     static CURRENT_THIS: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
     static CURRENT_NEW_TARGET: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
-    static FN_REG: RefCell<HashMap<u64, FnRec>> = RefCell::new(HashMap::new());
 }
 
-fn next_id() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+struct World {
+    fn_reg: RefCell<HashMap<u64, FnRec>>,
+    next: Cell<u64>,
+}
+
+impl World {
+    fn new() -> Self {
+        Self {
+            fn_reg: RefCell::new(HashMap::new()),
+            next: Cell::new(1),
+        }
+    }
+
+    fn next_id(&self) -> u64 {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        id
+    }
+
+    fn fn_reg_insert(&self, id: u64, rec: FnRec) {
+        self.fn_reg.borrow_mut().insert(id, rec);
+    }
+
+    fn fn_reg_get(&self, id: u64) -> Option<FnRec> {
+        self.fn_reg.borrow().get(&id).cloned()
+    }
 }
 
 fn with_this_nt<R>(this: JsVal, nt: JsVal, f: impl FnOnce() -> R) -> R {
@@ -104,20 +123,6 @@ fn current_new_target() -> JsVal {
     CURRENT_NEW_TARGET.with(|c| c.borrow().clone())
 }
 
-fn fn_reg_insert(id: u64, rec: FnRec) {
-    FN_REG.with(|r| {
-        r.borrow_mut().insert(id, rec);
-    });
-}
-
-fn fn_reg_get(id: u64) -> Option<FnRec> {
-    FN_REG.with(|r| r.borrow().get(&id).cloned())
-}
-
-fn reset_fn_reg() {
-    FN_REG.with(|r| r.borrow_mut().clear());
-}
-
 #[derive(Clone, Debug)]
 enum Flow {
     Normal,
@@ -128,10 +133,10 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
     if !module_has_new_target(module) {
         return None;
     }
-    reset_fn_reg();
+    let world = World::new();
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut env: HashMap<LocalId, JsVal> = HashMap::new();
-    match eval_body(&module.body, &mut env) {
+    match world.eval_body(&module.body, &mut env) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }

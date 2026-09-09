@@ -2,14 +2,14 @@
 id: "task-755-llvm-no-extra-globals"
 title: "Remove extra LLVM thread-locals and process globals"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-747-llvm-split-es-builtins", "task-753-llvm-split-es-over-1250", "task-754-llvm-split-over-1000"]
 sprint: "rust-dev-audit"
 slice: "slice-712-backend-llvm-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:30:00Z"
 ---
 
 # Remove extra LLVM thread-locals and process globals
@@ -62,11 +62,11 @@ Only allowed thread-locals remain. Emit behaviour unchanged.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] rg REGEXP_STATICS FN_REG SINK_LINES finds no thread_local leftovers
-- [ ] TOOLS is not a process-global OnceLock
-- [ ] no process-global AtomicU64 object ids
-- [ ] CURRENT_THIS and CURRENT_NEW_TARGET may remain
-- [ ] cargo test -p draconic-backend-llvm
+- [x] rg REGEXP_STATICS FN_REG SINK_LINES finds no thread_local leftovers
+- [x] TOOLS is not a process-global OnceLock
+- [x] no process-global AtomicU64 object ids
+- [x] CURRENT_THIS and CURRENT_NEW_TARGET may remain
+- [x] cargo test -p draconic-backend-llvm
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -77,3 +77,7 @@ Only allowed thread-locals remain. Emit behaviour unchanged.
 
 **Explain this part:**
 If a split already moved the names, edit the new files. Do not re-bloat files over 1000.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-backend-llvm --offline` — win — 314 passed; rg finds no REGEXP_STATICS/FN_REG/SINK_LINES/OnceLock leftovers

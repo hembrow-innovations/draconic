@@ -5,7 +5,7 @@ use draconic_ir::LocalId;
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn member_get(
+    pub(crate) fn member_get(&self, 
         obj: &JsVal,
         key: &str,
         env: &mut HashMap<LocalId, JsVal>,
@@ -71,7 +71,9 @@ impl super::Interp {
                 Ok(JsVal::Builtin(BuiltinId::RegExpPrototype))
             }
             // Annex B.2.5 RegExp constructor statics (getters return strings).
-            JsVal::Builtin(BuiltinId::RegExp) => regexp_static_get(key).map(JsVal::Str).ok_or(()),
+            JsVal::Builtin(BuiltinId::RegExp) => {
+                regexp_static_get(self, key).map(JsVal::Str).ok_or(())
+            }
             JsVal::Builtin(BuiltinId::RegExpPrototype) => regexp_proto_method_builtin(key)
                 .map(JsVal::Builtin)
                 .ok_or(()),
@@ -171,9 +173,9 @@ impl super::Interp {
                             let this = obj.clone();
                             match g {
                                 JsVal::UserFn { params, body, .. } => {
-                                    Self::call_user_fn(&params, &body, this, &[], env)
+                                    self.call_user_fn(&params, &body, this, &[], env)
                                 }
-                                other => Self::eval_call(&other, &[], env),
+                                other => self.eval_call(&other, &[], env),
                             }
                         }
                         PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
@@ -206,16 +208,16 @@ impl super::Interp {
                                         let this = obj.clone();
                                         match g {
                                             JsVal::UserFn { params, body, .. } => {
-                                                Self::call_user_fn(&params, &body, this, &[], env)
+                                                self.call_user_fn(&params, &body, this, &[], env)
                                             }
-                                            gother => Self::eval_call(&gother, &[], env),
+                                            gother => self.eval_call(&gother, &[], env),
                                         }
                                     }
                                     PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
                                 };
                             }
                         }
-                        match Self::member_get(&other.clone(), key, env) {
+                        match self.member_get(&other.clone(), key, env) {
                             Ok(v) => Ok(v),
                             Err(()) => Ok(JsVal::Undef),
                         }
@@ -235,16 +237,16 @@ impl super::Interp {
                             let this = obj.clone();
                             match g {
                                 JsVal::UserFn { params, body, .. } => {
-                                    Self::call_user_fn(&params, &body, this, &[], env)
+                                    self.call_user_fn(&params, &body, this, &[], env)
                                 }
-                                other => Self::eval_call(&other, &[], env),
+                                other => self.eval_call(&other, &[], env),
                             }
                         }
                         PropSlot::Accessor { get: None, .. } => Ok(JsVal::Undef),
                     };
                 }
                 // Function [[Prototype]] — missing own props are undefined.
-                match Self::member_get(&JsVal::Builtin(BuiltinId::FunctionPrototype), key, env) {
+                match self.member_get(&JsVal::Builtin(BuiltinId::FunctionPrototype), key, env) {
                     Ok(v) => Ok(v),
                     Err(()) => Ok(JsVal::Undef),
                 }
@@ -256,7 +258,7 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn member_set(
+    pub(crate) fn member_set(&self, 
         obj: &mut JsVal,
         key: &str,
         val: JsVal,
@@ -295,10 +297,10 @@ impl super::Interp {
                         let this = obj.clone();
                         match s {
                             JsVal::UserFn { params, body, .. } => {
-                                Self::call_user_fn(&params, &body, this, &[val], env)?;
+                                self.call_user_fn(&params, &body, this, &[val], env)?;
                             }
                             other => {
-                                Self::eval_call(&other, &[val], env)?;
+                                self.eval_call(&other, &[val], env)?;
                             }
                         }
                         Ok(())
@@ -310,10 +312,10 @@ impl super::Interp {
                             let this = obj.clone();
                             match setter {
                                 JsVal::UserFn { params, body, .. } => {
-                                    Self::call_user_fn(&params, &body, this, &[val], env)?;
+                                    self.call_user_fn(&params, &body, this, &[val], env)?;
                                 }
                                 other => {
-                                    Self::eval_call(&other, &[val], env)?;
+                                    self.eval_call(&other, &[val], env)?;
                                 }
                             }
                             return Ok(());
@@ -340,10 +342,10 @@ impl super::Interp {
                         let this = obj.clone();
                         match s {
                             JsVal::UserFn { params, body, .. } => {
-                                Self::call_user_fn(&params, &body, this, &[val], env)?;
+                                self.call_user_fn(&params, &body, this, &[val], env)?;
                             }
                             other => {
-                                Self::eval_call(&other, &[val], env)?;
+                                self.eval_call(&other, &[val], env)?;
                             }
                         }
                         Ok(())

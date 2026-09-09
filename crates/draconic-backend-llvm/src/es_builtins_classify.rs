@@ -73,9 +73,7 @@ pub(super) fn classify(module: &Module) -> Option<ModuleInfo> {
         return None;
     }
 
-    // Isolate Annex B RegExp statics across classify runs.
-    reset_regexp_statics();
-
+    let interp = Interp::new();
     let mut env: HashMap<LocalId, JsVal> = HashMap::new();
     for loc in &module.locals {
         if let Some(b) = builtin_for_name(&loc.name) {
@@ -91,7 +89,7 @@ pub(super) fn classify(module: &Module) -> Option<ModuleInfo> {
         }
     }
 
-    match Interp::eval_body(&module.body, &mut env) {
+    match interp.eval_body(&module.body, &mut env) {
         Ok(Flow::Normal) => {}
         _ => return None,
     }
@@ -335,7 +333,7 @@ pub(super) fn simple_fn_params_ok(params: &[Param]) -> bool {
         .all(|p| !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_)))
 }
 
-pub(super) fn user_fn_from_expr(expr: &Expr) -> Option<JsVal> {
+pub(super) fn user_fn_from_expr(interp: &Interp, expr: &Expr) -> Option<JsVal> {
     match expr {
         Expr::Function {
             name: None,
@@ -352,7 +350,7 @@ pub(super) fn user_fn_from_expr(expr: &Expr) -> Option<JsVal> {
                     _ => unreachable!(),
                 })
                 .collect();
-            Some(new_user_fn(ids, body.clone()))
+            Some(new_user_fn(interp, ids, body.clone()))
         }
         _ => None,
     }

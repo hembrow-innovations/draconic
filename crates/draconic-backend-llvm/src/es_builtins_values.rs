@@ -1,7 +1,8 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::Interp;
 
 use draconic_ast::JsString;
 use draconic_ir::{LocalId, Stmt};
@@ -203,25 +204,28 @@ pub(super) enum PropSlot {
     },
 }
 
-pub(super) fn next_object_id() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+pub(super) fn next_object_id(interp: &Interp) -> u64 {
+    interp.alloc_id()
 }
 
-pub(super) fn new_object(props: Vec<(String, PropSlot)>) -> JsVal {
-    new_object_with_proto(props, JsVal::Builtin(BuiltinId::ObjectPrototype))
+pub(super) fn new_object(interp: &Interp, props: Vec<(String, PropSlot)>) -> JsVal {
+    new_object_with_proto(interp, props, JsVal::Builtin(BuiltinId::ObjectPrototype))
 }
 
-pub(super) fn new_object_with_proto(props: Vec<(String, PropSlot)>, proto: JsVal) -> JsVal {
+pub(super) fn new_object_with_proto(
+    interp: &Interp,
+    props: Vec<(String, PropSlot)>,
+    proto: JsVal,
+) -> JsVal {
     JsVal::Object {
-        id: next_object_id(),
+        id: next_object_id(interp),
         props: Rc::new(RefCell::new(props)),
         proto: Box::new(proto),
     }
 }
 
-pub(super) fn new_user_fn(params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
-    let proto_obj = new_object(Vec::new());
+pub(super) fn new_user_fn(interp: &Interp, params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
+    let proto_obj = new_object(interp, Vec::new());
     JsVal::UserFn {
         params,
         body,
@@ -403,7 +407,11 @@ pub(super) fn replace_object_id(v: &mut JsVal, id: u64, fresh: &JsVal) {
     }
 }
 
-pub(super) fn object_get_own_property_descriptor(target: &JsVal, key: &str) -> Result<JsVal, ()> {
+pub(super) fn object_get_own_property_descriptor(
+    interp: &Interp,
+    target: &JsVal,
+    key: &str,
+) -> Result<JsVal, ()> {
     let slot = match target {
         JsVal::Object { props, .. } => object_own_slot(&props.borrow(), key).cloned(),
         JsVal::UserFn { props, .. } => props
@@ -431,7 +439,7 @@ pub(super) fn object_get_own_property_descriptor(target: &JsVal, key: &str) -> R
             desc_props.push(("configurable".into(), PropSlot::Data(JsVal::Bool(true))));
         }
     }
-    Ok(new_object(desc_props))
+    Ok(new_object(interp, desc_props))
 }
 
 pub(super) fn object_define_property(
@@ -547,9 +555,9 @@ pub(super) fn is_object_key(v: &JsVal) -> bool {
     )
 }
 
-pub(super) fn new_array_buffer(byte_len: usize) -> JsVal {
+pub(super) fn new_array_buffer(interp: &Interp, byte_len: usize) -> JsVal {
     JsVal::ArrayBufferInst {
-        id: next_object_id(),
+        id: next_object_id(interp),
         bytes: Rc::new(RefCell::new(vec![0u8; byte_len])),
     }
 }
@@ -571,9 +579,9 @@ pub(super) fn typed_array_from_buffer(kind: TaKind, buf: &JsVal) -> Result<JsVal
     })
 }
 
-pub(super) fn typed_array_from_length(kind: TaKind, len: usize) -> JsVal {
+pub(super) fn typed_array_from_length(interp: &Interp, kind: TaKind, len: usize) -> JsVal {
     let blen = len.saturating_mul(kind.bytes_per_element());
-    let id = next_object_id();
+    let id = next_object_id(interp);
     let bytes = Rc::new(RefCell::new(vec![0u8; blen]));
     JsVal::TypedArrayInst {
         kind,
@@ -583,8 +591,12 @@ pub(super) fn typed_array_from_length(kind: TaKind, len: usize) -> JsVal {
     }
 }
 
-pub(super) fn typed_array_from_array(kind: TaKind, elems: &[JsVal]) -> Result<JsVal, ()> {
-    let ta = typed_array_from_length(kind, elems.len());
+pub(super) fn typed_array_from_array(
+    interp: &Interp,
+    kind: TaKind,
+    elems: &[JsVal],
+) -> Result<JsVal, ()> {
+    let ta = typed_array_from_length(interp, kind, elems.len());
     let JsVal::TypedArrayInst {
         kind,
         bytes,

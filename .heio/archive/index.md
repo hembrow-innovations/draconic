@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-755-llvm-no-extra-globals** — drop extra LLVM thread-locals and process-global id caches
 - **task-754-llvm-split-over-1000** — split llvm files between 1001 and 1250 under file budget
 - **task-753-llvm-split-es-over-1250** — split llvm es files over 1250 under file budget
 - **task-752-llvm-split-host-over-1250** — split llvm host fs/http-server/tcp/ws-e2e/timers/tcp-async under file budget

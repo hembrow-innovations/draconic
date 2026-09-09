@@ -1,8 +1,9 @@
 use super::*;
 
-pub(super) fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+impl World {
+pub(super) fn eval_body(&self, body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
     for stmt in body {
-        match eval_stmt(stmt, env)? {
+        match self.eval_stmt(stmt, env)? {
             Flow::Normal => {}
             other => return Ok(other),
         }
@@ -10,7 +11,7 @@ pub(super) fn eval_body(body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Res
     Ok(Flow::Normal)
 }
 
-fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+fn eval_stmt(&self, stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
     match stmt {
         Stmt::Function {
             local,
@@ -19,9 +20,9 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             is_async: false,
             is_generator: false,
         } => {
-            let ids = simple_param_ids(params)?;
-            let id = next_id();
-            fn_reg_insert(
+            let ids = self.simple_param_ids(params)?;
+            let id = self.next_id();
+            self.fn_reg_insert(
                 id,
                 FnRec {
                     params: ids,
@@ -35,7 +36,7 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
         }
         Stmt::Declare { local, init, .. } => {
             let v = match init {
-                Some(e) => match eval_expr(e, env)? {
+                Some(e) => match self.eval_expr(e, env)? {
                     Ok(v) => v,
                     Err(flow) => return Ok(flow),
                 },
@@ -44,29 +45,29 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             env.insert(*local, v);
             Ok(Flow::Normal)
         }
-        Stmt::Expr { expr } => match eval_expr(expr, env)? {
+        Stmt::Expr { expr } => match self.eval_expr(expr, env)? {
             Ok(_) => Ok(Flow::Normal),
             Err(flow) => Ok(flow),
         },
         Stmt::Return { value: None } => Ok(Flow::Return(JsVal::Undef)),
-        Stmt::Return { value: Some(e) } => match eval_expr(e, env)? {
+        Stmt::Return { value: Some(e) } => match self.eval_expr(e, env)? {
             Ok(v) => Ok(Flow::Return(v)),
             Err(flow) => Ok(flow),
         },
-        Stmt::Block { body } => eval_body(body, env),
+        Stmt::Block { body } => self.eval_body(body, env),
         Stmt::If {
             test,
             consequent,
             alternate,
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match self.eval_expr(test, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(flow),
             };
-            if to_boolean(&t) {
-                eval_stmt(consequent, env)
+            if self.to_boolean(&t) {
+                self.eval_stmt(consequent, env)
             } else if let Some(a) = alternate {
-                eval_stmt(a, env)
+                self.eval_stmt(a, env)
             } else {
                 Ok(Flow::Normal)
             }
@@ -79,20 +80,20 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
             finalizer,
             ..
         } => {
-            let mut completion = match eval_body(block, env) {
+            let mut completion = match self.eval_body(block, env) {
                 Ok(Flow::Normal) => Flow::Normal,
                 Ok(other) => other,
                 Err(()) => {
                     // Unsupported in try → treat as throw and run handler if any.
                     if let Some(h) = handler {
-                        eval_body(h, env)?
+                        self.eval_body(h, env)?
                     } else {
                         return Err(());
                     }
                 }
             };
             if let Some(fin) = finalizer {
-                match eval_body(fin, env)? {
+                match self.eval_body(fin, env)? {
                     Flow::Normal => {}
                     abrupt => completion = abrupt,
                 }
@@ -103,7 +104,7 @@ fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()>
     }
 }
 
-fn simple_param_ids(params: &[Param]) -> Result<Vec<LocalId>, ()> {
+fn simple_param_ids(&self, params: &[Param]) -> Result<Vec<LocalId>, ()> {
     let mut ids = Vec::new();
     for p in params {
         if p.rest || p.default.is_some() {
@@ -117,15 +118,15 @@ fn simple_param_ids(params: &[Param]) -> Result<Vec<LocalId>, ()> {
     Ok(ids)
 }
 
-fn make_fn(
+fn make_fn(&self, 
     params: &[Param],
     body: &[Stmt],
     is_arrow: bool,
     parent: Option<u64>,
 ) -> Result<JsVal, ()> {
-    let ids = simple_param_ids(params)?;
-    let id = next_id();
-    fn_reg_insert(
+    let ids = self.simple_param_ids(params)?;
+    let id = self.next_id();
+    self.fn_reg_insert(
         id,
         FnRec {
             params: ids,
@@ -138,7 +139,7 @@ fn make_fn(
 }
 
 /// `Ok(Ok(v))` value; `Ok(Err(flow))` abrupt return; `Err(())` unsupported.
-fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
+fn eval_expr(&self, expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::NewTarget { .. } => Ok(Ok(current_new_target())),
         Expr::This { .. } => Ok(Ok(current_this())),
@@ -166,28 +167,28 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             is_generator: false,
             is_arrow,
             ..
-        } => Ok(Ok(make_fn(params, body, *is_arrow, None)?)),
+        } => Ok(Ok(self.make_fn(params, body, *is_arrow, None)?)),
         Expr::Unary {
             op: UnaryOp::TypeOf,
             arg,
             ..
         } => {
-            let v = match eval_expr(arg, env)? {
+            let v = match self.eval_expr(arg, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            Ok(Ok(JsVal::Str(typeof_str(&v))))
+            Ok(Ok(JsVal::Str(self.typeof_str(&v))))
         }
         Expr::Unary {
             op: UnaryOp::Not,
             arg,
             ..
         } => {
-            let v = match eval_expr(arg, env)? {
+            let v = match self.eval_expr(arg, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            Ok(Ok(JsVal::Bool(!to_boolean(&v))))
+            Ok(Ok(JsVal::Bool(!self.to_boolean(&v))))
         }
         Expr::Binary {
             left,
@@ -195,15 +196,15 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             right,
             ..
         } => {
-            let l = match eval_expr(left, env)? {
+            let l = match self.eval_expr(left, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            Ok(Ok(JsVal::Bool(strict_eq(&l, &r))))
+            Ok(Ok(JsVal::Bool(self.strict_eq(&l, &r))))
         }
         Expr::Binary {
             left,
@@ -211,15 +212,15 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             right,
             ..
         } => {
-            let l = match eval_expr(left, env)? {
+            let l = match self.eval_expr(left, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let r = match eval_expr(right, env)? {
+            let r = match self.eval_expr(right, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            Ok(Ok(JsVal::Bool(!strict_eq(&l, &r))))
+            Ok(Ok(JsVal::Bool(!self.strict_eq(&l, &r))))
         }
         Expr::Conditional {
             test,
@@ -227,14 +228,14 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             alternate,
             ..
         } => {
-            let t = match eval_expr(test, env)? {
+            let t = match self.eval_expr(test, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            if to_boolean(&t) {
-                eval_expr(consequent, env)
+            if self.to_boolean(&t) {
+                self.eval_expr(consequent, env)
             } else {
-                eval_expr(alternate, env)
+                self.eval_expr(alternate, env)
             }
         }
         Expr::Member {
@@ -243,7 +244,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             optional: false,
             ..
         } => {
-            let obj = match eval_expr(object, env)? {
+            let obj = match self.eval_expr(object, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -251,24 +252,24 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 Expr::String { value, .. } => value.to_string_lossy(),
                 _ => return Err(()),
             };
-            Ok(Ok(member_get(&obj, &key)))
+            Ok(Ok(self.member_get(&obj, &key)))
         }
         Expr::New { callee, args, .. } => {
-            let c = match eval_expr(callee, env)? {
+            let c = match self.eval_expr(callee, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => match eval_expr(e, env)? {
+                    Arg::Expr(e) => match self.eval_expr(e, env)? {
                         Ok(v) => arg_vals.push(v),
                         Err(flow) => return Ok(Err(flow)),
                     },
                     _ => return Err(()),
                 }
             }
-            Ok(Ok(eval_new(&c, &arg_vals, env)?))
+            Ok(Ok(self.eval_new(&c, &arg_vals, env)?))
         }
         Expr::Call {
             callee,
@@ -281,14 +282,14 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 let mut arg_vals = Vec::new();
                 for a in args {
                     match a {
-                        Arg::Expr(e) => match eval_expr(e, env)? {
+                        Arg::Expr(e) => match self.eval_expr(e, env)? {
                             Ok(v) => arg_vals.push(v),
                             Err(flow) => return Ok(Err(flow)),
                         },
                         _ => return Err(()),
                     }
                 }
-                return Ok(Ok(eval_super(&arg_vals, env)?));
+                return Ok(Ok(self.eval_super(&arg_vals, env)?));
             }
             // Class builder IIFE or plain call.
             if let Expr::Function {
@@ -301,7 +302,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             } = callee.as_ref()
             {
                 if args.is_empty() {
-                    if let Some(cls) = try_eval_class_iife(params, body, env) {
+                    if let Some(cls) = self.try_eval_class_iife(params, body, env) {
                         return Ok(Ok(cls));
                     }
                 }
@@ -309,7 +310,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             let mut arg_vals = Vec::new();
             for a in args {
                 match a {
-                    Arg::Expr(e) => match eval_expr(e, env)? {
+                    Arg::Expr(e) => match self.eval_expr(e, env)? {
                         Ok(v) => arg_vals.push(v),
                         Err(flow) => return Ok(Err(flow)),
                     },
@@ -325,7 +326,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             } = callee.as_ref()
             {
                 if let (Ok(Ok(JsVal::Undef)), Expr::String { value, .. }) =
-                    (eval_expr(object, env), property.as_ref())
+                    (self.eval_expr(object, env), property.as_ref())
                 {
                     let k = value.to_string_lossy();
                     if k == "defineProperty" || k == "setPrototypeOf" || k == "get" {
@@ -333,11 +334,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     }
                 }
             }
-            let c = match eval_expr(callee, env)? {
+            let c = match self.eval_expr(callee, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            Ok(Ok(eval_call(&c, &arg_vals, env)?))
+            Ok(Ok(self.eval_call(&c, &arg_vals, env)?))
         }
         Expr::Assign {
             target: AssignTarget::Local(id),
@@ -345,7 +346,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match self.eval_expr(value, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -360,11 +361,11 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
             value,
             ..
         } => {
-            let v = match eval_expr(value, env)? {
+            let v = match self.eval_expr(value, env)? {
                 Ok(v) => v,
                 Err(flow) => return Ok(Err(flow)),
             };
-            let mut obj = match eval_expr(object, env)? {
+            let mut obj = match self.eval_expr(object, env)? {
                 Ok(o) => o,
                 Err(flow) => return Ok(Err(flow)),
             };
@@ -372,7 +373,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 Expr::String { value, .. } => value.to_string_lossy(),
                 _ => return Err(()),
             };
-            member_set(&mut obj, &key, v.clone())?;
+            self.member_set(&mut obj, &key, v.clone())?;
             if let Expr::Local { id, .. } = object.as_ref() {
                 env.insert(*id, obj);
             } else if matches!(object.as_ref(), Expr::This { .. }) {
@@ -391,7 +392,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                     value,
                 } = p
                 {
-                    let v = match eval_expr(value, env)? {
+                    let v = match self.eval_expr(value, env)? {
                         Ok(v) => v,
                         Err(flow) => return Ok(Err(flow)),
                     };
@@ -399,7 +400,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
                 }
             }
             Ok(Ok(JsVal::Object {
-                id: next_id(),
+                id: self.next_id(),
                 props: Rc::new(RefCell::new(props)),
             }))
         }
@@ -409,7 +410,7 @@ fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<Js
     }
 }
 
-fn try_eval_class_iife(
+fn try_eval_class_iife(&self, 
     params: &[Param],
     body: &[Stmt],
     env: &mut HashMap<LocalId, JsVal>,
@@ -448,11 +449,11 @@ fn try_eval_class_iife(
                 ..
             } if ctor_local.is_none() => {
                 let filtered = if parent_fn_id.is_some() {
-                    filter_derived_ctor_body(cbody)
+                    self.filter_derived_ctor_body(cbody)
                 } else {
-                    filter_ctor_body(cbody)
+                    self.filter_ctor_body(cbody)
                 };
-                let f = make_fn(cparams, &filtered, false, parent_fn_id).ok()?;
+                let f = self.make_fn(cparams, &filtered, false, parent_fn_id).ok()?;
                 ctor_local = Some(*local);
                 ctor_fn = Some(f.clone());
                 env.insert(*local, f);
@@ -474,7 +475,7 @@ fn try_eval_class_iife(
     ctor_fn
 }
 
-fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
+fn filter_ctor_body(&self, body: &[Stmt]) -> Vec<Stmt> {
     body.iter()
         .filter(|s| match s {
             Stmt::Expr {
@@ -497,30 +498,30 @@ fn filter_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
         .collect()
 }
 
-fn filter_derived_ctor_body(body: &[Stmt]) -> Vec<Stmt> {
+fn filter_derived_ctor_body(&self, body: &[Stmt]) -> Vec<Stmt> {
     let mut out = Vec::new();
-    collect_derived_ctor_stmts(body, &mut out);
+    self.collect_derived_ctor_stmts(body, &mut out);
     out
 }
 
-fn collect_derived_ctor_stmts(body: &[Stmt], out: &mut Vec<Stmt>) {
+fn collect_derived_ctor_stmts(&self, body: &[Stmt], out: &mut Vec<Stmt>) {
     for stmt in body {
         match stmt {
             Stmt::Expr {
                 expr: Expr::String { value, .. },
             } if value.to_string_lossy() == "use strict" => {}
             Stmt::If { .. } | Stmt::Declare { .. } | Stmt::Return { .. } => {}
-            Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
-            Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
-            other => collect_derived_ctor_stmts_one(other, out),
+            Stmt::Labeled { body, .. } => self.collect_derived_ctor_stmts_one(body, out),
+            Stmt::Block { body } => self.collect_derived_ctor_stmts(body, out),
+            other => self.collect_derived_ctor_stmts_one(other, out),
         }
     }
 }
 
-fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
+fn collect_derived_ctor_stmts_one(&self, stmt: &Stmt, out: &mut Vec<Stmt>) {
     match stmt {
-        Stmt::Block { body } => collect_derived_ctor_stmts(body, out),
-        Stmt::Labeled { body, .. } => collect_derived_ctor_stmts_one(body, out),
+        Stmt::Block { body } => self.collect_derived_ctor_stmts(body, out),
+        Stmt::Labeled { body, .. } => self.collect_derived_ctor_stmts_one(body, out),
         Stmt::Expr {
             expr:
                 Expr::Call {
@@ -529,7 +530,7 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
                     optional,
                     ty,
                 },
-        } if !*optional && is_super_call_iife(callee) => {
+        } if !*optional && self.is_super_call_iife(callee) => {
             let super_args: Vec<Arg> = args
                 .iter()
                 .filter_map(|a| match a {
@@ -578,7 +579,7 @@ fn collect_derived_ctor_stmts_one(stmt: &Stmt, out: &mut Vec<Stmt>) {
     }
 }
 
-fn is_super_call_iife(callee: &Expr) -> bool {
+fn is_super_call_iife(&self, callee: &Expr) -> bool {
     let Expr::Function {
         body,
         is_arrow: true,
@@ -587,62 +588,62 @@ fn is_super_call_iife(callee: &Expr) -> bool {
     else {
         return false;
     };
-    body.iter().any(stmt_has_reflect_construct)
+    body.iter().any(|s| self.stmt_has_reflect_construct(s))
 }
 
-fn stmt_has_reflect_construct(stmt: &Stmt) -> bool {
+fn stmt_has_reflect_construct(&self, stmt: &Stmt) -> bool {
     match stmt {
         Stmt::Declare {
             init: Some(expr), ..
         }
         | Stmt::Expr { expr }
-        | Stmt::Return { value: Some(expr) } => expr_has_reflect_construct(expr),
-        Stmt::Block { body } => body.iter().any(stmt_has_reflect_construct),
+        | Stmt::Return { value: Some(expr) } => self.expr_has_reflect_construct(expr),
+        Stmt::Block { body } => body.iter().any(|s| self.stmt_has_reflect_construct(s)),
         Stmt::If {
             consequent,
             alternate,
             ..
         } => {
-            stmt_has_reflect_construct(consequent)
+            self.stmt_has_reflect_construct(consequent)
                 || alternate
                     .as_ref()
-                    .is_some_and(|a| stmt_has_reflect_construct(a))
+                    .is_some_and(|a| self.stmt_has_reflect_construct(a))
         }
         _ => false,
     }
 }
 
-fn expr_has_reflect_construct(expr: &Expr) -> bool {
+fn expr_has_reflect_construct(&self, expr: &Expr) -> bool {
     match expr {
         Expr::Call { callee, .. } => {
-            if is_reflect_construct(callee) {
+            if self.is_reflect_construct(callee) {
                 return true;
             }
-            expr_has_reflect_construct(callee)
+            self.expr_has_reflect_construct(callee)
         }
         Expr::Member {
             object, property, ..
-        } => expr_has_reflect_construct(object) || expr_has_reflect_construct(property),
-        Expr::Assign { value, .. } => expr_has_reflect_construct(value),
+        } => self.expr_has_reflect_construct(object) || self.expr_has_reflect_construct(property),
+        Expr::Assign { value, .. } => self.expr_has_reflect_construct(value),
         Expr::New { callee, args, .. } => {
-            expr_has_reflect_construct(callee)
+            self.expr_has_reflect_construct(callee)
                 || args.iter().any(|a| match a {
-                    Arg::Expr(e) => expr_has_reflect_construct(e),
+                    Arg::Expr(e) => self.expr_has_reflect_construct(e),
                     _ => false,
                 })
         }
-        Expr::Function { body, .. } => body.iter().any(stmt_has_reflect_construct),
+        Expr::Function { body, .. } => body.iter().any(|s| self.stmt_has_reflect_construct(s)),
         Expr::Object { properties, .. } => properties.iter().any(|p| match p {
             ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
-                expr_has_reflect_construct(value)
+                self.expr_has_reflect_construct(value)
             }
-            ObjectProp::Spread(e) => expr_has_reflect_construct(e),
+            ObjectProp::Spread(e) => self.expr_has_reflect_construct(e),
         }),
         _ => false,
     }
 }
 
-fn is_reflect_construct(callee: &Expr) -> bool {
+fn is_reflect_construct(&self, callee: &Expr) -> bool {
     let Expr::Member {
         object, property, ..
     } = callee
@@ -658,7 +659,7 @@ fn is_reflect_construct(callee: &Expr) -> bool {
     )
 }
 
-fn eval_new(
+fn eval_new(&self, 
     callee: &JsVal,
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
@@ -666,36 +667,36 @@ fn eval_new(
     let JsVal::Fn { id } = callee else {
         return Err(());
     };
-    let rec = fn_reg_get(*id).ok_or(())?;
+    let rec = self.fn_reg_get(*id).ok_or(())?;
     if rec.is_arrow {
         return Err(());
     }
     let obj = JsVal::Object {
-        id: next_id(),
+        id: self.next_id(),
         props: Rc::new(RefCell::new(Vec::new())),
     };
     let nt = callee.clone();
-    let result = call_user_fn(&rec, obj.clone(), nt, args, env)?;
+    let result = self.call_user_fn(&rec, obj.clone(), nt, args, env)?;
     match result {
         JsVal::Object { .. } | JsVal::Fn { .. } => Ok(result),
         _ => Ok(obj),
     }
 }
 
-fn eval_super(args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
+fn eval_super(&self, args: &[JsVal], env: &mut HashMap<LocalId, JsVal>) -> Result<JsVal, ()> {
     // Current new.target's FnRec.parent → parent ctor; same this + new.target.
     let nt = current_new_target();
     let JsVal::Fn { id } = &nt else {
         return Err(());
     };
-    let rec = fn_reg_get(*id).ok_or(())?;
+    let rec = self.fn_reg_get(*id).ok_or(())?;
     let parent_id = rec.parent.ok_or(())?;
-    let parent = fn_reg_get(parent_id).ok_or(())?;
+    let parent = self.fn_reg_get(parent_id).ok_or(())?;
     let this = current_this();
-    call_user_fn(&parent, this, nt, args, env)
+    self.call_user_fn(&parent, this, nt, args, env)
 }
 
-fn eval_call(
+fn eval_call(&self, 
     callee: &JsVal,
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
@@ -704,15 +705,15 @@ fn eval_call(
         // No-op builtins (Object.defineProperty etc. already handled).
         return Ok(JsVal::Undef);
     };
-    let rec = fn_reg_get(*id).ok_or(())?;
+    let rec = self.fn_reg_get(*id).ok_or(())?;
     if rec.is_arrow {
         // Lexical new.target / this from caller.
-        return call_user_fn_arrow(&rec, args, env);
+        return self.call_user_fn_arrow(&rec, args, env);
     }
-    call_user_fn(&rec, JsVal::Undef, JsVal::Undef, args, env)
+    self.call_user_fn(&rec, JsVal::Undef, JsVal::Undef, args, env)
 }
 
-fn call_user_fn(
+fn call_user_fn(&self, 
     rec: &FnRec,
     this: JsVal,
     nt: JsVal,
@@ -726,7 +727,7 @@ fn call_user_fn(
     }
     // Nested function decls bind into env; save any locals they overwrite is hard —
     // fixture only uses fresh locals.
-    let flow = with_this_nt(this, nt, || eval_body(&rec.body, env))?;
+    let flow = with_this_nt(this, nt, || self.eval_body(&rec.body, env))?;
     for (pid, prev) in saved {
         match prev {
             Some(v) => {
@@ -743,7 +744,7 @@ fn call_user_fn(
     }
 }
 
-fn call_user_fn_arrow(
+fn call_user_fn_arrow(&self, 
     rec: &FnRec,
     args: &[JsVal],
     env: &mut HashMap<LocalId, JsVal>,
@@ -753,7 +754,7 @@ fn call_user_fn_arrow(
         saved.push((*pid, env.get(pid).cloned()));
         env.insert(*pid, args.get(i).cloned().unwrap_or(JsVal::Undef));
     }
-    let flow = eval_body(&rec.body, env)?;
+    let flow = self.eval_body(&rec.body, env)?;
     for (pid, prev) in saved {
         match prev {
             Some(v) => {
@@ -770,7 +771,7 @@ fn call_user_fn_arrow(
     }
 }
 
-fn member_get(obj: &JsVal, key: &str) -> JsVal {
+fn member_get(&self, obj: &JsVal, key: &str) -> JsVal {
     match obj {
         JsVal::Object { props, .. } => props
             .borrow()
@@ -779,14 +780,14 @@ fn member_get(obj: &JsVal, key: &str) -> JsVal {
             .map(|(_, v)| v.clone())
             .unwrap_or(JsVal::Undef),
         JsVal::Fn { .. } if key == "prototype" => JsVal::Object {
-            id: next_id(),
+            id: self.next_id(),
             props: Rc::new(RefCell::new(Vec::new())),
         },
         _ => JsVal::Undef,
     }
 }
 
-fn member_set(obj: &mut JsVal, key: &str, val: JsVal) -> Result<(), ()> {
+fn member_set(&self, obj: &mut JsVal, key: &str, val: JsVal) -> Result<(), ()> {
     let JsVal::Object { props, .. } = obj else {
         return Err(());
     };
@@ -799,7 +800,7 @@ fn member_set(obj: &mut JsVal, key: &str, val: JsVal) -> Result<(), ()> {
     Ok(())
 }
 
-fn typeof_str(v: &JsVal) -> String {
+fn typeof_str(&self, v: &JsVal) -> String {
     match v {
         JsVal::Undef => "undefined".into(),
         JsVal::Bool(_) => "boolean".into(),
@@ -809,7 +810,7 @@ fn typeof_str(v: &JsVal) -> String {
     }
 }
 
-fn to_boolean(v: &JsVal) -> bool {
+fn to_boolean(&self, v: &JsVal) -> bool {
     match v {
         JsVal::Undef => false,
         JsVal::Bool(b) => *b,
@@ -818,7 +819,7 @@ fn to_boolean(v: &JsVal) -> bool {
     }
 }
 
-fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
+fn strict_eq(&self, l: &JsVal, r: &JsVal) -> bool {
     match (l, r) {
         (JsVal::Undef, JsVal::Undef) => true,
         (JsVal::Bool(a), JsVal::Bool(b)) => a == b,
@@ -827,4 +828,5 @@ fn strict_eq(l: &JsVal, r: &JsVal) -> bool {
         (JsVal::Fn { id: a }, JsVal::Fn { id: b }) => a == b,
         _ => false,
     }
+}
 }

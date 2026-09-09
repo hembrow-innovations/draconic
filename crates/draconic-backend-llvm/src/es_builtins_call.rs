@@ -10,7 +10,7 @@ use draconic_runtime::{
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn eval_new(
+    pub(crate) fn eval_new(&self, 
         callee: &JsVal,
         args: &[JsVal],
         env: &mut HashMap<LocalId, JsVal>,
@@ -26,10 +26,10 @@ impl super::Interp {
                 Some((_, PropSlot::Data(p))) => p.clone(),
                 _ => JsVal::Builtin(BuiltinId::ObjectPrototype),
             };
-            let this = new_object_with_proto(Vec::new(), proto);
+            let this = new_object_with_proto(self, Vec::new(), proto);
             let ctor = callee.clone();
             let result = with_new_target(ctor, || {
-                Self::call_user_fn(params, body, this.clone(), args, env)
+                self.call_user_fn(params, body, this.clone(), args, env)
             })?;
             // `this.prop = …` mutates CURRENT_THIS; prefer that over the pre-call clone.
             let this_final = CURRENT_THIS.with(|cell| cell.borrow().clone());
@@ -90,7 +90,7 @@ impl super::Interp {
                 Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => *n as usize,
                 _ => return Err(()),
             };
-            return Ok(new_array_buffer(len));
+            return Ok(new_array_buffer(self, len));
         }
         if *b == BuiltinId::Uint8Array {
             return match args.first() {
@@ -98,9 +98,9 @@ impl super::Interp {
                     typed_array_from_buffer(TaKind::U8, buf)
                 }
                 Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
-                    Ok(typed_array_from_length(TaKind::U8, *n as usize))
+                    Ok(typed_array_from_length(self, TaKind::U8, *n as usize))
                 }
-                Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::U8, elems),
+                Some(JsVal::Array(elems)) => typed_array_from_array(self, TaKind::U8, elems),
                 _ => Err(()),
             };
         }
@@ -110,9 +110,9 @@ impl super::Interp {
                     typed_array_from_buffer(TaKind::I32, buf)
                 }
                 Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
-                    Ok(typed_array_from_length(TaKind::I32, *n as usize))
+                    Ok(typed_array_from_length(self, TaKind::I32, *n as usize))
                 }
-                Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::I32, elems),
+                Some(JsVal::Array(elems)) => typed_array_from_array(self, TaKind::I32, elems),
                 _ => Err(()),
             };
         }
@@ -122,9 +122,9 @@ impl super::Interp {
                     typed_array_from_buffer(TaKind::F64, buf)
                 }
                 Some(JsVal::Num(n)) if *n >= 0.0 && n.is_finite() => {
-                    Ok(typed_array_from_length(TaKind::F64, *n as usize))
+                    Ok(typed_array_from_length(self, TaKind::F64, *n as usize))
                 }
-                Some(JsVal::Array(elems)) => typed_array_from_array(TaKind::F64, elems),
+                Some(JsVal::Array(elems)) => typed_array_from_array(self, TaKind::F64, elems),
                 _ => Err(()),
             };
         }
@@ -168,7 +168,7 @@ impl super::Interp {
         })
     }
 
-    pub(crate) fn call_user_fn(
+    pub(crate) fn call_user_fn(&self, 
         params: &[LocalId],
         body: &[Stmt],
         this: JsVal,
@@ -181,7 +181,7 @@ impl super::Interp {
             let v = args.get(i).cloned().unwrap_or(JsVal::Undef);
             env.insert(*pid, v);
         }
-        let flow = with_this(this, || Self::eval_body(body, env))?;
+        let flow = with_this(this, || self.eval_body(body, env))?;
         for (pid, prev) in saved {
             match prev {
                 Some(v) => {
@@ -199,14 +199,14 @@ impl super::Interp {
         }
     }
 
-    fn own_data_str(props: &[(String, PropSlot)], key: &str) -> Option<String> {
+    fn own_data_str(&self, props: &[(String, PropSlot)], key: &str) -> Option<String> {
         match object_own_slot(props, key) {
             Some(PropSlot::Data(JsVal::Str(s))) => Some(s.clone()),
             _ => None,
         }
     }
 
-    fn flag_specs_from_js(v: &JsVal) -> Result<Vec<FlagSpec>, ()> {
+    fn flag_specs_from_js(&self, v: &JsVal) -> Result<Vec<FlagSpec>, ()> {
         let JsVal::Object { props, .. } = v else {
             return Err(());
         };
@@ -218,14 +218,14 @@ impl super::Interp {
             let JsVal::Object { props: op, .. } = opt else {
                 return Err(());
             };
-            let type_s = Self::own_data_str(&op.borrow(), "type").ok_or(())?;
+            let type_s = self.own_data_str(&op.borrow(), "type").ok_or(())?;
             let kind = match type_s.as_str() {
                 "boolean" => OptionKind::Boolean,
                 "string" => OptionKind::String,
                 "number" => OptionKind::Number,
                 _ => return Err(()),
             };
-            let short = Self::own_data_str(&op.borrow(), "short").and_then(|s| {
+            let short = self.own_data_str(&op.borrow(), "short").and_then(|s| {
                 let mut cs = s.chars();
                 let c = cs.next()?;
                 if cs.next().is_some() {
@@ -234,7 +234,7 @@ impl super::Interp {
                     Some(c)
                 }
             });
-            let help = Self::own_data_str(&op.borrow(), "help").unwrap_or_default();
+            let help = self.own_data_str(&op.borrow(), "help").unwrap_or_default();
             out.push(FlagSpec {
                 name: name.clone(),
                 kind,
@@ -245,7 +245,7 @@ impl super::Interp {
         Ok(out)
     }
 
-    fn typed_value_to_js(v: TypedValue) -> JsVal {
+    fn typed_value_to_js(&self, v: TypedValue) -> JsVal {
         match v {
             TypedValue::Bool(b) => JsVal::Bool(b),
             TypedValue::Str(s) => JsVal::Str(s),
@@ -253,13 +253,13 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn eval_call(
+    pub(crate) fn eval_call(&self, 
         callee: &JsVal,
         args: &[JsVal],
         env: &mut HashMap<LocalId, JsVal>,
     ) -> Result<JsVal, ()> {
         if let JsVal::UserFn { params, body, .. } = callee {
-            return Self::call_user_fn(params, body, JsVal::Undef, args, env);
+            return self.call_user_fn(params, body, JsVal::Undef, args, env);
         }
         let JsVal::Builtin(b) = callee else {
             return Err(());
@@ -321,7 +321,7 @@ impl super::Interp {
                     Some(JsVal::Str(s)) => s.as_str(),
                     _ => return Err(()),
                 };
-                json_parse(s)
+                json_parse(s, self)
             }
             BuiltinId::JsonStringify => {
                 let v = args.first().unwrap_or(&JsVal::Undef);
@@ -333,7 +333,7 @@ impl super::Interp {
             BuiltinId::ParseUrl => {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                 let u = parse_url(&s).map_err(|_| ())?;
-                Ok(new_object(vec![
+                Ok(new_object(self, vec![
                     ("scheme".into(), PropSlot::Data(JsVal::Str(u.scheme))),
                     ("host".into(), PropSlot::Data(JsVal::Str(u.host))),
                     ("path".into(), PropSlot::Data(JsVal::Str(u.path))),
@@ -345,6 +345,7 @@ impl super::Interp {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                 let pairs = parse_query(&s);
                 Ok(new_object(
+                    self,
                     pairs
                         .into_iter()
                         .map(|(k, v)| (k, PropSlot::Data(JsVal::Str(v))))
@@ -362,14 +363,14 @@ impl super::Interp {
                 }
                 let spec = match args.get(1) {
                     None | Some(JsVal::Undef) => None,
-                    Some(v) => Some(Self::flag_specs_from_js(v)?),
+                    Some(v) => Some(self.flag_specs_from_js(v)?),
                 };
                 let (flag_props, positionals) = if let Some(spec) = spec {
                     let parsed = parse_flags_typed(&strs, &spec);
                     let flag_props: Vec<(String, PropSlot)> = parsed
                         .flags
                         .into_iter()
-                        .map(|(k, v)| (k, PropSlot::Data(Self::typed_value_to_js(v))))
+                        .map(|(k, v)| (k, PropSlot::Data(self.typed_value_to_js(v))))
                         .collect();
                     (flag_props, parsed.positionals)
                 } else {
@@ -388,13 +389,13 @@ impl super::Interp {
                     (flag_props, parsed.positionals)
                 };
                 let pos = JsVal::Array(positionals.into_iter().map(JsVal::Str).collect());
-                Ok(new_object(vec![
-                    ("flags".into(), PropSlot::Data(new_object(flag_props))),
+                Ok(new_object(self, vec![
+                    ("flags".into(), PropSlot::Data(new_object(self, flag_props))),
                     ("positionals".into(), PropSlot::Data(pos)),
                 ]))
             }
             BuiltinId::FlagHelp => {
-                let spec = Self::flag_specs_from_js(args.first().ok_or(())?)?;
+                let spec = self.flag_specs_from_js(args.first().ok_or(())?)?;
                 Ok(JsVal::Str(flag_help(&spec)))
             }
             BuiltinId::SerializeQuery => {
@@ -426,7 +427,7 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn eval_method_call(
+    pub(crate) fn eval_method_call(&self, 
         recv: &mut JsVal,
         key: &str,
         args: &[JsVal],
@@ -440,7 +441,7 @@ impl super::Interp {
                 let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
                 let params = params.clone();
                 let body = body.clone();
-                Self::call_user_fn(&params, &body, this_arg, &rest, env)
+                self.call_user_fn(&params, &body, this_arg, &rest, env)
             }
             JsVal::Builtin(BuiltinId::Object) if key == "getPrototypeOf" => {
                 let target = args.first().ok_or(())?;
@@ -457,7 +458,7 @@ impl super::Interp {
                     Some(JsVal::Str(s)) => s.as_str(),
                     _ => return Err(()),
                 };
-                object_get_own_property_descriptor(target, k)
+                object_get_own_property_descriptor(self, target, k)
             }
             JsVal::Builtin(BuiltinId::Object) if key == "defineProperty" => {
                 let target = args.first().cloned().ok_or(())?;
@@ -485,21 +486,21 @@ impl super::Interp {
                 let mut this = this_arg.clone();
                 let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
                 let method = date_proto_method_name(*id).ok_or(())?;
-                Self::eval_method_call(&mut this, method, &rest, env)
+                self.eval_method_call(&mut this, method, &rest, env)
             }
             JsVal::Builtin(id) if key == "call" && is_regexp_proto_method(*id) => {
                 let this_arg = args.first().ok_or(())?;
                 let mut this = this_arg.clone();
                 let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
                 let method = regexp_proto_method_name(*id).ok_or(())?;
-                Self::eval_method_call(&mut this, method, &rest, env)
+                self.eval_method_call(&mut this, method, &rest, env)
             }
             JsVal::Builtin(id) if key == "call" && is_object_accessor_legacy(*id) => {
                 let this_arg = args.first().ok_or(())?;
                 let mut this = this_arg.clone();
                 let rest: Vec<JsVal> = args.iter().skip(1).cloned().collect();
                 let method = object_accessor_legacy_name(*id).ok_or(())?;
-                let out = Self::eval_method_call(&mut this, method, &rest, env)?;
+                let out = self.eval_method_call(&mut this, method, &rest, env)?;
                 // Write back mutated object this when possible is caller's job for locals.
                 // For `.call(via, …)` the this is a value; mutations must apply to `this` clone.
                 // Re-run is wrong — define* already mutated `this`; if this was a clone of a
@@ -575,13 +576,13 @@ impl super::Interp {
                 }
                 _ => {
                     // Ordinary method call: look up own/proto and invoke UserFn with this=recv.
-                    let method = Self::member_get(recv, key, env)?;
+                    let method = self.member_get(recv, key, env)?;
                     let this = recv.clone();
                     match method {
                         JsVal::UserFn { params, body, .. } => {
-                            Self::call_user_fn(&params, &body, this, args, env)
+                            self.call_user_fn(&params, &body, this, args, env)
                         }
-                        other => Self::eval_call(&other, args, env),
+                        other => self.eval_call(&other, args, env),
                     }
                 }
             },
@@ -604,7 +605,7 @@ impl super::Interp {
                     let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                     match regexp_find(source, flags, &s) {
                         Some(m) => {
-                            update_regexp_statics(&m, &s);
+                            update_regexp_statics(self, &m, &s);
                             Ok(JsVal::Bool(true))
                         }
                         None => Ok(JsVal::Bool(false)),
@@ -614,7 +615,7 @@ impl super::Interp {
                     let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                     match regexp_find(source, flags, &s) {
                         Some(m) => {
-                            update_regexp_statics(&m, &s);
+                            update_regexp_statics(self, &m, &s);
                             let mut arr = Vec::with_capacity(1 + m.captures.len());
                             arr.push(JsVal::Str(m.full));
                             for c in m.captures {
@@ -793,8 +794,8 @@ impl super::Interp {
             },
             // Non-method: resolve property then call as bare function.
             other => {
-                let c = Self::member_get(other, key, env)?;
-                Self::eval_call(&c, args, env)
+                let c = self.member_get(other, key, env)?;
+                self.eval_call(&c, args, env)
             }
         }
     }
