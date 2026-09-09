@@ -423,3 +423,234 @@ impl Checker {
         sym.name == name && sym.span == Span::dummy()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{check, BoundProgram, Symbol, Type};
+    use draconic_diagnostics::Span;
+    use draconic_parser::parse;
+
+    fn user_symbol<'a>(bound: &'a BoundProgram, name: &str) -> &'a Symbol {
+        bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == name && s.span != Span::dummy())
+            .unwrap_or_else(|| panic!("no user symbol `{name}`"))
+    }
+
+    // E19.60: const PutValue is a runtime TypeError, not a compile reject.
+    #[test]
+    fn check_const_reassignment_ok() {
+        let program = parse("const x = 1; x = 2;").unwrap();
+        check(program).expect("const reassignment must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_const_dstr_put_ok() {
+        let program = parse("const c = null; [c] = [1];").unwrap();
+        check(program).expect("const dstr put must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_const_update_ok() {
+        let program = parse("const x = 1; x++;").unwrap();
+        check(program).expect("const update must typecheck (runtime TypeError)");
+    }
+
+    // E19.60: parenthesized cover IdentifierReference is a valid simple assignment target.
+    #[test]
+    fn check_parenthesized_assign_target_ok() {
+        let program = parse("var x; (x) = 1;").unwrap();
+        check(program).expect("(x) = 1 must typecheck");
+    }
+
+    #[test]
+    fn check_parenthesized_update_target_ok() {
+        let program = parse("var y = 1; (y)++; ((y))++;").unwrap();
+        check(program).expect("(y)++ must typecheck");
+    }
+
+    // E19.60: non-strict eval/arguments are simple assignment targets (not early error).
+    #[test]
+    fn check_nonstrict_eval_assign_ok() {
+        let program = parse("eval = 1;").unwrap();
+        check(program).expect("non-strict eval = must typecheck");
+    }
+
+    #[test]
+    fn check_nonstrict_eval_update_ok() {
+        let program = parse("eval++;").unwrap();
+        check(program).expect("non-strict eval++ must typecheck");
+    }
+
+    // E19.57: named FE / class expr name reassignment is a runtime TypeError (strict)
+    // or silent no-op (non-strict FE), not a compile reject.
+    #[test]
+    fn check_named_function_expression_reassign_ok() {
+        let program = parse(
+            "let ref = function BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_async_function_expression_reassign_ok() {
+        let program = parse(
+            "let ref = async function BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named async FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_generator_expression_reassign_ok() {
+        let program = parse(
+            "let ref = function* BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named generator FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_async_generator_expression_reassign_ok() {
+        let program = parse(
+            "let ref = async function* BindingIdentifier() { BindingIdentifier = 1; return BindingIdentifier; };",
+        )
+        .unwrap();
+        check(program).expect("named async generator FE name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_named_class_expression_reassign_ok() {
+        let program = parse("let C = class Name { m() { Name = 1; } };").unwrap();
+        check(program).expect("named class expression name reassign must typecheck");
+    }
+
+    #[test]
+    fn check_class_declaration_name_reassign_ok() {
+        let program = parse("class C { constructor() { C = 42; } }").unwrap();
+        check(program).expect("class declaration name reassign must typecheck (runtime TypeError)");
+    }
+
+    #[test]
+    fn check_function_declaration_reassign_ok() {
+        let program = parse("function f() {} f = 1;").unwrap();
+        check(program).expect("function declaration reassign must typecheck");
+    }
+
+    #[test]
+    fn check_compound_assignment_to_property_ok() {
+        let program = parse("let o = { a: 1 }; o.a += 2; o[\"a\"] *= 3;").unwrap();
+        check(program).expect("compound assignment to property should typecheck");
+    }
+
+    #[test]
+    fn check_compound_assignment_to_computed_property_ok() {
+        let program = parse("let o = {}; let k = \"x\"; o[k] = 1; o[k] += 2;").unwrap();
+        check(program).expect("compound assignment to computed property should typecheck");
+    }
+
+    // E19.12: untyped compound assignment — ToNumber widen; do not reject assign-back.
+    #[test]
+    fn check_untyped_compound_assignment_boolean() {
+        let program = parse("let x = true; x += 1; x *= false;").unwrap();
+        check(program).expect("boolean compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_string_numeric() {
+        let program = parse(r#"let x = "2"; x *= 3; x -= "1";"#).unwrap();
+        check(program).expect("string numeric compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_null() {
+        let program = parse("let x = null; x -= 1; x += true;").unwrap();
+        check(program).expect("null compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_add_string_concat() {
+        let program = parse(r#"let x = 1; x += "a";"#).unwrap();
+        check(program).expect("number += string should typecheck (ToString concat)");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_uninitialized_any() {
+        let program = parse("let x; x += 1; x *= true;").unwrap();
+        check(program).expect("any compound assign should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_compound_assignment_property_coerced() {
+        let program = parse(r#"let o = { a: true }; o.a += 1; o["a"] *= "2";"#).unwrap();
+        check(program).expect("property compound assign with coercion should typecheck");
+    }
+
+    // E19.48: untyped simple assign residual — after compound widens to number,
+    // re-assign null/object/string/boolean must not reject (ECMA-262).
+    #[test]
+    fn check_untyped_simple_assign_after_number_null() {
+        let program = parse(
+            r#"
+            var x;
+            x = null;
+            x ^= undefined;
+            x = undefined;
+            x ^= null;
+            x = null;
+            x ^= null;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("null/undefined simple assign after number should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_simple_assign_object_string_boolean() {
+        let program = parse(
+            r#"
+            var x;
+            x = true;
+            x ^= "1";
+            x = "1";
+            x ^= true;
+            x = new Boolean(true);
+            x ^= "1";
+            x = new String("1");
+            x ^= true;
+            x = {};
+            x = null;
+            x = 1;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("object/string/boolean simple assign residual should typecheck");
+    }
+
+    #[test]
+    fn check_untyped_simple_assign_let_number_to_string() {
+        let program = parse(r#"let x = 1; x = "a"; x = null; x = {}; x = true;"#).unwrap();
+        check(program).expect("inferred number binding accepts JS values without annotation");
+    }
+
+    #[test]
+    fn check_annotated_number_rejects_string_assign() {
+        let program = parse(r#"let x: number = 1; x = "a";"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("cannot assign") || err.message.contains("not assignable"),
+            "unexpected message: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_const_ok_read() {
+        let program = parse("const x = 1; let y = x + 2;").unwrap();
+        let checked = check(program).unwrap();
+        let x = user_symbol(&checked.bound, "x");
+        assert_eq!(checked.type_of_symbol(x.id), Type::Number);
+    }
+}

@@ -581,3 +581,257 @@ impl Checker {
         !matches!(ty, Type::Native(_) | Type::Ptr(_))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{bind, check, check_for_target, BoundProgram, CompileTarget, Symbol, Type};
+    use draconic_ast::BindingKind;
+    use draconic_diagnostics::{codes, Span};
+    use draconic_parser::parse;
+
+    fn user_symbol<'a>(bound: &'a BoundProgram, name: &str) -> &'a Symbol {
+        bound
+            .symbols()
+            .iter()
+            .find(|s| s.name == name && s.span != Span::dummy())
+            .unwrap_or_else(|| panic!("no user symbol `{name}`"))
+    }
+
+    // --- F06.02: extern "C" function signature checking ---
+
+    #[test]
+    fn bind_extern_function_declares_symbol() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        let bound = bind(program).unwrap();
+        let add = user_symbol(&bound, "add");
+        assert_eq!(add.kind, BindingKind::Function);
+    }
+
+    #[test]
+    fn check_extern_native_sig_ok() {
+        let program = parse(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            extern "C" function puts(s: *u8): i32;
+            extern "C" function free(p: *u8): void;
+            extern "C" function quit();
+            "#,
+        )
+        .unwrap();
+        let checked = check(program).expect("valid extern signatures must typecheck");
+        let add = user_symbol(&checked.bound, "add");
+        assert_eq!(checked.type_of_symbol(add.id), Type::Function);
+    }
+
+    #[test]
+    fn check_extern_string_param_errors() {
+        let src = r#"extern "C" function f(s: string): i32;"#;
+        let program = parse(src).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("string"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+        assert!(
+            !err.span.is_dummy(),
+            "F08.02: span must point at the bad type"
+        );
+        let lo = err.span.start.0 as usize;
+        let hi = err.span.end.0 as usize;
+        assert_eq!(
+            &src[lo..hi],
+            "string",
+            "span should cover the unsupported type"
+        );
+    }
+
+    #[test]
+    fn check_extern_number_param_errors() {
+        let program = parse(r#"extern "C" function f(n: number): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("number"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_any_param_errors() {
+        let program = parse(r#"extern "C" function f(x: any): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter") && err.message.contains("any"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_native_layout_param_ok() {
+        let program = parse(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function take(p: Pair): i32;
+            extern "C" function make(a: i32, b: i64): Pair;
+            "#,
+        )
+        .unwrap();
+        check(program).expect("native layout struct is a valid extern ABI type (F03.02)");
+    }
+
+    #[test]
+    fn check_extern_js_shape_param_errors() {
+        let program = parse(r#"extern "C" function f(o: { x: string }): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern parameter"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_unannotated_param_errors() {
+        let program = parse(r#"extern "C" function f(x): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("must have a type annotation"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_void_param_errors() {
+        let program = parse(r#"extern "C" function f(x: void): void;"#).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("cannot be `void`"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+    }
+
+    #[test]
+    fn check_extern_string_return_errors() {
+        let src = r#"extern "C" function f(): string;"#;
+        let program = parse(src).unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("extern return") && err.message.contains("string"),
+            "unexpected: {}",
+            err.message
+        );
+        assert_eq!(err.code, Some(codes::INVALID_EXTERN_TYPE));
+        assert!(
+            !err.span.is_dummy(),
+            "F08.02: span must point at the bad type"
+        );
+        let lo = err.span.start.0 as usize;
+        let hi = err.span.end.0 as usize;
+        assert_eq!(
+            &src[lo..hi],
+            "string",
+            "span should cover the unsupported type"
+        );
+    }
+
+    #[test]
+    fn check_extern_call_arity_checked() {
+        let program = parse(
+            r#"
+            extern "C" function add(a: i32, b: i32): i32;
+            add(1);
+            "#,
+        )
+        .unwrap();
+        let err = check(program).unwrap_err();
+        assert!(
+            err.message.contains("expected at least 2") || err.message.contains("argument"),
+            "unexpected: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_extern_ptr_arg_and_null() {
+        let program = parse(
+            r#"
+            extern "C" function load(p: *i32): i32;
+            let x: i32 = 42;
+            let p: *i32 = &x;
+            let a: i32 = load(p);
+            let b: i32 = load(&x);
+            let n: *i32 = null;
+            let c: i32 = load(n);
+            let d: i32 = load(null);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("pointer args and null must typecheck for extern *T");
+    }
+
+    // --- F08.01: extern / FFI hard-error on js target ---
+
+    #[test]
+    fn check_for_target_js_rejects_extern() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        let err = check_for_target(program, CompileTarget::Js).expect_err("js hard diagnostic");
+        assert_eq!(err.code, Some(codes::EXTERN_UNSUPPORTED));
+        assert!(
+            err.message.contains("extern")
+                && err.message.contains("unsupported on js")
+                && err.message.contains("native-only"),
+            "got {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn check_for_target_native_allows_extern_sig() {
+        let program = parse(r#"extern "C" function add(a: i32, b: i32): i32;"#).unwrap();
+        check_for_target(program, CompileTarget::Native)
+            .expect("native allows valid extern signatures");
+    }
+
+    // --- F02.01: Draconic fn as C function pointer (extern `function` param) ---
+
+    #[test]
+    fn check_extern_function_param_ok() {
+        let program = parse(
+            r#"
+            function twice(x: i32): i32 {
+              return x + x;
+            }
+            extern "C" function draconic_rt_fnptr_nonnull(cb: function): i32;
+            let ok: i32 = draconic_rt_fnptr_nonnull(twice);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("native-ABI fn must pass as extern function-pointer param");
+    }
+
+    // --- F03.01: address of native layout is `*u8` for C ABI offset checks ---
+
+    #[test]
+    fn check_address_of_native_layout_ok() {
+        let program = parse(
+            r#"
+            type Pair = { a: i32; b: i64 };
+            extern "C" function draconic_rt_layout_i32_i64_a(p: *u8): i32;
+            let p: Pair = { a: 10, b: 20 };
+            let ra: i32 = draconic_rt_layout_i32_i64_a(&p);
+            "#,
+        )
+        .unwrap();
+        check(program).expect("address of native layout struct must typecheck as *u8");
+    }
+}

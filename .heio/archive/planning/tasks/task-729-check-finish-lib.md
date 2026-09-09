@@ -2,14 +2,14 @@
 id: "task-729-check-finish-lib"
 title: "Finish check lib.rs under 1000"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-728-check-extract-checker"]
 sprint: "rust-dev-audit"
 slice: "slice-709-check-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-10T00:20:00Z"
 ---
 
 # Finish check lib.rs under 1000
@@ -60,8 +60,8 @@ max-loc-ok.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] Slice O1 max-loc-ok
-- [ ] cargo test -p draconic-check
+- [x] Slice O1 max-loc-ok
+- [x] cargo test -p draconic-check
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -71,3 +71,8 @@ max-loc-ok.
 
 **Explain this part:**
 Split by remaining feature seams, not a util.rs junk drawer over 1000.
+
+## Gauntlet
+
+- **Round 1:** `cargo test -p draconic-check --offline` — lose — leftover helpers not `pub(crate)` when generic; `find_ident_use` not visible to early/check_globals tests.
+- **Round 2:** O1 max-loc-ok; `cargo test -p draconic-check --offline` — win — test result: ok. 278 passed. lib.rs 121; types/symbols/early/syntax plus bind_globals/check_globals; every check `.rs` ≤1000.

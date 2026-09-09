@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-729-check-finish-lib** — leftover check lib.rs types, helpers, and tests split under file budget
 - **task-726-check-split-host-api** — split check host_api.rs by host groups under file budget
 - **task-728-check-extract-checker** — Checker type and impl live in checker*.rs under file budget
 - **task-727-check-extract-binder** — Binder helpers live in private binder.rs; one Stmt walk remains
