@@ -69,6 +69,15 @@ pub(crate) fn is_es_expr_module(module: &Module) -> bool {
 
 pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not an es_expr module"))?;
+    emit_es_expr_with(module, &info)
+}
+
+pub(crate) fn emit_es_expr_walk(module: &Module) -> Result<String, Diagnostic> {
+    let info = classify_body(module).ok_or_else(|| diag("unsupported IR node"))?;
+    emit_es_expr_with(module, &info)
+}
+
+fn emit_es_expr_with(module: &Module, info: &ModuleInfo) -> Result<String, Diagnostic> {
     let mut em = Emitter::new(module, ExprState::default());
     em.emit_module(&info.alloc_locals, &info.user_locals)?;
     Ok(em.finish())
@@ -155,6 +164,10 @@ fn slot_for_declare(
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
+    classify_body(module).filter(|info| !info.user_locals.is_empty())
+}
+
+fn classify_body(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut user_locals = Vec::new();
     let mut alloc_locals = Vec::new();
@@ -185,9 +198,6 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             }
             _ => return None,
         }
-    }
-    if user_locals.is_empty() {
-        return None;
     }
     Some(ModuleInfo {
         user_locals,

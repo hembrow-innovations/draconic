@@ -103,7 +103,7 @@ use es_destructure_defaults::{emit_es_destructure_defaults, is_es_destructure_de
 use es_encoding::{emit_es_encoding, is_es_encoding_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
-use es_expr::{emit_es_expr, is_es_expr_module};
+use es_expr::{emit_es_expr, emit_es_expr_walk, is_es_expr_module};
 use es_functions::{emit_es_functions, is_es_functions_module};
 use es_generators::{emit_es_generators, is_es_generators_module};
 use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
@@ -472,7 +472,7 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
         return Ok(emit_empty_hello());
     }
     let _ = debug;
-    Err(unsupported_native_diagnostic())
+    emit_es_expr_walk(module).map_err(|_| unsupported_native_diagnostic())
 }
 
 fn is_empty_program(module: &Module) -> bool {
@@ -1008,6 +1008,28 @@ mod tests {
         assert!(
             !msg.contains("draconic_rt_hello"),
             "error must not be a hello-stub success path:\n{msg}"
+        );
+    }
+
+    #[test]
+    fn leftover_expr_control_flow_emits_via_walker() {
+        let m = module_of("if (false) { 1 + 2; }");
+        assert!(
+            !is_es_expr_module(&m),
+            "must miss is_es_expr_module so dispatch falls through to the walker"
+        );
+        let ir = emit_llvm_ir(&m).expect("walker emit");
+        assert!(
+            ir.contains("define i32 @main"),
+            "walker must emit LLVM main:\n{ir}"
+        );
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "leftover expr must not use hello stub:\n{ir}"
+        );
+        assert!(
+            ir.contains("br i1"),
+            "walker should emit if/then control flow:\n{ir}"
         );
     }
 
