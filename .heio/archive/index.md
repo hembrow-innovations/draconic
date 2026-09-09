@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-726-check-split-host-api** — split check host_api.rs by host groups under file budget
 - **task-728-check-extract-checker** — Checker type and impl live in checker*.rs under file budget
 - **task-727-check-extract-binder** — Binder helpers live in private binder.rs; one Stmt walk remains
 - **task-771-check-bind-in-check** — bind and check share one Stmt/Expr walk; bind() wraps it

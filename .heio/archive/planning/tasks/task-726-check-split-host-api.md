@@ -2,14 +2,14 @@
 id: "task-726-check-split-host-api"
 title: "Split check host_api.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-765-host-catalog-sync"]
 sprint: "rust-dev-audit"
 slice: "slice-709-check-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
 
 # Split check host_api.rs
@@ -60,8 +60,8 @@ Files ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no host api rust file over 1000
-- [ ] cargo test -p draconic-check
+- [x] no host api rust file over 1000
+- [x] cargo test -p draconic-check
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,8 @@ Files ≤1000.
 
 **Explain this part:**
 Parallel with binder extract. Do not touch lib.rs Binder.
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-check --offline catalog_sync` — lose — catalog_sync still scanned only abi.rs after the runtime ABI/polyfill split.
+- **round 2**: `cargo test -p draconic-check --offline` — win — test result: ok. 278 passed including catalog_sync. host_api*.rs all ≤491.

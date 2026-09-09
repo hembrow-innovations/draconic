@@ -10,3 +10,4 @@ draconic-diagnostics.workspace = true
 
 [dev-dependencies]
 draconic-parser.workspace = true
+draconic-runtime.workspace = true
