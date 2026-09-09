@@ -2,14 +2,14 @@
 id: "task-741-runtime-split-host-abi-tests"
 title: "Split runtime host_abi_tests.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "rust-dev-audit"
 slice: "slice-714-runtime-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T22:30:00Z"
 ---
 
 # Split runtime host_abi_tests.rs
@@ -60,8 +60,8 @@ Each tests file ≤1000.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] no host_abi_tests*.rs or split host_*_tests.rs over 1000
-- [ ] cargo test -p draconic-runtime
+- [x] no host_abi_tests*.rs or split host_*_tests.rs over 1000
+- [x] cargo test -p draconic-runtime
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
@@ -72,3 +72,7 @@ Each tests file ≤1000.
 
 **Explain this part:**
 Declare new test modules from lib.rs with cfg(test).
+
+## Gauntlet
+
+- round 1: `cargo test -p draconic-runtime --offline` plus loc checks — win — 160 passed, host_abi_tests.rs 789, largest split host_tcp_tests.rs 922

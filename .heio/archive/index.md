@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-741-runtime-split-host-abi-tests** — split runtime host_abi_tests.rs by host seam under file budget
 - **task-736-pkg-split-cache** — split pkg cache.rs into fetch/checkout modules under file budget
 - **task-735-pkg-split-lib** — split pkg lib.rs into manifest/parse/validate/write under file budget
 - **task-732-ir-split-lower** — split IR lowering until every crates/draconic-ir .rs file is ≤1000

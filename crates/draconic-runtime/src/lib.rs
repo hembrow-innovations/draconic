@@ -48,11 +48,37 @@ mod host_bytes_tests;
 #[cfg(test)]
 mod host_cancel_tests;
 #[cfg(test)]
+mod host_dns_tests;
+#[cfg(test)]
+mod host_fs_tests;
+#[cfg(test)]
+mod host_http2_tests;
+#[cfg(test)]
+mod host_http_tests;
+#[cfg(test)]
+mod host_https_tests;
+#[cfg(test)]
 mod host_mutex_tests;
 #[cfg(test)]
 mod host_once_tests;
 #[cfg(test)]
+mod host_process_tests;
+#[cfg(test)]
+mod host_signal_tests;
+#[cfg(test)]
+mod host_stdio_tests;
+#[cfg(test)]
+mod host_tcp_tests;
+#[cfg(test)]
+mod host_time_tests;
+#[cfg(test)]
+mod host_tls_tests;
+#[cfg(test)]
+mod host_udp_tests;
+#[cfg(test)]
 mod host_worker_tests;
+#[cfg(test)]
+mod host_ws_tests;
 #[cfg(test)]
 mod r01_resource_limits_tests;
 
