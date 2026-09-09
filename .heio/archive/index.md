@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-754-llvm-split-over-1000** — split llvm files between 1001 and 1250 under file budget
 - **task-753-llvm-split-es-over-1250** — split llvm es files over 1250 under file budget
 - **task-752-llvm-split-host-over-1250** — split llvm host fs/http-server/tcp/ws-e2e/timers/tcp-async under file budget
 - **task-751-llvm-split-over-2000** — split llvm arrays/generators/ints/promise under file budget
