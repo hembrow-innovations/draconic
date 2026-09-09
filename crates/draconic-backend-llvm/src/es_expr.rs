@@ -73,6 +73,9 @@ pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
 }
 
 pub(crate) fn emit_es_expr_walk(module: &Module) -> Result<String, Diagnostic> {
+    if let Some(result) = crate::host_fs::walk_host_fs(module) {
+        return result;
+    }
     let info = classify_body(module).ok_or_else(|| diag("unsupported IR node"))?;
     emit_es_expr_with(module, &info)
 }

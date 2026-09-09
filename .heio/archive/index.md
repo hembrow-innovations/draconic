@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-764-llvm-fold-host-fs** — host_fs call-sites lower in the LLVM walker; is_host_fs_module gone from emit_llvm_ir_raw
 - **task-729-check-finish-lib** — leftover check lib.rs types, helpers, and tests split under file budget
 - **task-726-check-split-host-api** — split check host_api.rs by host groups under file budget
 - **task-728-check-extract-checker** — Checker type and impl live in checker*.rs under file budget

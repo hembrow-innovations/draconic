@@ -140,7 +140,6 @@ use host_cancel::{emit_host_cancel, is_host_cancel_module};
 use host_channels::{emit_host_channels, is_host_channels_module};
 use host_dns::{emit_host_dns, is_host_dns_module};
 use host_docs::{emit_host_docs, is_host_docs_module};
-use host_fs::{emit_host_fs, is_host_fs_module};
 use host_http::{emit_host_http, is_host_http_module};
 use host_http2::{emit_host_http2, is_host_http2_module};
 use host_http_server::{emit_host_http_server, is_host_http_server_module};
@@ -293,9 +292,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_host_path_module(module) {
         return emit_host_path(module);
-    }
-    if is_host_fs_module(module) {
-        return emit_host_fs(module);
     }
     if is_host_docs_module(module) {
         return emit_host_docs(module);

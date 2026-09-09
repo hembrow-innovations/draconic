@@ -34,6 +34,13 @@ pub(crate) fn is_host_fs_module(module: &Module) -> bool {
     classify(module).is_some()
 }
 
+pub(crate) fn walk_host_fs(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if classify(module).is_none() {
+        return None;
+    }
+    Some(emit_host_fs(module))
+}
+
 pub(crate) fn emit_host_fs(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not a host_fs module"))?;
     let mut em = Emitter::new(module, &info);
@@ -1841,6 +1848,25 @@ mod tests {
     }
 
     #[test]
+    fn leftover_read_file_text_emits_via_walker() {
+        let m = lower_src(
+            r#"
+            let t = readFileText("hello.txt");
+            "#,
+        );
+        assert!(
+            !crate::es_expr::is_es_expr_module(&m),
+            "FS IR must miss is_es_expr_module so the walker lowers it"
+        );
+        let ir = crate::emit_llvm_ir(&m).expect("walker emit");
+        assert!(ir.contains("draconic_rt_host_fs_read_text"), "{ir}");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "leftover host_fs must not use hello stub:\n{ir}"
+        );
+    }
+
+    #[test]
     fn read_file_text_emits() {
         let m = lower_src(
             r#"
@@ -1848,7 +1874,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_read_text"), "{ir}");
         assert!(ir.contains("draconic_rt_print_str"), "{ir}");
     }
@@ -1863,7 +1889,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_read_file"), "{ir}");
         assert!(ir.contains("draconic_rt_host_stdout_write"), "{ir}");
     }
@@ -1877,7 +1903,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_write_text"), "{ir}");
         assert!(ir.contains("draconic_rt_host_fs_read_text"), "{ir}");
     }
@@ -1892,7 +1918,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_append_text"), "{ir}");
     }
 
@@ -1906,7 +1932,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_write_file"), "{ir}");
     }
 
@@ -1919,7 +1945,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_exists"), "{ir}");
         assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
     }
@@ -1936,7 +1962,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_stat"), "{ir}");
         assert!(ir.contains("draconic_rt_print_f64"), "{ir}");
         assert!(ir.contains("draconic_rt_print_bool"), "{ir}");
@@ -1951,7 +1977,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_mkdir"), "{ir}");
     }
 
@@ -1963,7 +1989,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_mkdir_all"), "{ir}");
     }
 
@@ -1977,7 +2003,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_readdir"), "{ir}");
         assert!(ir.contains("draconic_rt_array_new"), "{ir}");
     }
@@ -1991,7 +2017,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_rmdir"), "{ir}");
         assert!(ir.contains("draconic_rt_host_fs_remove_file"), "{ir}");
     }
@@ -2010,7 +2036,7 @@ mod tests {
             "#,
         );
         assert!(is_host_fs_module(&m));
-        let ir = emit_host_fs(&m).expect("emit");
+        let ir = crate::emit_llvm_ir(&m).expect("emit");
         assert!(ir.contains("draconic_rt_host_fs_open"), "{ir}");
         assert!(ir.contains("draconic_rt_host_fs_handle_write"), "{ir}");
         assert!(ir.contains("draconic_rt_host_fs_handle_seek"), "{ir}");
