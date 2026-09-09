@@ -1,0 +1,786 @@
+//! ROADMAP K07 / K09: `draconic build` lock pins, auto-fetch, and `--offline`.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn draconic() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_draconic"))
+}
+
+fn temp_dir() -> PathBuf {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let mut dir = std::env::temp_dir();
+    dir.push(format!(
+        "draconic-cli-build-{}-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn run_ok(cmd: &mut Command) -> (String, String) {
+    let output = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn draconic");
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        output.status.success(),
+        "command failed: {:?}\nstdout={stdout}\nstderr={stderr}",
+        cmd
+    );
+    (stdout, stderr)
+}
+
+/// ROADMAP K07.01: `draconic build` auto-fetches missing locked cache entries.
+#[test]
+fn build_auto_fetches_missing_locked_cache() {
+    let root = temp_dir();
+
+    // Upstream fixture package (tagged).
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+    let oid = git_stdout(&["rev-parse", "HEAD"], &upstream);
+
+    // Populate cache once to compute content hash, then wipe cache.
+    let seed_cache = root.join("seed-cache");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg({
+                let ws = root.join("seed-ws");
+                fs::create_dir_all(&ws).unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
+                ws
+            })
+            .arg("--cache-dir")
+            .arg(&seed_cache),
+    );
+    assert_eq!(code, 0, "seed get failed: {stderr}");
+    let lock_src = fs::read_to_string(root.join("seed-ws/draconic.lock")).unwrap();
+    let content_hash = lock_src
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("content_hash = \""))
+        .and_then(|s| s.strip_suffix('"'))
+        .expect("content_hash in seed lock")
+        .to_string();
+
+    // Consumer workspace: lock present, default cache empty.
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \"1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        ws.join("draconic.lock"),
+        format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.0.0"
+git_url = "{}"
+commit_oid = "{oid}"
+content_hash = "{content_hash}"
+"#,
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let cache_mod = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid);
+    assert!(
+        !cache_mod.is_dir(),
+        "cache must be empty before build auto-fetch"
+    );
+
+    let out = ws.join("out.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+
+    assert!(
+        cache_mod.is_dir(),
+        "build should materialize locked checkout at {}",
+        cache_mod.display()
+    );
+    let js = fs::read_to_string(&out).expect("js");
+    assert!(
+        js.contains("41") || js.contains("value") || js.contains("inc"),
+        "{js}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// ROADMAP K07.02: `draconic build --offline` uses cache only; missing pin → fixit, no fetch.
+#[test]
+fn build_offline_fails_when_cache_missing() {
+    let root = temp_dir();
+
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+    let oid = git_stdout(&["rev-parse", "HEAD"], &upstream);
+
+    let seed_cache = root.join("seed-cache");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg({
+                let ws = root.join("seed-ws");
+                fs::create_dir_all(&ws).unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
+                ws
+            })
+            .arg("--cache-dir")
+            .arg(&seed_cache),
+    );
+    assert_eq!(code, 0, "seed get failed: {stderr}");
+    let lock_src = fs::read_to_string(root.join("seed-ws/draconic.lock")).unwrap();
+    let content_hash = lock_src
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("content_hash = \""))
+        .and_then(|s| s.strip_suffix('"'))
+        .expect("content_hash in seed lock")
+        .to_string();
+
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \"1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    fs::write(
+        ws.join("draconic.lock"),
+        format!(
+            r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.0.0"
+git_url = "{}"
+commit_oid = "{oid}"
+content_hash = "{content_hash}"
+"#,
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let cache_mod = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid);
+    assert!(
+        !cache_mod.is_dir(),
+        "cache must be empty before offline build"
+    );
+
+    let out = ws.join("out.js");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert_ne!(code, 0, "offline build must fail when cache missing");
+    assert!(
+        stderr.contains("offline") || stderr.contains("--offline"),
+        "stderr should mention offline: {stderr}"
+    );
+    assert!(
+        stderr.contains("github.com/org/lib") || stderr.contains("cache"),
+        "stderr should name missing package or cache: {stderr}"
+    );
+    assert!(
+        stderr.contains("draconic get") || stderr.contains("without --offline"),
+        "stderr should include fixit: {stderr}"
+    );
+    assert!(!cache_mod.is_dir(), "offline must not fetch into cache");
+    assert!(!out.is_file(), "offline miss must not write output");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// ROADMAP K07.03: build prefers lock pins; does not float to newer tags when lock present.
+#[test]
+fn build_prefers_lock_pins_does_not_float() {
+    let root = temp_dir();
+
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+    let oid_v1 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+
+    // Publish a newer tag; a floating resolver would pick this.
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 99;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v2.0.0"], &upstream);
+    git_ok(&["tag", "v2.0.0"], &upstream);
+    let oid_v2 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+    assert_ne!(oid_v1, oid_v2);
+
+    // Seed lock content_hash for the pinned v1 tree via a throwaway get.
+    let seed_cache = root.join("seed-cache");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg({
+                let ws = root.join("seed-ws");
+                fs::create_dir_all(&ws).unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
+                ws
+            })
+            .arg("--cache-dir")
+            .arg(&seed_cache),
+    );
+    assert_eq!(code, 0, "seed get failed: {stderr}");
+    let lock_src = fs::read_to_string(root.join("seed-ws/draconic.lock")).unwrap();
+    let content_hash = lock_src
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("content_hash = \""))
+        .and_then(|s| s.strip_suffix('"'))
+        .expect("content_hash in seed lock")
+        .to_string();
+
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    // Manifest req would float to 2.0.0 if build re-resolved tags.
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \">=1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let lock_text = format!(
+        r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.0.0"
+git_url = "{}"
+commit_oid = "{oid_v1}"
+content_hash = "{content_hash}"
+"#,
+        upstream.display()
+    );
+    fs::write(ws.join("draconic.lock"), &lock_text).unwrap();
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let out = ws.join("out.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+
+    let cache_v1 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v1);
+    let cache_v2 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v2);
+    assert!(cache_v1.is_dir(), "locked v1 checkout must be present");
+    assert!(
+        !cache_v2.is_dir(),
+        "build must not materialize floated v2 OID"
+    );
+
+    let js = fs::read_to_string(&out).expect("js");
+    assert!(
+        js.contains("41"),
+        "build must emit locked pin value 41, got:\n{js}"
+    );
+    assert!(
+        !js.contains("99"),
+        "build must not float to v2 value 99, got:\n{js}"
+    );
+
+    let lock_after = fs::read_to_string(ws.join("draconic.lock")).unwrap();
+    assert_eq!(
+        lock_after, lock_text,
+        "build must not rewrite lock when pins are present"
+    );
+    assert!(
+        lock_after.contains(&oid_v1) && lock_after.contains("1.0.0"),
+        "lock pin preserved: {lock_after}"
+    );
+    assert!(
+        !lock_after.contains(&oid_v2) && !lock_after.contains("2.0.0"),
+        "lock must not float: {lock_after}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// ROADMAP K07.02: `draconic build --offline` succeeds when locked checkout is already cached.
+#[test]
+fn build_offline_succeeds_when_cache_present() {
+    let root = temp_dir();
+
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \"1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg(&ws),
+    );
+    assert_eq!(code, 0, "get failed: {stderr}");
+
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let out = ws.join("out.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+
+    assert!(out.is_file(), "offline build with warm cache must emit js");
+    let js = fs::read_to_string(&out).expect("js");
+    assert!(
+        js.contains("41") || js.contains("value") || js.contains("inc"),
+        "{js}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// ROADMAP K07: combined auto-fetch / `--offline` / lock-pin build (parent of K07.01–K07.03).
+#[test]
+fn k07_combined_build_auto_fetch_offline_lock_pins() {
+    let root = temp_dir();
+
+    let upstream = root.join("upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 41;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+    let oid_v1 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+
+    fs::write(
+        upstream.join("index.drac"),
+        "export let value = 99;\nexport function inc(x) { return x + 1; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v2.0.0"], &upstream);
+    git_ok(&["tag", "v2.0.0"], &upstream);
+    let oid_v2 = git_stdout(&["rev-parse", "HEAD"], &upstream);
+    assert_ne!(oid_v1, oid_v2);
+
+    let seed_cache = root.join("seed-cache");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/org/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg({
+                let ws = root.join("seed-ws");
+                fs::create_dir_all(&ws).unwrap();
+                fs::write(
+                    ws.join("draconic.toml"),
+                    "module = \"github.com/acme/seed\"\n",
+                )
+                .unwrap();
+                ws
+            })
+            .arg("--cache-dir")
+            .arg(&seed_cache),
+    );
+    assert_eq!(code, 0, "seed get failed: {stderr}");
+    let lock_src = fs::read_to_string(root.join("seed-ws/draconic.lock")).unwrap();
+    let content_hash = lock_src
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("content_hash = \""))
+        .and_then(|s| s.strip_suffix('"'))
+        .expect("content_hash in seed lock")
+        .to_string();
+
+    let ws = root.join("app");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        format!(
+            "module = \"github.com/acme/app\"\n\n[dependencies]\n\"github.com/org/lib\" = \">=1.0.0\"\n\n[urls]\n\"github.com/org/lib\" = \"{}\"\n",
+            upstream.display()
+        ),
+    )
+    .unwrap();
+    let lock_text = format!(
+        r#"version = 1
+
+[[package]]
+path = "github.com/org/lib"
+version = "1.0.0"
+git_url = "{}"
+commit_oid = "{oid_v1}"
+content_hash = "{content_hash}"
+"#,
+        upstream.display()
+    );
+    fs::write(ws.join("draconic.lock"), &lock_text).unwrap();
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        "import { value, inc } from \"github.com/org/lib\";\nlet a = value;\nlet b = inc(value);\n",
+    )
+    .unwrap();
+
+    let cache_v1 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v1);
+    let cache_v2 = ws
+        .join(".draconic/mod-cache/mod/github.com/org/lib")
+        .join(&oid_v2);
+    assert!(
+        !cache_v1.is_dir(),
+        "cache must be empty before combined K07"
+    );
+
+    let out = ws.join("out.js");
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert_ne!(code, 0, "offline miss must fail");
+    assert!(
+        stderr.contains("offline") || stderr.contains("--offline"),
+        "stderr should mention offline: {stderr}"
+    );
+    assert!(
+        stderr.contains("draconic get") || stderr.contains("without --offline"),
+        "stderr should include fixit: {stderr}"
+    );
+    assert!(!cache_v1.is_dir(), "offline must not fetch");
+    assert!(!out.is_file(), "offline miss must not write output");
+
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(cache_v1.is_dir(), "online build must auto-fetch locked v1");
+    assert!(
+        !cache_v2.is_dir(),
+        "build must not materialize floated v2 OID"
+    );
+    let js = fs::read_to_string(&out).expect("js");
+    assert!(js.contains("41"), "locked pin value 41, got:\n{js}");
+    assert!(
+        !js.contains("99"),
+        "must not float to v2 value 99, got:\n{js}"
+    );
+    let lock_after = fs::read_to_string(ws.join("draconic.lock")).unwrap();
+    assert_eq!(lock_after, lock_text, "build must not rewrite present lock");
+
+    let out2 = ws.join("out-offline.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg("--offline")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out2),
+    );
+    assert!(out2.is_file(), "offline hit must emit js");
+    let js2 = fs::read_to_string(&out2).expect("js");
+    assert!(js2.contains("41"), "offline hit still locked pin:\n{js2}");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// ROADMAP K09.02: E2E CLI build of consumer importing module path from temp git fixture.
+/// get → lock+cache → build --target js → Node observes imported values.
+#[test]
+fn k09_02_build_consumer_importing_module_path_from_fixture() {
+    let root = temp_dir();
+
+    let upstream = root.join("lib-upstream");
+    fs::create_dir_all(&upstream).unwrap();
+    git_ok(&["init"], &upstream);
+    git_ok(&["config", "user.email", "test@draconic.local"], &upstream);
+    git_ok(&["config", "user.name", "Draconic Test"], &upstream);
+    git_ok(&["checkout", "-B", "main"], &upstream);
+    fs::write(
+        upstream.join("index.drac"),
+        "export let answer = 42;\nexport function add(a, b) { return a + b; }\n",
+    )
+    .unwrap();
+    git_ok(&["add", "."], &upstream);
+    git_ok(&["commit", "-m", "v1.0.0"], &upstream);
+    git_ok(&["tag", "v1.0.0"], &upstream);
+
+    let ws = root.join("consumer");
+    fs::create_dir_all(&ws).unwrap();
+    fs::write(
+        ws.join("draconic.toml"),
+        "module = \"github.com/fixture/consumer\"\n",
+    )
+    .unwrap();
+    let (code, _stdout, stderr) = run_code(
+        draconic()
+            .arg("get")
+            .arg("github.com/fixture/lib@1.0.0")
+            .arg("--url")
+            .arg(upstream.to_str().unwrap())
+            .arg("--dir")
+            .arg(&ws),
+    );
+    assert_eq!(code, 0, "get failed: {stderr}");
+    assert!(ws.join("draconic.lock").is_file(), "get must write lock");
+
+    let main = ws.join("main.drac");
+    fs::write(
+        &main,
+        r#"import { answer, add } from "github.com/fixture/lib";
+let sum = add(answer, 8);
+let a = answer;
+"#,
+    )
+    .unwrap();
+
+    let out = ws.join("out.js");
+    run_ok(
+        draconic()
+            .arg("build")
+            .arg("--target")
+            .arg("js")
+            .arg(&main)
+            .arg("-o")
+            .arg(&out),
+    );
+    assert!(out.is_file(), "build must emit js");
+    let js = fs::read_to_string(&out).expect("js");
+
+    let node = Command::new("node")
+        .arg("-e")
+        .arg(format!(
+            "{js}\nif (a !== 42) {{ console.error('a', a); process.exit(1); }}\nif (sum !== 50) {{ console.error('sum', sum); process.exit(1); }}"
+        ))
+        .output()
+        .expect("node");
+    assert!(
+        node.status.success(),
+        "node failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&node.stdout),
+        String::from_utf8_lossy(&node.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+fn git_ok(args: &[&str], cwd: &Path) {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_AUTHOR_NAME", "Draconic Test")
+        .env("GIT_AUTHOR_EMAIL", "test@draconic.local")
+        .env("GIT_COMMITTER_NAME", "Draconic Test")
+        .env("GIT_COMMITTER_EMAIL", "test@draconic.local")
+        .output()
+        .expect("spawn git");
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn git_stdout(args: &[&str], cwd: &Path) -> String {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .expect("spawn git");
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+fn run_code(cmd: &mut Command) -> (i32, String, String) {
+    let output = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("spawn draconic");
+    let code = output.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    (code, stdout, stderr)
+}
