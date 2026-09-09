@@ -2,14 +2,14 @@
 id: "task-746-llvm-split-lib"
 title: "Split llvm lib.rs"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-763-llvm-contract-dispatch"]
 sprint: "rust-dev-audit"
 slice: "slice-712-backend-llvm-file-budget"
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T21:30:00Z"
 ---
 
 # Split llvm lib.rs
@@ -60,10 +60,10 @@ Named files ≤1000. No new file over 1250.
 - size-file-budget: target ≤1000 LOC, hard cap 1250
 
 **Acceptance criteria:**
-- [ ] each named file ≤1000 or gone after split
-- [ ] no new sibling over 1000
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no inkwell/llvm-sys
+- [x] each named file ≤1000 or gone after split
+- [x] no new sibling over 1000
+- [x] cargo test -p draconic-backend-llvm
+- [x] no inkwell/llvm-sys
 
 **Out of scope:**
 - Language behaviour or ROADMAP rows
