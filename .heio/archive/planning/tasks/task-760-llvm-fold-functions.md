@@ -2,14 +2,14 @@
 id: "task-760-llvm-fold-functions"
 title: "Fold es_functions into the LLVM walker"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-759-llvm-default-walker"]
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T22:00:00Z"
 ---
 
 # Fold es_functions into the LLVM walker
@@ -59,9 +59,9 @@ Function nodes lower in the default walker. Tests through emit_llvm_ir stay gree
 - size-file-budget: no new file over 1000; shrinking es_functions.rs may delete it
 
 **Acceptance criteria:**
-- [ ] no is_es_functions_module in emit_llvm_ir_raw
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new is_* adapter
+- [x] no is_es_functions_module in emit_llvm_ir_raw
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new is_* adapter
 
 **Out of scope:**
 - Classes, host I/O, fixture printers
@@ -70,3 +70,10 @@ Function nodes lower in the default walker. Tests through emit_llvm_ir stay gree
 
 **Explain this part:**
 If a nested function case only the old adapter handled, teach the walker. Do not keep a parallel functions lowerer.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline; rg is_es_functions_module crates/draconic-backend-llvm/src/lib.rs
+- **result**: win
+- **gap**: none

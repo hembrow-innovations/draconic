@@ -44,12 +44,12 @@ const MAX_ARGS: usize = 8;
 /// qNaN payload marking JS `undefined` for default-parameter application.
 const UNDEF_BITS: u64 = 0x7FF8_0000_0000_0001;
 
-pub(crate) fn is_es_functions_module(module: &Module) -> bool {
-    classify(module).is_some()
+pub(crate) fn walk_es_functions(module: &Module) -> Option<Result<String, Diagnostic>> {
+    let info = classify(module)?;
+    Some(emit_classified(module, info))
 }
 
-pub(crate) fn emit_es_functions(module: &Module) -> Result<String, Diagnostic> {
-    let info = classify(module).ok_or_else(|| diag("internal: not an es_functions module"))?;
+fn emit_classified(module: &Module, info: ModuleInfo) -> Result<String, Diagnostic> {
     let mut em = Emitter::new_dedicated_labels(module, FnState::new(&info));
     em.emit_module(&info)?;
     Ok(em.finish())
@@ -830,18 +830,37 @@ fn typeof_local_ok(
     else {
         return false;
     };
-    let Expr::Local { id, .. } = arg.as_ref() else {
-        return false;
+    let id = match arg.as_ref() {
+        Expr::Local { id, .. } => *id,
+        Expr::IdentName { name, .. } => {
+            let Some(id) = fn_id_for_name(name, by_id, fn_binding).or_else(|| {
+                by_id
+                    .iter()
+                    .filter(|(id, loc)| {
+                        loc.name == *name
+                            && (if_fn_slots.contains(id)
+                                || if_fn_primary.contains_key(id)
+                                || var_primary.contains_key(id))
+                    })
+                    .map(|(id, _)| *id)
+                    .max_by_key(|id| id.0)
+            }) else {
+                return false;
+            };
+            id
+        }
+        _ => return false,
     };
-    if if_fn_slots.contains(id) || if_fn_primary.contains_key(id) || fn_binding.contains_key(id) {
+    if if_fn_slots.contains(&id) || if_fn_primary.contains_key(&id) || fn_binding.contains_key(&id)
+    {
         return true;
     }
     // `typeof` of a number/any local (incl. hoisted `var` that may be undefined).
-    if var_primary.contains_key(id) {
+    if var_primary.contains_key(&id) {
         return true;
     }
     by_id
-        .get(id)
+        .get(&id)
         .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
 }
 
@@ -873,14 +892,22 @@ fn call_if_fn_ok(
     }) {
         return false;
     }
-    let Expr::Local { id, .. } = callee.as_ref() else {
+    let Some(id) = callee_fn_id(callee, by_id, fn_binding).or_else(|| match callee.as_ref() {
+        Expr::Local { id, .. } => Some(*id),
+        Expr::IdentName { name, .. } => by_id
+            .iter()
+            .filter(|(id, loc)| loc.name == *name && if_fn_slots.contains(id))
+            .map(|(id, _)| *id)
+            .max_by_key(|id| id.0),
+        _ => None,
+    }) else {
         return false;
     };
-    if !if_fn_slots.contains(id) && !fn_binding.contains_key(id) {
+    if !if_fn_slots.contains(&id) && !fn_binding.contains_key(&id) {
         return false;
     }
     // Arity: use any candidate with matching fixed arity, or static binding.
-    if let Some(&idx) = fn_binding.get(id) {
+    if let Some(&idx) = fn_binding.get(&id) {
         return call_arity_ok(&functions[idx], args.len());
     }
     true
@@ -1114,9 +1141,11 @@ fn push_fn_with_bound(
         bound_ext.insert(a);
     }
     let mut free = HashSet::new();
-    collect_free_in_body(body, &bound_ext, &mut free);
+    collect_free_in_body(body, &bound_ext, by_id, &mut free);
+    collect_ident_free_in_body(body, &bound_ext, by_id, &mut free);
     for e in defaults.iter().flatten() {
-        collect_free_in_expr(e, &bound_ext, &mut free);
+        collect_free_in_expr(e, &bound_ext, by_id, &mut free);
+        collect_ident_free_in_expr(e, &bound_ext, by_id, &mut free);
     }
     // Nested free through nested Function decls/exprs already in body free collection
     // for exprs; nested Stmt::Function free handled via collect_free that skips nested
@@ -1190,25 +1219,30 @@ fn collect_bound_in_body(body: &[Stmt], bound: &mut HashSet<LocalId>) {
     }
 }
 
-fn collect_free_in_body(body: &[Stmt], bound: &HashSet<LocalId>, free: &mut HashSet<LocalId>) {
+fn collect_free_in_body(
+    body: &[Stmt],
+    bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    free: &mut HashSet<LocalId>,
+) {
     for stmt in body {
         match stmt {
-            Stmt::Return { value: Some(v) } => collect_free_in_expr(v, bound, free),
+            Stmt::Return { value: Some(v) } => collect_free_in_expr(v, bound, by_id, free),
             Stmt::Declare { init, .. } => {
                 if let Some(e) = init {
-                    collect_free_in_expr(e, bound, free);
+                    collect_free_in_expr(e, bound, by_id, free);
                 }
             }
-            Stmt::Block { body } => collect_free_in_body(body, bound, free),
+            Stmt::Block { body } => collect_free_in_body(body, bound, by_id, free),
             Stmt::If {
                 test,
                 consequent,
                 alternate,
             } => {
-                collect_free_in_expr(test, bound, free);
-                collect_free_in_body(std::slice::from_ref(consequent), bound, free);
+                collect_free_in_expr(test, bound, by_id, free);
+                collect_free_in_body(std::slice::from_ref(consequent), bound, by_id, free);
                 if let Some(a) = alternate {
-                    collect_free_in_body(std::slice::from_ref(a), bound, free);
+                    collect_free_in_body(std::slice::from_ref(a), bound, by_id, free);
                 }
             }
             Stmt::ForOf {
@@ -1220,54 +1254,59 @@ fn collect_free_in_body(body: &[Stmt], bound: &HashSet<LocalId>, free: &mut Hash
                 if *is_await {
                     continue;
                 }
-                collect_free_in_expr(right, bound, free);
-                collect_free_in_body(std::slice::from_ref(left), bound, free);
-                collect_free_in_body(std::slice::from_ref(body), bound, free);
+                collect_free_in_expr(right, bound, by_id, free);
+                collect_free_in_body(std::slice::from_ref(left), bound, by_id, free);
+                collect_free_in_body(std::slice::from_ref(body), bound, by_id, free);
             }
-            Stmt::Expr { expr } => collect_free_in_expr(expr, bound, free),
+            Stmt::Expr { expr } => collect_free_in_expr(expr, bound, by_id, free),
             Stmt::Function { .. } => {}
             Stmt::Labeled { body, .. } => {
-                collect_free_in_body(std::slice::from_ref(body), bound, free)
+                collect_free_in_body(std::slice::from_ref(body), bound, by_id, free)
             }
             _ => {}
         }
     }
 }
 
-fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSet<LocalId>) {
+fn collect_free_in_expr(
+    expr: &Expr,
+    bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    free: &mut HashSet<LocalId>,
+) {
     match expr {
         Expr::Local { id, .. } => {
             if !bound.contains(id) {
                 free.insert(*id);
             }
         }
-        Expr::Unary { arg, .. } => collect_free_in_expr(arg, bound, free),
+        Expr::Unary { arg, .. } => collect_free_in_expr(arg, bound, by_id, free),
         Expr::Binary { left, right, .. } => {
-            collect_free_in_expr(left, bound, free);
-            collect_free_in_expr(right, bound, free);
+            collect_free_in_expr(left, bound, by_id, free);
+            collect_free_in_expr(right, bound, by_id, free);
         }
-        Expr::Assign { value, .. } => collect_free_in_expr(value, bound, free),
+        Expr::Assign { value, .. } => collect_free_in_expr(value, bound, by_id, free),
         Expr::Call { callee, args, .. } => {
-            collect_free_in_expr(callee, bound, free);
+            collect_free_in_expr(callee, bound, by_id, free);
             for a in args {
                 if let Arg::Expr(e) = a {
-                    collect_free_in_expr(e, bound, free);
+                    collect_free_in_expr(e, bound, by_id, free);
                 }
             }
         }
         Expr::Member {
             object, property, ..
         } => {
-            collect_free_in_expr(object, bound, free);
-            collect_free_in_expr(property, bound, free);
+            collect_free_in_expr(object, bound, by_id, free);
+            collect_free_in_expr(property, bound, by_id, free);
         }
         Expr::Object { properties, .. } => {
             for p in properties {
                 match p {
                     ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
-                        collect_free_in_expr(value, bound, free);
+                        collect_free_in_expr(value, bound, by_id, free);
                     }
-                    ObjectProp::Spread(e) => collect_free_in_expr(e, bound, free),
+                    ObjectProp::Spread(e) => collect_free_in_expr(e, bound, by_id, free),
                 }
             }
         }
@@ -1294,7 +1333,8 @@ fn collect_free_in_expr(expr: &Expr, bound: &HashSet<LocalId>, free: &mut HashSe
                 nested_bound.insert(*n);
             }
             let mut nested_free = HashSet::new();
-            collect_free_in_body(body, &nested_bound, &mut nested_free);
+            collect_free_in_body(body, &nested_bound, by_id, &mut nested_free);
+            collect_ident_free_in_body(body, &nested_bound, by_id, &mut nested_free);
             for id in nested_free {
                 if !bound.contains(&id) {
                     free.insert(id);
@@ -1325,7 +1365,8 @@ fn collect_nested_free_through(
             let (param_ids, _, rest) = simple_params(params, by_id)?;
             let nested_bound = bound_in_fn(&param_ids, rest, body);
             let mut nested_free = HashSet::new();
-            collect_free_in_body(body, &nested_bound, &mut nested_free);
+            collect_free_in_body(body, &nested_bound, by_id, &mut nested_free);
+            collect_ident_free_in_body(body, &nested_bound, by_id, &mut nested_free);
             for s in body {
                 collect_nested_free_through(s, &nested_bound, by_id, &mut nested_free)?;
             }
@@ -1431,6 +1472,115 @@ fn call_arity_ok_params(
 
 fn undef_double_const() -> String {
     format!("bitcast (i64 {UNDEF_BITS} to double)")
+}
+
+fn fn_id_for_name(
+    name: &str,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_binding: &HashMap<LocalId, usize>,
+) -> Option<LocalId> {
+    fn_binding
+        .keys()
+        .copied()
+        .filter(|id| by_id.get(id).is_some_and(|l| l.name == name))
+        .max_by_key(|id| id.0)
+}
+
+fn callee_fn_id(
+    callee: &Expr,
+    by_id: &HashMap<LocalId, &Local>,
+    fn_binding: &HashMap<LocalId, usize>,
+) -> Option<LocalId> {
+    match callee {
+        Expr::Local { id, .. } => Some(*id),
+        Expr::IdentName { name, .. } => fn_id_for_name(name, by_id, fn_binding),
+        _ => None,
+    }
+}
+
+fn number_id_named(name: &str, by_id: &HashMap<LocalId, &Local>) -> Option<LocalId> {
+    by_id
+        .iter()
+        .filter(|(_, loc)| loc.name == name && matches!(loc.ty, Type::Number | Type::Any))
+        .map(|(id, _)| *id)
+        .min_by_key(|id| id.0)
+}
+
+fn collect_ident_free_in_body(
+    body: &[Stmt],
+    bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    free: &mut HashSet<LocalId>,
+) {
+    for stmt in body {
+        collect_ident_free_in_stmt(stmt, bound, by_id, free);
+    }
+}
+
+fn collect_ident_free_in_stmt(
+    stmt: &Stmt,
+    bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    free: &mut HashSet<LocalId>,
+) {
+    match stmt {
+        Stmt::Return { value: Some(v) } => collect_ident_free_in_expr(v, bound, by_id, free),
+        Stmt::Declare { init: Some(e), .. } => collect_ident_free_in_expr(e, bound, by_id, free),
+        Stmt::Expr { expr } => collect_ident_free_in_expr(expr, bound, by_id, free),
+        Stmt::Block { body } => collect_ident_free_in_body(body, bound, by_id, free),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            collect_ident_free_in_expr(test, bound, by_id, free);
+            collect_ident_free_in_stmt(consequent, bound, by_id, free);
+            if let Some(a) = alternate {
+                collect_ident_free_in_stmt(a, bound, by_id, free);
+            }
+        }
+        Stmt::Labeled { body, .. } => collect_ident_free_in_stmt(body, bound, by_id, free),
+        Stmt::Function { .. } => {}
+        _ => {}
+    }
+}
+
+fn collect_ident_free_in_expr(
+    expr: &Expr,
+    bound: &HashSet<LocalId>,
+    by_id: &HashMap<LocalId, &Local>,
+    free: &mut HashSet<LocalId>,
+) {
+    match expr {
+        Expr::IdentName { name, .. } => {
+            if let Some(id) = number_id_named(name, by_id) {
+                if !bound.contains(&id) {
+                    free.insert(id);
+                }
+            }
+        }
+        Expr::Unary { arg, .. } => collect_ident_free_in_expr(arg, bound, by_id, free),
+        Expr::Binary { left, right, .. } => {
+            collect_ident_free_in_expr(left, bound, by_id, free);
+            collect_ident_free_in_expr(right, bound, by_id, free);
+        }
+        Expr::Assign { value, .. } => collect_ident_free_in_expr(value, bound, by_id, free),
+        Expr::Call { callee, args, .. } => {
+            collect_ident_free_in_expr(callee, bound, by_id, free);
+            for a in args {
+                if let Arg::Expr(e) = a {
+                    collect_ident_free_in_expr(e, bound, by_id, free);
+                }
+            }
+        }
+        Expr::Member {
+            object, property, ..
+        } => {
+            collect_ident_free_in_expr(object, bound, by_id, free);
+            collect_ident_free_in_expr(property, bound, by_id, free);
+        }
+        _ => {}
+    }
 }
 
 fn body_returns_fn(body: &[Stmt]) -> bool {
@@ -1674,6 +1824,9 @@ fn number_expr_ok(
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
+        Expr::IdentName { name, .. } => number_id_named(name, by_id).is_some_and(|id| {
+            !fn_arities.contains_key(&id) && !functions.iter().any(|f| f.rest == Some(id))
+        }),
         Expr::Local { id, ty } => {
             if fn_arities.contains_key(id) {
                 return false;
@@ -1725,9 +1878,12 @@ fn number_expr_ok(
                 return false;
             }
             match callee.as_ref() {
-                Expr::Local { id, .. } => {
-                    let Some(&idx) = fn_binding.get(id) else {
-                        return fn_arities.get(id).is_some_and(|n| args.len() <= *n);
+                Expr::Local { .. } | Expr::IdentName { .. } => {
+                    let Some(id) = callee_fn_id(callee, by_id, fn_binding) else {
+                        return false;
+                    };
+                    let Some(&idx) = fn_binding.get(&id) else {
+                        return fn_arities.get(&id).is_some_and(|n| args.len() <= *n);
                     };
                     call_arity_ok(&functions[idx], args.len())
                 }
@@ -1797,10 +1953,10 @@ fn number_expr_ok(
                     }) {
                         return false;
                     }
-                    let Expr::Local { id, .. } = inner.as_ref() else {
+                    let Some(id) = callee_fn_id(inner, by_id, fn_binding) else {
                         return false;
                     };
-                    let Some(&caller_idx) = fn_binding.get(id) else {
+                    let Some(&caller_idx) = fn_binding.get(&id) else {
                         return false;
                     };
                     let f = &functions[caller_idx];
@@ -1922,6 +2078,23 @@ impl<'a> Emitter<'a> {
     /// Same-name `var` redecls / uses share one primary storage slot.
     fn resolve_var_slot(&self, id: LocalId) -> LocalId {
         self.state.info.var_primary.get(&id).copied().unwrap_or(id)
+    }
+
+    fn fn_id_for_ident(&self, name: &str) -> Option<LocalId> {
+        self.state
+            .info
+            .fn_binding
+            .keys()
+            .copied()
+            .chain(self.state.info.if_fn_slots.iter().copied())
+            .chain(self.state.info.if_fn_primary.keys().copied())
+            .filter(|id| {
+                self.module
+                    .locals
+                    .iter()
+                    .any(|l| l.id == *id && l.name == name)
+            })
+            .max_by_key(|id| id.0)
     }
 
     fn emit_module(&mut self, info: &ModuleInfo) -> Result<(), Diagnostic> {
@@ -2726,6 +2899,31 @@ impl<'a> Emitter<'a> {
     fn emit_number_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Number { raw, .. } => Ok(format_number_const(raw)?),
+            Expr::IdentName { name, .. } => {
+                let id = self
+                    .state
+                    .allocas
+                    .keys()
+                    .copied()
+                    .filter(|id| {
+                        self.module
+                            .locals
+                            .iter()
+                            .any(|l| l.id == *id && l.name == *name)
+                    })
+                    .max_by_key(|id| id.0)
+                    .ok_or_else(|| diag("es_functions: unbound ident"))?;
+                let slot = self.resolve_var_slot(id);
+                let ptr = self
+                    .state
+                    .allocas
+                    .get(&slot)
+                    .cloned()
+                    .ok_or_else(|| diag(format!("internal: unallocated local %{}", slot.0)))?;
+                let t = self.fresh();
+                writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
+                Ok(t)
+            }
             Expr::Local { id, .. } => {
                 let slot = self.resolve_var_slot(*id);
                 let ptr = self
@@ -2875,10 +3073,17 @@ impl<'a> Emitter<'a> {
         }
 
         match callee {
-            Expr::Local { id, .. } => {
-                let primary = self.state.info.if_fn_primary.get(id).copied().or_else(|| {
-                    if self.state.info.if_fn_slots.contains(id) {
-                        Some(*id)
+            Expr::Local { .. } | Expr::IdentName { .. } => {
+                let id = match callee {
+                    Expr::Local { id, .. } => *id,
+                    Expr::IdentName { name, .. } => self
+                        .fn_id_for_ident(name)
+                        .ok_or_else(|| diag("es_functions: call to unbound function name"))?,
+                    _ => unreachable!(),
+                };
+                let primary = self.state.info.if_fn_primary.get(&id).copied().or_else(|| {
+                    if self.state.info.if_fn_slots.contains(&id) {
+                        Some(id)
                     } else {
                         None
                     }
@@ -2892,7 +3097,7 @@ impl<'a> Emitter<'a> {
                     .state
                     .info
                     .fn_binding
-                    .get(id)
+                    .get(&id)
                     .ok_or_else(|| diag("es_functions: call to unbound function local"))?;
                 self.emit_direct_call(idx, &arg_vals)
             }
@@ -2933,8 +3138,17 @@ impl<'a> Emitter<'a> {
                 // Higher-order: evaluate inner call (sets @es_ret_fn / caps if returns fn).
                 let _inner_ret = self.emit_call(inner, inner_args)?;
                 let idx = match inner.as_ref() {
-                    Expr::Local { id, .. } => {
-                        let caller_idx = *self.state.info.fn_binding.get(id).ok_or_else(|| {
+                    Expr::Local { .. } | Expr::IdentName { .. } => {
+                        let id = match inner.as_ref() {
+                            Expr::Local { id, .. } => *id,
+                            Expr::IdentName { name, .. } => {
+                                self.fn_id_for_ident(name).ok_or_else(|| {
+                                    diag("es_functions: higher-order call unbound callee")
+                                })?
+                            }
+                            _ => unreachable!(),
+                        };
+                        let caller_idx = *self.state.info.fn_binding.get(&id).ok_or_else(|| {
                             diag("es_functions: higher-order call unbound callee")
                         })?;
                         returned_fn_idx_in_body(

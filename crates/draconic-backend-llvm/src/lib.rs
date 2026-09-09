@@ -104,7 +104,6 @@ use es_encoding::{emit_es_encoding, is_es_encoding_module};
 use es_eval::{emit_es_eval, is_es_eval_module};
 use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
 use es_expr::{emit_es_expr, emit_es_expr_walk, is_es_expr_module};
-use es_functions::{emit_es_functions, is_es_functions_module};
 use es_generators::{emit_es_generators, is_es_generators_module};
 use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
 use es_legacy::{emit_es_legacy, is_es_legacy_module};
@@ -427,9 +426,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_es_param_dstr_module(module) {
         return emit_es_param_dstr(module);
-    }
-    if is_es_functions_module(module) {
-        return emit_es_functions(module);
     }
     if is_es_var_for_module(module) {
         return emit_es_var_for(module);
@@ -1026,6 +1022,32 @@ mod tests {
         assert!(
             ir.contains("br i1"),
             "walker should emit if/then control flow:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn leftover_function_decl_emits_via_walker() {
+        let m = module_of("function f() { return 1; }\nlet x = f();");
+        assert!(
+            !is_es_expr_module(&m),
+            "function IR must miss is_es_expr_module so the walker lowers it"
+        );
+        assert!(
+            !is_es_objects_module(&m),
+            "plain function decl/call must not be stolen by objects"
+        );
+        let ir = emit_llvm_ir(&m).expect("walker emit");
+        assert!(
+            ir.contains("define double @"),
+            "walker must emit LLVM function for JS function decl:\n{ir}"
+        );
+        assert!(
+            ir.contains("draconic_rt_print_f64"),
+            "should print f64 result:\n{ir}"
+        );
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "leftover function must not use hello stub:\n{ir}"
         );
     }
 
