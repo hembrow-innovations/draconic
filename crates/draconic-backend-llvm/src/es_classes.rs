@@ -33,14 +33,18 @@ fn undef_double_const() -> String {
     format!("bitcast (i64 {UNDEF_BITS} to double)")
 }
 
-pub(crate) fn is_es_classes_module(module: &Module) -> bool {
+pub(crate) fn walk_es_classes(module: &Module) -> Option<Result<String, Diagnostic>> {
+    let info = classify(module)?;
+    Some(emit_classified(module, &info))
+}
+
+pub(crate) fn walk_es_classes_applies(module: &Module) -> bool {
     classify(module).is_some()
 }
 
-pub(crate) fn emit_es_classes(module: &Module) -> Result<String, Diagnostic> {
-    let info = classify(module).ok_or_else(|| diag("internal: not an es_classes module"))?;
-    let mut em = Emitter::new(module, &info);
-    em.emit_module(&info)?;
+fn emit_classified(module: &Module, info: &ModuleInfo) -> Result<String, Diagnostic> {
+    let mut em = Emitter::new(module, info);
+    em.emit_module(info)?;
     Ok(em.finish())
 }
 
@@ -3608,11 +3612,9 @@ mod private_fields_tests {
         let src =
             include_str!("../../../tests/conformance/fixtures/es/annex-b/private_fields.drac");
         let module = compile_source(src).expect("compile");
-        assert!(
-            is_es_classes_module(&module),
-            "should classify as es_classes"
-        );
-        let ir = emit_es_classes(&module).expect("emit");
+        let ir = walk_es_classes(&module)
+            .expect("should classify as es_classes")
+            .expect("emit");
         assert!(ir.contains("draconic_rt_print_f64"), "{ir}");
         assert!(ir.contains("draconic_rt_print_str"), "{ir}");
     }
@@ -3621,11 +3623,9 @@ mod private_fields_tests {
     fn class_fields_classifies_and_emits() {
         let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/class_fields.drac");
         let module = compile_source(src).expect("compile");
-        assert!(
-            is_es_classes_module(&module),
-            "should classify as es_classes (public fields)"
-        );
-        let ir = emit_es_classes(&module).expect("emit");
+        let ir = walk_es_classes(&module)
+            .expect("should classify as es_classes (public fields)")
+            .expect("emit");
         assert!(ir.contains("draconic_rt_print_f64"), "{ir}");
         assert!(!ir.contains("draconic_rt_hello"), "{ir}");
     }

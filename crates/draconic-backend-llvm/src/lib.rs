@@ -96,7 +96,6 @@ use es_arrays::{emit_es_arrays, is_es_arrays_module};
 use es_builtins::{emit_es_builtins, is_es_builtins_module};
 use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
 use es_class_expr_name::{emit_es_class_expr_name, is_es_class_expr_name_module};
-use es_classes::{emit_es_classes, is_es_classes_module};
 use es_coercion::{emit_es_coercion, is_es_coercion_module};
 use es_collections::{emit_es_collections, is_es_collections_module};
 use es_destructure_defaults::{emit_es_destructure_defaults, is_es_destructure_defaults_module};
@@ -438,9 +437,6 @@ fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<Stri
     }
     if is_es_static_private_methods_module(module) {
         return emit_es_static_private_methods(module);
-    }
-    if is_es_classes_module(module) {
-        return emit_es_classes(module);
     }
     if is_es_object_destructure_module(module) {
         return emit_es_object_destructure(module);
@@ -1048,6 +1044,43 @@ mod tests {
         assert!(
             !ir.contains("draconic_rt_hello"),
             "leftover function must not use hello stub:\n{ir}"
+        );
+    }
+
+    #[test]
+    fn leftover_class_decl_emits_via_walker() {
+        let m = module_of(
+            std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tests/conformance/fixtures/es/classes/class_basic.drac"
+            ))
+            .expect("read fixture")
+            .as_str(),
+        );
+        assert!(
+            !is_es_expr_module(&m),
+            "class IR must miss is_es_expr_module so the walker lowers it"
+        );
+        assert!(
+            !is_es_objects_module(&m),
+            "class-builder IR must not be stolen by objects"
+        );
+        assert!(
+            !is_es_builtins_module(&m),
+            "class-builder IR must not be fingerprint-folded by builtins"
+        );
+        let ir = emit_llvm_ir(&m).expect("walker emit");
+        assert!(
+            ir.contains("draconic_rt_alloc_object"),
+            "walker must alloc class instances:\n{ir}"
+        );
+        assert!(
+            ir.contains("define double @m_fn_"),
+            "walker must emit ctor/method functions:\n{ir}"
+        );
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "leftover class must not use hello stub:\n{ir}"
         );
     }
 

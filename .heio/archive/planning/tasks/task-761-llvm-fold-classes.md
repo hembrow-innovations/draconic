@@ -2,14 +2,14 @@
 id: "task-761-llvm-fold-classes"
 title: "Fold es_classes into the LLVM walker"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-760-llvm-fold-functions"]
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:00:00Z"
 ---
 
 # Fold es_classes into the LLVM walker
@@ -59,9 +59,9 @@ Class IR lowers in the default walker. Native observations unchanged for existin
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] no is_es_classes_module in emit_llvm_ir_raw
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new is_* adapter
+- [x] no is_es_classes_module in emit_llvm_ir_raw
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new is_* adapter
 
 **Out of scope:**
 - Fixture OBS printers (next task)
@@ -71,3 +71,10 @@ Class IR lowers in the default walker. Native observations unchanged for existin
 
 **Explain this part:**
 Do not keep try_extract_class as a second lowerer. If a case cannot lower yet, diagnostic — do not add a new adapter.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline; rg is_es_classes_module crates/draconic-backend-llvm/src/lib.rs
+- **result**: win
+- **gap**: none

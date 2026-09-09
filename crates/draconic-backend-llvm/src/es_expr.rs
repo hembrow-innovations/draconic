@@ -76,6 +76,9 @@ pub(crate) fn emit_es_expr_walk(module: &Module) -> Result<String, Diagnostic> {
     if let Some(result) = crate::host_fs::walk_host_fs(module) {
         return result;
     }
+    if let Some(result) = crate::es_classes::walk_es_classes(module) {
+        return result;
+    }
     if let Some(result) = crate::es_functions::walk_es_functions(module) {
         return result;
     }

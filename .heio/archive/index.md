@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-761-llvm-fold-classes** — class-builder IR lowers in the LLVM walker; is_es_classes_module gone from emit_llvm_ir_raw
 - **task-760-llvm-fold-functions** — function decl/expr/arrow/return/call lower in the LLVM walker; is_es_functions_module gone from emit_llvm_ir_raw
 - **task-764-llvm-fold-host-fs** — host_fs call-sites lower in the LLVM walker; is_host_fs_module gone from emit_llvm_ir_raw
 - **task-729-check-finish-lib** — leftover check lib.rs types, helpers, and tests split under file budget

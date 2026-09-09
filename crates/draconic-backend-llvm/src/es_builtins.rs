@@ -874,6 +874,9 @@ fn module_has_accessor_surface(module: &Module) -> bool {
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
+    if crate::es_classes::walk_es_classes_applies(module) {
+        return None;
+    }
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     if !module_has_builtin_surface(module, &by_id) && !module_has_accessor_surface(module) {
         return None;
