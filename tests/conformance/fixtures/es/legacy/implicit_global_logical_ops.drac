@@ -1,0 +1,138 @@
+// E17.02.176: unresolvable logical GetValue does not create a global.
+// GetValue-first: && / || / ?? throw ReferenceError and do not create
+// globalThis properties. Left-missing skips the other operand.
+// Truthy/non-nullish left skips unresolvable right. Already-created
+// implicit globals still short-circuit. Strict-mode unresolvable stays
+// ReferenceError.
+// Locks language.ecma:expressions.
+
+// Unresolvable left && throws, does not create a global, skips RHS.
+function andLeftMissing() {
+  let n = 0;
+  try {
+    iglo_and_l_miss_e1702176 && (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.iglo_and_l_miss_e1702176 === "undefined"
+    );
+  }
+}
+let a = andLeftMissing();
+
+// Unresolvable left || throws and does not create a global.
+function orLeftMissing() {
+  let n = 0;
+  try {
+    iglo_or_l_miss_e1702176 || (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.iglo_or_l_miss_e1702176 === "undefined"
+    );
+  }
+}
+let b = orLeftMissing();
+
+// Unresolvable left ?? throws and does not create a global.
+function qqLeftMissing() {
+  let n = 0;
+  try {
+    iglo_qq_l_miss_e1702176 ?? (n = n + 1, 1);
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 0 &&
+      typeof globalThis.iglo_qq_l_miss_e1702176 === "undefined"
+    );
+  }
+}
+let c = qqLeftMissing();
+
+// Truthy left && unresolvable right throws and does not create a global.
+function andRightMissing() {
+  let n = 0;
+  try {
+    (n = n + 1, 1) && iglo_and_r_miss_e1702176;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      n === 1 &&
+      typeof globalThis.iglo_and_r_miss_e1702176 === "undefined"
+    );
+  }
+}
+let d = andRightMissing();
+
+// Falsy left && skips unresolvable right: no throw, no global.
+function andSkipRight() {
+  let n = 0;
+  let v = (n = n + 1, 0) && iglo_and_skip_e1702176;
+  return (
+    v === 0 &&
+    n === 1 &&
+    typeof globalThis.iglo_and_skip_e1702176 === "undefined"
+  );
+}
+let e = andSkipRight();
+
+// Truthy left || skips unresolvable right: no throw, no global.
+function orSkipRight() {
+  let n = 0;
+  let v = (n = n + 1, 1) || iglo_or_skip_e1702176;
+  return (
+    v === 1 &&
+    n === 1 &&
+    typeof globalThis.iglo_or_skip_e1702176 === "undefined"
+  );
+}
+let f = orSkipRight();
+
+// Non-nullish left ?? skips unresolvable right: no throw, no global.
+function qqSkipRight() {
+  let n = 0;
+  let v = (n = n + 1, 0) ?? iglo_qq_skip_e1702176;
+  return (
+    v === 0 &&
+    n === 1 &&
+    typeof globalThis.iglo_qq_skip_e1702176 === "undefined"
+  );
+}
+let g = qqSkipRight();
+
+// Already-created implicit global still short-circuits.
+iglo_exist_e1702176 = 0;
+let h =
+  (iglo_exist_e1702176 && 1) === 0 &&
+  (iglo_exist_e1702176 || 5) === 5 &&
+  (iglo_exist_e1702176 ?? 4) === 0 &&
+  globalThis.iglo_exist_e1702176 === 0;
+iglo_exist_e1702176 = 1;
+h =
+  h &&
+  (iglo_exist_e1702176 && 2) === 2 &&
+  (iglo_exist_e1702176 || 9) === 1 &&
+  globalThis.iglo_exist_e1702176 === 1;
+iglo_exist_e1702176 = null;
+h = h && (iglo_exist_e1702176 ?? 4) === 4 && globalThis.iglo_exist_e1702176 === null;
+
+// Strict-mode unresolvable && stays ReferenceError.
+function strictAnd() {
+  "use strict";
+  try {
+    iglo_strict_and_e1702176 && 1;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.iglo_strict_and_e1702176 === "undefined"
+    );
+  }
+}
+let i = strictAnd();

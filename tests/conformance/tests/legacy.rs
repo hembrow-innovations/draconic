@@ -1798,3 +1798,13 @@ fn implicit_global_binary_fixture_present() {
 fn implicit_global_binary_runs() {
     assert_fixture_runs_declared_targets("es/legacy/implicit_global_binary");
 }
+
+#[test]
+fn implicit_global_logical_ops_fixture_present() {
+    assert_fixture_present("es/legacy/implicit_global_logical_ops");
+}
+
+#[test]
+fn implicit_global_logical_ops_runs() {
+    assert_fixture_runs_declared_targets("es/legacy/implicit_global_logical_ops");
+}
