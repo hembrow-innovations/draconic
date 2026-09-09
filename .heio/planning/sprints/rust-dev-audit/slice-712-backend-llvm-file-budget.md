@@ -2,12 +2,12 @@
 id: "slice-712-backend-llvm-file-budget"
 title: "LLVM backend file budget and extra globals"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: ["slice-756-llvm-one-walker"]
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T23:30:00Z"
 ---
 
 # LLVM backend file budget and extra globals
@@ -32,14 +32,14 @@ Every crates/draconic-backend-llvm .rs file is ≤1000. REGEXP_STATICS, FN_REG, 
 ## Oracle checklist
 
 
-- [ ] O1: llvm backend rust files ≤1000 lines
+- [x] O1: llvm backend rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-llvm"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: llvm backend tests green
+  EVIDENCE: max-loc-ok
+- [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 314 passed
 
 ## Pool
 
