@@ -1,0 +1,108 @@
+// E17.02.174: unresolvable unary GetValue does not create a global.
+// GetValue-first: void / + / - / ~ / ! throw ReferenceError and do not
+// create globalThis properties. Already-created implicit globals still
+// unary-operate. Strict-mode unresolvable stays ReferenceError.
+// Contrast: typeof missing is "undefined"; delete missing is true.
+// Locks language.ecma:expressions.
+
+// Unresolvable void throws ReferenceError and does not create a global.
+function voidMissing() {
+  try {
+    void igu_void_miss_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_void_miss_e1702174 === "undefined"
+    );
+  }
+}
+let a = voidMissing();
+
+// Unresolvable unary + throws and does not create a global.
+function plusMissing() {
+  try {
+    +igu_plus_miss_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_plus_miss_e1702174 === "undefined"
+    );
+  }
+}
+let b = plusMissing();
+
+// Unresolvable unary - throws and does not create a global.
+function minusMissing() {
+  try {
+    -igu_minus_miss_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_minus_miss_e1702174 === "undefined"
+    );
+  }
+}
+let c = minusMissing();
+
+// Unresolvable ~ throws and does not create a global.
+function tildeMissing() {
+  try {
+    ~igu_tilde_miss_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_tilde_miss_e1702174 === "undefined"
+    );
+  }
+}
+let d = tildeMissing();
+
+// Unresolvable ! throws and does not create a global.
+function bangMissing() {
+  try {
+    !igu_bang_miss_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_bang_miss_e1702174 === "undefined"
+    );
+  }
+}
+let e = bangMissing();
+
+// Already-created implicit global still unary-operates.
+igu_exist_e1702174 = 4;
+let f =
+  void igu_exist_e1702174 === undefined &&
+  +igu_exist_e1702174 === 4 &&
+  -igu_exist_e1702174 === -4 &&
+  ~igu_exist_e1702174 === -5 &&
+  !igu_exist_e1702174 === false &&
+  globalThis.igu_exist_e1702174 === 4;
+
+// Contrast: typeof unresolvable is "undefined"; delete unresolvable is true.
+let g =
+  typeof igu_typeof_miss_e1702174 === "undefined" &&
+  delete igu_delete_miss_e1702174 === true &&
+  typeof globalThis.igu_typeof_miss_e1702174 === "undefined" &&
+  typeof globalThis.igu_delete_miss_e1702174 === "undefined";
+
+// Strict-mode unresolvable void stays ReferenceError.
+function strictVoid() {
+  "use strict";
+  try {
+    void igu_strict_void_e1702174;
+    return false;
+  } catch (err) {
+    return (
+      err instanceof ReferenceError &&
+      typeof globalThis.igu_strict_void_e1702174 === "undefined"
+    );
+  }
+}
+let h = strictVoid();
