@@ -36,6 +36,13 @@ pub(crate) fn emit_host_subprocess(module: &Module) -> Result<String, Diagnostic
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_subprocess(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_subprocess_module(module) {
+        return None;
+    }
+    Some(emit_host_subprocess(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,

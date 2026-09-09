@@ -40,6 +40,13 @@ pub(crate) fn emit_host_http_server(module: &Module) -> Result<String, Diagnosti
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_http_server(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_http_server_module(module) {
+        return None;
+    }
+    Some(emit_host_http_server(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Handle,

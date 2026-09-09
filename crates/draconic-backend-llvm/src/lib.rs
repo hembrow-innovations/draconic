@@ -89,69 +89,7 @@ use std::process::{Command, Stdio};
 use draconic_diagnostics::{codes, Diagnostic, Span};
 use draconic_ir::Module;
 
-use es_arrays::{emit_es_arrays, is_es_arrays_module};
-use es_builtins::{emit_es_builtins, is_es_builtins_module};
-use es_call_spread::{emit_es_call_spread, is_es_call_spread_module};
-use es_class_expr_name::{emit_es_class_expr_name, is_es_class_expr_name_module};
-use es_coercion::{emit_es_coercion, is_es_coercion_module};
-use es_collections::{emit_es_collections, is_es_collections_module};
-use es_destructure_defaults::{emit_es_destructure_defaults, is_es_destructure_defaults_module};
-use es_encoding::{emit_es_encoding, is_es_encoding_module};
-use es_eval::{emit_es_eval, is_es_eval_module};
-use es_exceptions::{emit_es_exceptions, is_es_exceptions_module};
-use es_expr::{emit_es_expr, emit_es_expr_walk, is_es_expr_module};
-use es_generators::{emit_es_generators, is_es_generators_module};
-use es_instanceof::{emit_es_instanceof, is_es_instanceof_module};
-use es_legacy::{emit_es_legacy, is_es_legacy_module};
-use es_logging::{emit_es_logging, is_es_logging_module};
-use es_mime::{emit_es_mime, is_es_mime_module};
-use es_modules::{emit_es_modules, is_es_modules_module};
-use es_new_target::{emit_es_new_target, is_es_new_target_module};
-use es_optional_chain::{emit_es_optional_chain, is_es_optional_chain_module};
-use es_param_dstr::{emit_es_param_dstr, is_es_param_dstr_module};
-use es_private_accessors::{emit_es_private_accessors, is_es_private_accessors_module};
-use es_static_private_methods::{
-    emit_es_static_private_methods, is_es_static_private_methods_module,
-};
-use es_testing::{emit_es_testing, is_es_testing_module};
-
-use es_nullish::{emit_es_nullish, is_es_nullish_module};
-use es_object_destructure::{emit_es_object_destructure, is_es_object_destructure_module};
-use es_objects::{emit_es_objects, is_es_objects_module};
-use es_static_blocks::{emit_es_static_blocks, is_es_static_blocks_module};
-
-use es_private_in::{emit_es_private_in, is_es_private_in_module};
-use es_promise::{emit_es_promise, is_es_promise_module};
-use es_proxies::{emit_es_proxies, is_es_proxies_module};
-use es_tagged_template::{emit_es_tagged_template, is_es_tagged_template_module};
-use es_to_primitive::{emit_es_to_primitive, is_es_to_primitive_module};
-use es_values::{emit_es_values, is_es_values_module};
-use es_var_for::{emit_es_var_for, is_es_var_for_module};
-use host_atomics::{emit_host_atomics, is_host_atomics_module};
-use host_cancel::{emit_host_cancel, is_host_cancel_module};
-use host_channels::{emit_host_channels, is_host_channels_module};
-use host_dns::{emit_host_dns, is_host_dns_module};
-use host_docs::{emit_host_docs, is_host_docs_module};
-use host_http::{emit_host_http, is_host_http_module};
-use host_http2::{emit_host_http2, is_host_http2_module};
-use host_http_server::{emit_host_http_server, is_host_http_server_module};
-use host_once::{emit_host_once, is_host_once_module};
-use host_os::{emit_host_os, is_host_os_module};
-use host_path::{emit_host_path, is_host_path_module};
-use host_process::{emit_host_process, is_host_process_module};
-use host_process_async::{emit_host_process_async, is_host_process_async_module};
-use host_signals::{emit_host_signals, is_host_signal_module};
-use host_stdio::{emit_host_stdio, is_host_stdio_module};
-use host_subprocess::{emit_host_subprocess, is_host_subprocess_module};
-use host_tcp::{emit_host_tcp, is_host_tcp_module};
-use host_tcp_async::{emit_host_tcp_async, is_host_tcp_async_module};
-use host_time::{emit_host_time, is_host_time_module};
-use host_timers::{emit_host_timers, is_host_timer_module};
-use host_udp::{emit_host_udp, is_host_udp_module};
-use host_worker_channels::{emit_host_worker_channels, is_host_worker_channels_module};
-use host_workers::{emit_host_workers, is_host_workers_module};
-use host_ws::{emit_host_ws, is_host_ws_module};
-use host_ws_e2e::{emit_host_ws_e2e, is_host_ws_e2e_module};
+use es_expr::emit_es_expr_walk;
 use native_ints::{emit_native_ints, is_native_int_module};
 
 /// Emit LLVM IR text for a shared IR module.
@@ -263,183 +201,6 @@ fn emit_llvm_ir_inner(module: &Module, debug: Option<&SourceDebug>) -> Result<St
 fn emit_llvm_ir_raw(module: &Module, debug: Option<&SourceDebug>) -> Result<String, Diagnostic> {
     if is_native_int_module(module) {
         return emit_native_ints(module, debug);
-    }
-    if is_host_process_module(module) {
-        return emit_host_process(module);
-    }
-    if is_host_os_module(module) {
-        return emit_host_os(module);
-    }
-    if is_host_process_async_module(module) {
-        return emit_host_process_async(module);
-    }
-    if is_host_subprocess_module(module) {
-        return emit_host_subprocess(module);
-    }
-    if is_host_signal_module(module) {
-        return emit_host_signals(module);
-    }
-    if is_host_stdio_module(module) {
-        return emit_host_stdio(module);
-    }
-    if is_host_path_module(module) {
-        return emit_host_path(module);
-    }
-    if is_host_docs_module(module) {
-        return emit_host_docs(module);
-    }
-    if is_host_tcp_async_module(module) {
-        return emit_host_tcp_async(module);
-    }
-    if is_host_udp_module(module) {
-        return emit_host_udp(module);
-    }
-    if is_host_dns_module(module) {
-        return emit_host_dns(module);
-    }
-    if is_host_ws_e2e_module(module) {
-        return emit_host_ws_e2e(module);
-    }
-    if is_host_http2_module(module) {
-        return emit_host_http2(module);
-    }
-    if is_host_http_server_module(module) {
-        return emit_host_http_server(module);
-    }
-    if is_host_ws_module(module) {
-        return emit_host_ws(module);
-    }
-    if is_host_http_module(module) {
-        return emit_host_http(module);
-    }
-    if is_host_tcp_module(module) {
-        return emit_host_tcp(module);
-    }
-    if is_host_time_module(module) {
-        return emit_host_time(module);
-    }
-    if is_host_timer_module(module) {
-        return emit_host_timers(module);
-    }
-    if is_host_atomics_module(module) {
-        return emit_host_atomics(module);
-    }
-    if is_host_worker_channels_module(module) {
-        return emit_host_worker_channels(module);
-    }
-    if is_host_once_module(module) {
-        return emit_host_once(module);
-    }
-    if is_host_cancel_module(module) {
-        return emit_host_cancel(module);
-    }
-    if is_host_workers_module(module) {
-        return emit_host_workers(module);
-    }
-    if is_host_channels_module(module) {
-        return emit_host_channels(module);
-    }
-    if is_es_promise_module(module) {
-        return emit_es_promise(module);
-    }
-    if is_es_eval_module(module) {
-        return emit_es_eval(module);
-    }
-    if is_es_private_in_module(module) {
-        return emit_es_private_in(module);
-    }
-    if is_es_proxies_module(module) {
-        return emit_es_proxies(module);
-    }
-    if is_es_testing_module(module) {
-        return emit_es_testing(module);
-    }
-    if is_es_logging_module(module) {
-        return emit_es_logging(module);
-    }
-    if is_es_mime_module(module) {
-        return emit_es_mime(module);
-    }
-    if is_es_collections_module(module) {
-        return emit_es_collections(module);
-    }
-    if is_es_encoding_module(module) {
-        return emit_es_encoding(module);
-    }
-    if is_es_new_target_module(module) {
-        return emit_es_new_target(module);
-    }
-    if is_es_private_accessors_module(module) {
-        return emit_es_private_accessors(module);
-    }
-    if is_es_instanceof_module(module) {
-        return emit_es_instanceof(module);
-    }
-    if is_es_generators_module(module) {
-        return emit_es_generators(module);
-    }
-    if is_es_modules_module(module) {
-        return emit_es_modules(module);
-    }
-    if is_es_exceptions_module(module) {
-        return emit_es_exceptions(module);
-    }
-    if is_es_legacy_module(module) {
-        return emit_es_legacy(module);
-    }
-    if is_es_optional_chain_module(module) {
-        return emit_es_optional_chain(module);
-    }
-    if is_es_static_blocks_module(module) {
-        return emit_es_static_blocks(module);
-    }
-    if is_es_nullish_module(module) {
-        return emit_es_nullish(module);
-    }
-    if is_es_to_primitive_module(module) {
-        return emit_es_to_primitive(module);
-    }
-    if is_es_coercion_module(module) {
-        return emit_es_coercion(module);
-    }
-    if is_es_values_module(module) {
-        return emit_es_values(module);
-    }
-    if is_es_call_spread_module(module) {
-        return emit_es_call_spread(module);
-    }
-    if is_es_tagged_template_module(module) {
-        return emit_es_tagged_template(module);
-    }
-    if is_es_param_dstr_module(module) {
-        return emit_es_param_dstr(module);
-    }
-    if is_es_var_for_module(module) {
-        return emit_es_var_for(module);
-    }
-    if is_es_class_expr_name_module(module) {
-        return emit_es_class_expr_name(module);
-    }
-    if is_es_static_private_methods_module(module) {
-        return emit_es_static_private_methods(module);
-    }
-    if is_es_object_destructure_module(module) {
-        return emit_es_object_destructure(module);
-    }
-    if is_es_destructure_defaults_module(module) {
-        return emit_es_destructure_defaults(module);
-    }
-    if is_es_builtins_module(module) {
-        return emit_es_builtins(module);
-    }
-    if is_es_objects_module(module) {
-        return emit_es_objects(module);
-    }
-    if is_es_arrays_module(module) {
-        return emit_es_arrays(module);
-    }
-    if is_es_expr_module(module) {
-        return emit_es_expr(module);
     }
     if is_empty_program(module) {
         return Ok(emit_empty_hello());
@@ -988,7 +749,7 @@ mod tests {
     fn leftover_expr_control_flow_emits_via_walker() {
         let m = module_of("if (false) { 1 + 2; }");
         assert!(
-            !is_es_expr_module(&m),
+            !crate::es_expr::is_es_expr_module(&m),
             "must miss is_es_expr_module so dispatch falls through to the walker"
         );
         let ir = emit_llvm_ir(&m).expect("walker emit");
@@ -1010,11 +771,11 @@ mod tests {
     fn leftover_function_decl_emits_via_walker() {
         let m = module_of("function f() { return 1; }\nlet x = f();");
         assert!(
-            !is_es_expr_module(&m),
+            !crate::es_expr::is_es_expr_module(&m),
             "function IR must miss is_es_expr_module so the walker lowers it"
         );
         assert!(
-            !is_es_objects_module(&m),
+            !crate::es_objects::is_es_objects_module(&m),
             "plain function decl/call must not be stolen by objects"
         );
         let ir = emit_llvm_ir(&m).expect("walker emit");
@@ -1043,15 +804,15 @@ mod tests {
             .as_str(),
         );
         assert!(
-            !is_es_expr_module(&m),
+            !crate::es_expr::is_es_expr_module(&m),
             "class IR must miss is_es_expr_module so the walker lowers it"
         );
         assert!(
-            !is_es_objects_module(&m),
+            !crate::es_objects::is_es_objects_module(&m),
             "class-builder IR must not be stolen by objects"
         );
         assert!(
-            !is_es_builtins_module(&m),
+            !crate::es_builtins::is_es_builtins_module(&m),
             "class-builder IR must not be fingerprint-folded by builtins"
         );
         let ir = emit_llvm_ir(&m).expect("walker emit");

@@ -41,6 +41,13 @@ pub(crate) fn emit_es_proxies(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_proxies(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_proxies_module(module) {
+        return None;
+    }
+    Some(emit_es_proxies(module))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReflectOp {
     Get,

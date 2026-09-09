@@ -27,6 +27,13 @@ pub(crate) fn emit_es_nullish(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_nullish(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_nullish_module(module) {
+        return None;
+    }
+    Some(emit_es_nullish(module))
+}
+
 /// User locals in declaration order (observation order).
 fn classify(module: &Module) -> Option<Vec<LocalId>> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();

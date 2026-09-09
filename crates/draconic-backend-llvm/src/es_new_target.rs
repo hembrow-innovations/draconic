@@ -31,6 +31,13 @@ pub(crate) fn emit_es_new_target(module: &Module) -> Result<String, Diagnostic> 
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_new_target(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_new_target_module(module) {
+        return None;
+    }
+    Some(emit_es_new_target(module))
+}
+
 struct ModuleInfo {
     user_locals: Vec<LocalId>,
     values: HashMap<LocalId, JsVal>,

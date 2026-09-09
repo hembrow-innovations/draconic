@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-763-llvm-contract-dispatch** — emit_llvm_ir_raw dispatches native-ints, empty hello, and one walker; leftover is_* arms folded via walk_*
 - **task-762-llvm-delete-fixture-printers** — deleted LLVM fixture OBS printers; no const OBS; those is_*_module arms gone from emit_llvm_ir_raw
 - **task-761-llvm-fold-classes** — class-builder IR lowers in the LLVM walker; is_es_classes_module gone from emit_llvm_ir_raw
 - **task-760-llvm-fold-functions** — function decl/expr/arrow/return/call lower in the LLVM walker; is_es_functions_module gone from emit_llvm_ir_raw

@@ -28,6 +28,13 @@ pub(crate) fn emit_es_private_accessors(module: &Module) -> Result<String, Diagn
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_private_accessors(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_private_accessors_module(module) {
+        return None;
+    }
+    Some(emit_es_private_accessors(module))
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),

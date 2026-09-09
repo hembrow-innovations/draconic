@@ -34,6 +34,13 @@ pub(crate) fn emit_es_promise(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_promise(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_promise_module(module) {
+        return None;
+    }
+    Some(emit_es_promise(module))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotKind {
     Number,

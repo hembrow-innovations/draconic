@@ -2,14 +2,14 @@
 id: "task-763-llvm-contract-dispatch"
 title: "Contract LLVM emit_llvm_ir_raw to one walker"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-762-llvm-delete-fixture-printers", "task-764-llvm-fold-host-fs"]
 sprint: "rust-dev-audit"
 slice: "slice-756-llvm-one-walker"
 tags: []
 created_at: "2026-09-09T17:30:00Z"
-updated_at: "2026-09-09T17:30:00Z"
+updated_at: "2026-09-09T23:59:00Z"
 ---
 
 # Contract LLVM emit_llvm_ir_raw to one walker
@@ -60,9 +60,9 @@ Dozens of is_*_module arms remain after earlier folds.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 walker-dispatch
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new is_* adapter
+- [x] slice O1 walker-dispatch
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new is_* adapter
 
 **Out of scope:**
 - File-budget splits of the walker (slice-712)
@@ -71,3 +71,10 @@ Dozens of is_*_module arms remain after earlier folds.
 
 **Explain this part:**
 If an adapter cannot fold in one sitting, stop and file a ticket. Do not leave a 20-arm cascade and mark this done.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python O1 walker-dispatch; cargo test -p draconic-backend-llvm --offline; git diff has no new is_* adapter
+- **result**: win
+- **gap**: none

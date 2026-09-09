@@ -24,6 +24,13 @@ pub(crate) fn emit_host_worker_channels(module: &Module) -> Result<String, Diagn
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_worker_channels(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_worker_channels_module(module) {
+        return None;
+    }
+    Some(emit_host_worker_channels(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,

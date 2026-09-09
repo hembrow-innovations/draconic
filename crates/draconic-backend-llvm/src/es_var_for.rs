@@ -31,6 +31,13 @@ pub(crate) fn emit_es_var_for(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_var_for(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_var_for_module(module) {
+        return None;
+    }
+    Some(emit_es_var_for(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,

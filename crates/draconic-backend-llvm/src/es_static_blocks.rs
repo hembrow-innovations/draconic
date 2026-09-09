@@ -26,6 +26,13 @@ pub(crate) fn emit_es_static_blocks(module: &Module) -> Result<String, Diagnosti
     Ok(emit_prints(&info))
 }
 
+pub(crate) fn walk_es_static_blocks(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_static_blocks_module(module) {
+        return None;
+    }
+    Some(emit_es_static_blocks(module))
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),

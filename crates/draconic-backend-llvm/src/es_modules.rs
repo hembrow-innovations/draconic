@@ -30,6 +30,13 @@ pub(crate) fn emit_es_modules(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_modules(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_modules_module(module) {
+        return None;
+    }
+    Some(emit_es_modules(module))
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),

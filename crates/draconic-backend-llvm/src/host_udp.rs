@@ -32,6 +32,13 @@ pub(crate) fn emit_host_udp(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_udp(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_udp_module(module) {
+        return None;
+    }
+    Some(emit_host_udp(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Handle,

@@ -32,6 +32,13 @@ pub(crate) fn emit_es_values(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_values(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_values_module(module) {
+        return None;
+    }
+    Some(emit_es_values(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     /// JS Symbol as unique i64 id (not printed).

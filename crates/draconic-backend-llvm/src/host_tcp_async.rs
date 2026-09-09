@@ -38,6 +38,13 @@ pub(crate) fn emit_host_tcp_async(module: &Module) -> Result<String, Diagnostic>
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_tcp_async(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_tcp_async_module(module) {
+        return None;
+    }
+    Some(emit_host_tcp_async(module))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotKind {
     Number,

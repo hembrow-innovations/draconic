@@ -33,6 +33,13 @@ pub(crate) fn emit_es_tagged_template(module: &Module) -> Result<String, Diagnos
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_tagged_template(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_tagged_template_module(module) {
+        return None;
+    }
+    Some(emit_es_tagged_template(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum SlotTy {
     String,

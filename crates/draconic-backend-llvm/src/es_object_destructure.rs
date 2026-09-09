@@ -32,6 +32,13 @@ pub(crate) fn emit_es_object_destructure(module: &Module) -> Result<String, Diag
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_object_destructure(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_object_destructure_module(module) {
+        return None;
+    }
+    Some(emit_es_object_destructure(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum SlotTy {
     Number,

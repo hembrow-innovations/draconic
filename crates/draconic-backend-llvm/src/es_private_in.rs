@@ -30,6 +30,13 @@ pub(crate) fn emit_es_private_in(module: &Module) -> Result<String, Diagnostic> 
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_private_in(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_private_in_module(module) {
+        return None;
+    }
+    Some(emit_es_private_in(module))
+}
+
 thread_local! {
     static CURRENT_THIS: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
     static CURRENT_NEW_TARGET: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };

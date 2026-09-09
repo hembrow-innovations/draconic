@@ -24,6 +24,13 @@ pub(crate) fn emit_es_eval(module: &Module) -> Result<String, Diagnostic> {
     emit_observations(&obs, classify_tag(module))
 }
 
+pub(crate) fn walk_es_eval(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_eval_module(module) {
+        return None;
+    }
+    Some(emit_es_eval(module))
+}
+
 fn classify_tag(module: &Module) -> &'static str {
     if module_has_indirect(module) {
         "N07.04 indirect eval via Embed"

@@ -52,6 +52,13 @@ pub(crate) fn emit_es_class_expr_name(module: &Module) -> Result<String, Diagnos
     emit_observations(&info.observations)
 }
 
+pub(crate) fn walk_es_class_expr_name(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_class_expr_name_module(module) {
+        return None;
+    }
+    Some(emit_es_class_expr_name(module))
+}
+
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let mut slots: HashMap<LocalId, Slot> = HashMap::new();
     // Function local → default param class names (in order).

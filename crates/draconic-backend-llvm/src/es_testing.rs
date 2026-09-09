@@ -25,6 +25,13 @@ pub(crate) fn emit_es_testing(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_testing(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_testing_module(module) {
+        return None;
+    }
+    Some(emit_es_testing(module))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum BuiltinId {
     GlobalThis,

@@ -58,6 +58,13 @@ pub(crate) fn emit_es_param_dstr(module: &Module) -> Result<String, Diagnostic> 
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_param_dstr(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_param_dstr_module(module) {
+        return None;
+    }
+    Some(emit_es_param_dstr(module))
+}
+
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut functions = Vec::new();

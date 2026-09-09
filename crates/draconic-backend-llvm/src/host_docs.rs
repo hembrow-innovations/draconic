@@ -25,6 +25,13 @@ pub(crate) fn emit_host_docs(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_docs(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_docs_module(module) {
+        return None;
+    }
+    Some(emit_host_docs(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     String,

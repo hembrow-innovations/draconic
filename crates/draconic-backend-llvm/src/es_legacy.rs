@@ -27,6 +27,13 @@ pub(crate) fn emit_es_legacy(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_legacy(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_legacy_module(module) {
+        return None;
+    }
+    Some(emit_es_legacy(module))
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),

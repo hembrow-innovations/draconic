@@ -28,6 +28,13 @@ pub(crate) fn emit_es_optional_chain(module: &Module) -> Result<String, Diagnost
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_optional_chain(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_optional_chain_module(module) {
+        return None;
+    }
+    Some(emit_es_optional_chain(module))
+}
+
 #[derive(Clone, Debug)]
 enum JsVal {
     Num(f64),

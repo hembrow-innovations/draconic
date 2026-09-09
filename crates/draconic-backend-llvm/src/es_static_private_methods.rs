@@ -29,6 +29,15 @@ pub(crate) fn emit_es_static_private_methods(module: &Module) -> Result<String, 
     Ok(emit_obs(&obs))
 }
 
+pub(crate) fn walk_es_static_private_methods(
+    module: &Module,
+) -> Option<Result<String, Diagnostic>> {
+    if !is_es_static_private_methods_module(module) {
+        return None;
+    }
+    Some(emit_es_static_private_methods(module))
+}
+
 fn classify(module: &Module) -> Option<Vec<Obs>> {
     let names: std::collections::HashSet<&str> =
         module.locals.iter().map(|l| l.name.as_str()).collect();

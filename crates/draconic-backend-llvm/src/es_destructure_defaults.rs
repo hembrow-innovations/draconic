@@ -30,6 +30,13 @@ pub(crate) fn emit_es_destructure_defaults(module: &Module) -> Result<String, Di
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_destructure_defaults(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_destructure_defaults_module(module) {
+        return None;
+    }
+    Some(emit_es_destructure_defaults(module))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SlotTy {
     Number,

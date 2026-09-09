@@ -27,6 +27,13 @@ pub(crate) fn emit_es_instanceof(module: &Module) -> Result<String, Diagnostic> 
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_instanceof(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_instanceof_module(module) {
+        return None;
+    }
+    Some(emit_es_instanceof(module))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum BuiltinKind {
     Object,

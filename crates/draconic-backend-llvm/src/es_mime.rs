@@ -23,6 +23,13 @@ pub(crate) fn emit_es_mime(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_es_mime(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_es_mime_module(module) {
+        return None;
+    }
+    Some(emit_es_mime(module))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum BuiltinId {
     GlobalThis,

@@ -42,6 +42,13 @@ pub(crate) fn emit_host_timers(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
+pub(crate) fn walk_host_timers(module: &Module) -> Option<Result<String, Diagnostic>> {
+    if !is_host_timer_module(module) {
+        return None;
+    }
+    Some(emit_host_timers(module))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SlotKind {
     Number,
