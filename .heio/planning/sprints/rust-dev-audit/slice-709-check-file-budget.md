@@ -2,12 +2,12 @@
 id: "slice-709-check-file-budget"
 title: "Checker Binder Checker and host_api split"
 kind: slice
-status: frozen
+status: met
 sprint: "rust-dev-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-09T16:00:00Z"
-updated_at: "2026-09-09T16:00:00Z"
+updated_at: "2026-09-09T16:30:00Z"
 ---
 
 # Checker Binder Checker and host_api split
@@ -32,14 +32,14 @@ None.
 ## Oracle checklist
 
 
-- [ ] O1: check rust files ≤1000 lines
+- [x] O1: check rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-check"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: check tests green
+  EVIDENCE: max-loc-ok (lib.rs 121; no check .rs over 1000)
+- [x] O2: check tests green
   CHECK: cargo test -p draconic-check --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 278 passed; 0 failed
 
 ## Pool
 
