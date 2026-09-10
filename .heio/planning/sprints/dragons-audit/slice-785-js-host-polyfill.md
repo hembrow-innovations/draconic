@@ -2,12 +2,12 @@
 id: "slice-785-js-host-polyfill"
 title: "JS emit uses host_js_polyfill"
 kind: slice
-status: frozen
+status: met
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:10:00Z"
 ---
 
 # JS emit uses host_js_polyfill
@@ -32,14 +32,14 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: no host_js_polyfill_bodies
+- [x] O1: no host_js_polyfill_bodies
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-backend-js/src/es_polyfill.rs").read_text(); print("adapter" if "fn host_js_polyfill_bodies" not in t and "host_js_polyfill(" in t else "still-dup")'
   EXPECT: adapter
-  EVIDENCE: pending
-- [ ] O2: js backend tests green
+  EVIDENCE: adapter (slice re-run after task-795)
+- [x] O2: js backend tests green
   CHECK: cargo test -p draconic-backend-js --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 65 passed (slice re-run after task-795)
 
 ## Pool
 
