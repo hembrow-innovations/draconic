@@ -2,6 +2,9 @@ use std::fs;
 use std::path::Path;
 use std::process::ExitCode;
 
+use draconic_ast::dump_program;
+use draconic_frontend::parse_source;
+
 pub fn cmd_parse(args: &[String]) -> ExitCode {
     let path = match args.first() {
         Some(p) => p,
@@ -20,9 +23,9 @@ pub fn cmd_parse(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match draconic_parser::parse_and_dump(&source) {
-        Ok(dump) => {
-            print!("{dump}");
+    match parse_source(&source) {
+        Ok(program) => {
+            print!("{}", dump_program(&program));
             ExitCode::SUCCESS
         }
         Err(d) => {
@@ -34,12 +37,19 @@ pub fn cmd_parse(args: &[String]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use draconic_parser::parse_and_dump;
+    use draconic_ast::dump_program;
+    use draconic_frontend::parse_source;
 
     #[test]
     fn parse_sample_program() {
-        let dump = parse_and_dump("let x = 1 + 2;").unwrap();
+        let dump = dump_program(&parse_source("let x = 1 + 2;").unwrap());
         assert!(dump.starts_with("Program\n"));
         assert!(dump.contains("name: x"));
+    }
+
+    #[test]
+    fn parse_retries_module_on_export() {
+        let dump = dump_program(&parse_source("export default 1;").unwrap());
+        assert!(dump.starts_with("Program\n"));
     }
 }

@@ -10,7 +10,7 @@ use draconic_ast::{
     ObjectKey, ObjectProp, Param, Program, Stmt, TypeAnn,
 };
 use draconic_diagnostics::Span;
-use draconic_parser::parse_module;
+use draconic_frontend::parse_source;
 
 mod extract_json;
 use extract_json::emit_json;
@@ -64,7 +64,7 @@ pub fn cmd_extract(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match parse_module(&source) {
+    match parse_source(&source) {
         Ok(program) => {
             println!("{}", extract_json(&source, &program));
             ExitCode::SUCCESS

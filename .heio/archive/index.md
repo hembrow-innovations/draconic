@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-798-cli-parse-extract-frontend** — CLI parse and extract use Frontend `parse_source` (Script-then-Module); dump stays in ast
 - **task-799-repl-emit-in-backend** — JS backend `emit_js_repl` wraps last expr with inspect; CLI REPL no longer splices it
 - **housekeeping** — met slice-786; archived ticket-779; dragons-audit stays active
 - **task-797-type-world-checker-use** — checker walks call Type world predicates; local ToNumber wrappers deleted

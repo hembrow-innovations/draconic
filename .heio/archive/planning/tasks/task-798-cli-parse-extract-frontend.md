@@ -2,14 +2,14 @@
 id: "task-798-cli-parse-extract-frontend"
 title: "Parse and extract use Frontend parse_source"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-787-frontend-cli-seam"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T18:20:00Z"
 ---
 
 # Parse and extract use Frontend parse_source
@@ -59,9 +59,9 @@ Frontend parse_source. CLI tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 frontend
-- [ ] cargo test -p draconic-cli
-- [ ] extract still emits the same JSON shape
+- [x] slice O1 frontend
+- [x] cargo test -p draconic-cli
+- [x] extract still emits the same JSON shape
 
 **Out of scope:**
 - REPL inspect (that is [[task-799-repl-emit-in-backend]])
