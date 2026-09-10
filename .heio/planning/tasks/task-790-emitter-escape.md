@@ -9,7 +9,7 @@ sprint: "dragons-audit"
 slice: "slice-783-llvm-one-emitter"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-10T19:16:04Z"
 ---
 
 # One LLVM escape_llvm_string
@@ -70,3 +70,14 @@ One definition in emitter.rs. Tests through emit_llvm_ir stay green.
 
 **Explain this part:**
 Behavior-identical. If a copy differs, stop and file a ticket. Do not pick a random variant.
+
+## Blocked
+
+Stopped. Six source variants of `fn escape_llvm_string` exist across 37 adapter copies. Task law: do not pick a random variant. Filed [[ticket-801-llvm-escape-variants]]. No emitter helper added. Slice O1 still has duplicates.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: hashed every `fn escape_llvm_string` body under `crates/draconic-backend-llvm/src`
+- **result**: lose
+- **gap**: six source variants; cannot unify without a chosen canonical body
