@@ -452,6 +452,12 @@ mod tests {
     }
 
     #[test]
+    fn check_for_of_assignment_array_pattern_ok() {
+        let program = parse("let u; for ([u] of [[4], [5]]) {}").unwrap();
+        check(program).expect("for-of assignment array pattern must typecheck");
+    }
+
+    #[test]
     fn check_const_update_ok() {
         let program = parse("const x = 1; x++;").unwrap();
         check(program).expect("const update must typecheck (runtime TypeError)");

@@ -10,7 +10,7 @@ use super::binder::Binder;
 use super::host_api;
 use super::{
     body_has_use_strict, check_statement_list_early_errors, collect_var_declared_names_stmt,
-    expr_has_optional_chain, is_simple_parameter_list, stmt_cannot_fall_through,
+    expr_has_optional_chain, is_simple_parameter_list, peel_parens, stmt_cannot_fall_through,
     stmt_list_has_use_strict, stmt_span, BoundProgram, CheckedProgram, CompileTarget, GenericFnSig,
     IntersectionType, ObjectShape, Symbol, SymbolId, Type, UnionType,
 };
@@ -478,7 +478,7 @@ impl Checker {
                 self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
             }
         } else {
-            self.check_stmt(left, loop_depth, switch_depth, fn_depth, labels)?;
+            self.check_for_in_of_left(left)?;
             self.check_expr(right)?;
             self.check_stmt(body, loop_depth + 1, switch_depth, fn_depth, labels)
         }
@@ -507,65 +507,58 @@ impl Checker {
                 // Iteration values are JS values; leave bindings as Any until finer types.
                 self.check_binding_pattern(binding, Type::Any)
             }
-            Stmt::Expression {
-                expr: Expr::Ident(id),
-                ..
-            } => {
-                self.binder.bind_ident_use(id)?;
-                // E17.02.09 / E19.05: free IdentifierReference is runtime PutValue
-                // (non-strict creates a global; strict → ReferenceError), not a check error.
-                if let Some(sym) = self.resolve_span(id.span) {
-                    let ty = self.symbol_types[sym.0 as usize];
-                    self.record(id.span, ty);
-                } else {
-                    if let Some(target) = self.host_target {
-                        if let Some(d) = host_api::unsupported_diagnostic(&id.name, target, id.span)
-                        {
-                            return Err(d);
+            Stmt::Expression { expr, span } => match peel_parens(expr) {
+                Expr::Ident(id) => {
+                    self.binder.bind_ident_use(id)?;
+                    // E17.02.09 / E19.05: free IdentifierReference is runtime PutValue
+                    // (non-strict creates a global; strict → ReferenceError), not a check error.
+                    if let Some(sym) = self.resolve_span(id.span) {
+                        let ty = self.symbol_types[sym.0 as usize];
+                        self.record(id.span, ty);
+                    } else {
+                        if let Some(target) = self.host_target {
+                            if let Some(d) =
+                                host_api::unsupported_diagnostic(&id.name, target, id.span)
+                            {
+                                return Err(d);
+                            }
                         }
+                        self.record(id.span, Type::Any);
                     }
-                    self.record(id.span, Type::Any);
+                    Ok(())
                 }
-                Ok(())
-            }
-            Stmt::Expression {
-                expr: Expr::ArrayPattern { elements, span },
-                ..
-            } => {
-                let binding = BindingPattern::Array {
-                    elements: elements.clone(),
-                    span: *span,
-                };
-                self.check_assign_pattern(&binding, *span)
-            }
-            Stmt::Expression {
-                expr: Expr::ObjectPattern { properties, span },
-                ..
-            } => {
-                let binding = BindingPattern::Object {
-                    properties: properties.clone(),
-                    span: *span,
-                };
-                self.check_assign_pattern(&binding, *span)
-            }
-            Stmt::Expression {
-                expr:
-                    Expr::MemberExpression {
-                        optional: false, ..
-                    },
-                span,
-            } => {
-                // `for (obj.p of …)` / `for (obj[k] in …)` — validate member LHS.
-                if let Stmt::Expression { expr, .. } = left {
-                    self.check_expr(expr)?;
+                Expr::ArrayPattern {
+                    elements,
+                    span: pspan,
+                } => {
+                    let binding = BindingPattern::Array {
+                        elements: elements.clone(),
+                        span: *pspan,
+                    };
+                    self.check_assign_pattern(&binding, *pspan)
                 }
-                let _ = span;
-                Ok(())
-            }
-            Stmt::Expression { span, .. } => Err(Diagnostic::new(
-                "for-in/of left-hand side must be a binding or assignment target".to_string(),
-                *span,
-            )),
+                Expr::ObjectPattern {
+                    properties,
+                    span: pspan,
+                } => {
+                    let binding = BindingPattern::Object {
+                        properties: properties.clone(),
+                        span: *pspan,
+                    };
+                    self.check_assign_pattern(&binding, *pspan)
+                }
+                Expr::MemberExpression {
+                    optional: false, ..
+                } => {
+                    // `for (obj.p of …)` / `for (obj[k] in …)` — validate member LHS.
+                    self.check_expr(peel_parens(expr))?;
+                    Ok(())
+                }
+                _ => Err(Diagnostic::new(
+                    "for-in/of left-hand side must be a binding or assignment target".to_string(),
+                    *span,
+                )),
+            },
             other => Err(Diagnostic::new(
                 "for-in/of left-hand side must be a binding or assignment target".to_string(),
                 match other {
