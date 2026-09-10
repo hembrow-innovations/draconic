@@ -2,12 +2,12 @@
 id: "ticket-779-type-world-predicates"
 title: "Dual-world rules are copied across Checker walks"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T15:00:00Z"
 ---
 
 # Dual-world rules are copied across Checker walks
@@ -18,7 +18,7 @@ Dragons audit 2026-09-10. One `Type` enum mixes JS values and native types. Dual
 
 ## Fit
 
-Promoted to [[slice-786-type-world-predicates]].
+Promoted to [[slice-786-type-world-predicates]]. Slice is `met`. Closed.
 
 ## Notes
 

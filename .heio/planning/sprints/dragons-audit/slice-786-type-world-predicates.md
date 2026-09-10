@@ -2,12 +2,12 @@
 id: "slice-786-type-world-predicates"
 title: "Dual-world tests live on Type"
 kind: slice
-status: active
+status: met
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-11T14:30:00Z"
+updated_at: "2026-09-11T15:00:00Z"
 ---
 
 # Dual-world tests live on Type
