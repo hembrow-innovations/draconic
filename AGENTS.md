@@ -1,6 +1,5 @@
 # Agents
 
-This checkout runs **OpenCode** only. Project skills live under `.opencode/skills/`. Do not run Hivemind, Pi, or heio-stack. If another file names those runtimes, this file wins.
 
 ## Skills
 
@@ -41,14 +40,14 @@ Each `rs` file should have a soft limit of 1,000 lines.
 
 ## Git
 
-**Commit every work package.** When a Roadmap Loop item (or any discrete unit of work) is marked `done` or otherwise finished, stage its changes and create a git commit before starting the next item. One commit per completed work package; message should name the Roadmap ID(s) and summarize the change. Never stage `.heio/` or `.opencode/node_modules/`. Never stage scratch toolchain emit (`*.out.js`, `*.out`, `*.dSYM`).
+**Commit every work package.** When a Roadmap Loop item (or any discrete unit of work) is marked `done` or otherwise finished, stage its changes and create a git commit before starting the next item. One commit per completed work package; message should name the Roadmap ID(s) and summarize the change. Never stage `.opencode/node_modules/`. Never stage scratch toolchain emit (`*.out.js`, `*.out`, `*.dSYM`).
 
 ## Rules
 
 - Markdown: never tables — use `- **{text}**: {text}`
 - Do not invent work when ROADMAP has no `todo` and the user did not name a task
 - Always keep the `target` directory below 10GB
-- Do not edit `.hivemind/hivemind.yaml`, `.pi/` copies, or heio-stack operating notes
+- Do not edit `.hivemind/hivemind.yaml`
 - File size target ≤1000 LOC, hard limit 1250 (prove fails over 1200)
 - Scratch `draconic build` without `-o` writes `{stem}.out.js` (js) or `{stem}.out` (native); those names are gitignored. Use `-o` only for an artifact you intend to keep. Do not emit `{stem}.js` or a nameless binary next to Conformance fixtures.
 
