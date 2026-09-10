@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -18,7 +19,6 @@ use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, OBJECT_GET,
     OBJECT_SET, PRINT_F64,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_es_destructure_defaults_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -39,21 +39,21 @@ pub(crate) fn walk_es_destructure_defaults(module: &Module) -> Option<Result<Str
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Array,
     Object,
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     print_locals: Vec<LocalId>,
 }
 
 struct ClassifyCtx<'a> {
     by_id: &'a HashMap<LocalId, &'a Local>,
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     print_locals: Vec<LocalId>,
     has_array_pat: bool,
     has_object_pat: bool,
@@ -149,14 +149,14 @@ fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut ClassifyCtx<'
         if !array_expr_ok(init, &ctx.slot_of, ctx.by_id) {
             return None;
         }
-        register_slot(local, SlotTy::Array, ctx);
+        register_slot(local, LocalSlot::Array, ctx);
         return Some(());
     }
     if matches!(init, Expr::Object { .. }) {
         if !object_expr_ok(init, &ctx.slot_of, ctx.by_id) {
             return None;
         }
-        register_slot(local, SlotTy::Object, ctx);
+        register_slot(local, LocalSlot::Object, ctx);
         return Some(());
     }
     if number_expr_ok(init, &ctx.slot_of, ctx.by_id) {
@@ -177,7 +177,7 @@ fn classify_array_pattern(elements: &[ArrayPatternEl], ctx: &mut ClassifyCtx<'_>
                         return None;
                     }
                 }
-                classify_pattern(binding, SlotTy::Number, ctx)?;
+                classify_pattern(binding, LocalSlot::Number, ctx)?;
             }
             ArrayPatternEl::Rest(_) => return None,
         }
@@ -207,8 +207,8 @@ fn classify_object_pattern(
                     }
                 }
                 let bind_ty = match binding {
-                    Pattern::Object(_) => SlotTy::Object,
-                    _ => SlotTy::Number,
+                    Pattern::Object(_) => LocalSlot::Object,
+                    _ => LocalSlot::Number,
                 };
                 classify_pattern(binding, bind_ty, ctx)?;
             }
@@ -218,11 +218,15 @@ fn classify_object_pattern(
     Some(())
 }
 
-fn classify_pattern(binding: &Pattern, bind_ty: SlotTy, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
+fn classify_pattern(
+    binding: &Pattern,
+    bind_ty: LocalSlot,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
     match binding {
         Pattern::Local(id) => {
             match bind_ty {
-                SlotTy::Number => register_number(*id, ctx),
+                LocalSlot::Number => register_number(*id, ctx),
                 other => register_slot(*id, other, ctx),
             }
             Some(())
@@ -241,7 +245,7 @@ fn classify_pattern(binding: &Pattern, bind_ty: SlotTy, ctx: &mut ClassifyCtx<'_
 
 fn register_number(id: LocalId, ctx: &mut ClassifyCtx<'_>) {
     if let Some(existing) = ctx.slot_of.get(&id).copied() {
-        if existing == SlotTy::Number {
+        if existing == LocalSlot::Number {
             if !ctx.print_locals.contains(&id) {
                 ctx.print_locals.push(id);
             }
@@ -250,14 +254,14 @@ fn register_number(id: LocalId, ctx: &mut ClassifyCtx<'_>) {
         // Upgrade provisional — should not happen for numbers.
         return;
     }
-    ctx.slots.push((id, SlotTy::Number));
-    ctx.slot_of.insert(id, SlotTy::Number);
+    ctx.slots.push((id, LocalSlot::Number));
+    ctx.slot_of.insert(id, LocalSlot::Number);
     if !ctx.print_locals.contains(&id) {
         ctx.print_locals.push(id);
     }
 }
 
-fn register_slot(id: LocalId, ty: SlotTy, ctx: &mut ClassifyCtx<'_>) {
+fn register_slot(id: LocalId, ty: LocalSlot, ctx: &mut ClassifyCtx<'_>) {
     if ctx.slot_of.contains_key(&id) {
         return;
     }
@@ -271,7 +275,7 @@ fn prop_key_ok(key: &ObjectPropKey) -> bool {
 
 fn array_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     by_id: &HashMap<LocalId, &Local>,
 ) -> bool {
     match expr {
@@ -280,14 +284,14 @@ fn array_expr_ok(
             ArrayElement::Expr(e) => value_expr_ok(e, slot_of, by_id),
             ArrayElement::Spread(_) => false,
         }),
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Array),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Array),
         _ => false,
     }
 }
 
 fn object_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     by_id: &HashMap<LocalId, &Local>,
 ) -> bool {
     match expr {
@@ -297,14 +301,14 @@ fn object_expr_ok(
             }
             _ => false,
         }),
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Object),
         _ => false,
     }
 }
 
 fn value_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     by_id: &HashMap<LocalId, &Local>,
 ) -> bool {
     match expr {
@@ -324,13 +328,13 @@ fn value_expr_ok(
 
 fn number_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     by_id: &HashMap<LocalId, &Local>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, .. } => {
-            slot_of.get(id) == Some(&SlotTy::Number)
+            slot_of.get(id) == Some(&LocalSlot::Number)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
@@ -350,7 +354,7 @@ struct Emitter<'a> {
     out: String,
     body: String,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     str_globals: Vec<(String, String)>,
     tmp: usize,
     str_n: usize,
@@ -423,7 +427,7 @@ impl<'a> Emitter<'a> {
 
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = format!("es_dd_n{}", id.0);
                     writeln!(
                         self.out,
@@ -432,12 +436,12 @@ impl<'a> Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::Array => {
+                LocalSlot::Array => {
                     let g = format!("es_dd_a{}", id.0);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::Object => {
+                LocalSlot::Object => {
                     let g = format!("es_dd_o{}", id.0);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
@@ -493,15 +497,15 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("es_dd: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -698,14 +702,14 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("es_dd: pattern local unknown"))?;
                 let ptr = self.slot_ptr(*id)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let i = self.fresh();
                         writeln!(self.body, "  {i} = ptrtoint ptr {val_ptr} to i64").ok();
                         let d = self.fresh();
                         writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                         writeln!(self.body, "  store double {d}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array | SlotTy::Object => {
+                    LocalSlot::Array | LocalSlot::Object => {
                         writeln!(self.body, "  store ptr {val_ptr}, ptr {ptr}").ok();
                     }
                 }
@@ -750,7 +754,7 @@ impl<'a> Emitter<'a> {
                 Ok(arr)
             }
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::Array) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Array) {
                     return Err(diag("es_dd: expected array local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -786,7 +790,7 @@ impl<'a> Emitter<'a> {
                 Ok(obj)
             }
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::Object) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Object) {
                     return Err(diag("es_dd: expected object local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -827,7 +831,7 @@ impl<'a> Emitter<'a> {
                     return Ok(t);
                 }
                 match self.slot_of.get(id).copied() {
-                    Some(SlotTy::Number) => {
+                    Some(LocalSlot::Number) => {
                         let ptr = self.slot_ptr(*id)?;
                         let d = self.fresh();
                         writeln!(self.body, "  {d} = load double, ptr {ptr}").ok();
@@ -837,7 +841,7 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {p} = inttoptr i64 {i} to ptr").ok();
                         Ok(p)
                     }
-                    Some(SlotTy::Array) | Some(SlotTy::Object) => {
+                    Some(LocalSlot::Array) | Some(LocalSlot::Object) => {
                         let ptr = self.slot_ptr(*id)?;
                         let t = self.fresh();
                         writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
@@ -859,7 +863,7 @@ impl<'a> Emitter<'a> {
                 Ok(t)
             }
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::Number) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Number) {
                     return Err(diag("es_dd: expected number local"));
                 }
                 let ptr = self.slot_ptr(*id)?;

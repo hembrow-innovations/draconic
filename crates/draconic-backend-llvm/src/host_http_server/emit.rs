@@ -173,15 +173,15 @@ impl<'a> super::Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             match ty {
-                SlotTy::Handle | SlotTy::Number => {
+                LocalSlot::Handle | LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let ptr = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
@@ -189,7 +189,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                     writeln!(self.body, "  store i64 0, ptr {lp}").ok();
                 }
-                SlotTy::HttpReq => {
+                LocalSlot::HttpReq => {
                     for f in ["method", "path", "version", "body", "raw"] {
                         let p = self.slot_req_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
@@ -197,7 +197,7 @@ impl<'a> super::Emitter<'a> {
                     let plen = self.slot_req_field(*id, "raw_len")?;
                     writeln!(self.body, "  {plen} = alloca i64, align 8").ok();
                 }
-                SlotTy::HttpRes => {
+                LocalSlot::HttpRes => {
                     for f in ["version", "reason", "body", "raw"] {
                         let p = self.slot_req_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
@@ -217,13 +217,13 @@ impl<'a> super::Emitter<'a> {
         if self.info.client_print {
             for (id, ty) in &self.info.print_locals {
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let ptr = self.slot_ptr(*id)?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                         writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let ptr = self.slot_ptr(*id)?;
                         let v = self.fresh();
                         let i = self.fresh();
@@ -271,24 +271,24 @@ impl<'a> super::Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_http_server: unknown slot"))?;
                 match ty {
-                    SlotTy::Handle => {
+                    LocalSlot::Handle => {
                         let v = self.emit_handle_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
-                    SlotTy::HttpReq => self.emit_http_req_into(*local, init)?,
-                    SlotTy::HttpRes => self.emit_http_res_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::HttpReq => self.emit_http_req_into(*local, init)?,
+                    LocalSlot::HttpRes => self.emit_http_res_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -327,7 +327,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_dynbytes_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 2
@@ -377,7 +381,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_http_req_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_http_req_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "httpParseRequest") =>
@@ -411,7 +419,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_http_res_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_http_res_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "httpParseResponse") =>

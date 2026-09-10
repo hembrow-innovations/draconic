@@ -4,7 +4,7 @@ use super::*;
 pub(super) fn cmp_number_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Binary {
@@ -20,7 +20,7 @@ pub(super) fn cmp_number_ok(
 pub(super) fn local_assign_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     let Expr::Assign {
         target: AssignTarget::Local(id),
@@ -32,9 +32,9 @@ pub(super) fn local_assign_ok(
         return false;
     };
     match slot_of.get(id) {
-        Some(SlotTy::Number) => number_expr_ok(value, by_id, slot_of),
-        Some(SlotTy::String) => string_expr_ok(value, by_id, slot_of),
-        Some(SlotTy::Array) => array_expr_ok(value, by_id, slot_of),
+        Some(LocalSlot::Number) => number_expr_ok(value, by_id, slot_of),
+        Some(LocalSlot::String) => string_expr_ok(value, by_id, slot_of),
+        Some(LocalSlot::Array) => array_expr_ok(value, by_id, slot_of),
         _ => false,
     }
 }
@@ -58,13 +58,13 @@ pub(super) fn infer_expr_slot(
     expr: &Expr,
     arr_inits: &HashMap<LocalId, Expr>,
     arr_elem: &HashMap<LocalId, ElemKind>,
-    slot_of: &HashMap<LocalId, SlotTy>,
-) -> Option<SlotTy> {
+    slot_of: &HashMap<LocalId, LocalSlot>,
+) -> Option<LocalSlot> {
     match expr {
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Boolean { .. } => Some(SlotTy::Bool),
-        Expr::Null { .. } => Some(SlotTy::Null),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Boolean { .. } => Some(LocalSlot::Bool),
+        Expr::Null { .. } => Some(LocalSlot::Null),
         Expr::Member {
             object,
             property,
@@ -76,7 +76,7 @@ pub(super) fn infer_expr_slot(
                 return None;
             }
             if !*computed && member_key_is_length(property) {
-                return Some(SlotTy::Number);
+                return Some(LocalSlot::Number);
             }
             // obj.prop / obj["k"] — number observations on object props.
             if object_expr_ok(object, &HashMap::new(), slot_of) {
@@ -86,7 +86,7 @@ pub(super) fn infer_expr_slot(
                     matches!(property.as_ref(), Expr::String { .. })
                 };
                 if string_key {
-                    return Some(SlotTy::Number);
+                    return Some(LocalSlot::Number);
                 }
             }
             if *computed {
@@ -101,7 +101,7 @@ pub(super) fn infer_expr_slot(
                         array_expr_elem_kind(object, arr_inits, arr_elem, slot_of)
                             .unwrap_or(ElemKind::Number),
                     )
-                    .or(Some(SlotTy::Number));
+                    .or(Some(LocalSlot::Number));
                 }
                 return slot_from_elem_kind(array_expr_elem_kind(
                     object, arr_inits, arr_elem, slot_of,
@@ -113,11 +113,11 @@ pub(super) fn infer_expr_slot(
     }
 }
 
-pub(super) fn slot_from_elem_kind(k: ElemKind) -> Option<SlotTy> {
+pub(super) fn slot_from_elem_kind(k: ElemKind) -> Option<LocalSlot> {
     match k {
-        ElemKind::Number => Some(SlotTy::Number),
-        ElemKind::String => Some(SlotTy::String),
-        ElemKind::Array => Some(SlotTy::Array),
+        ElemKind::Number => Some(LocalSlot::Number),
+        ElemKind::String => Some(LocalSlot::String),
+        ElemKind::Array => Some(LocalSlot::Array),
         ElemKind::Unknown => None,
     }
 }
@@ -156,13 +156,13 @@ pub(super) fn resolve_array_elem(
     }
 }
 
-pub(super) fn literal_or_array_slot(expr: &Expr) -> Option<SlotTy> {
+pub(super) fn literal_or_array_slot(expr: &Expr) -> Option<LocalSlot> {
     match expr {
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Boolean { .. } => Some(SlotTy::Bool),
-        Expr::Null { .. } => Some(SlotTy::Null),
-        Expr::Array { .. } => Some(SlotTy::Array),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Boolean { .. } => Some(LocalSlot::Bool),
+        Expr::Null { .. } => Some(LocalSlot::Null),
+        Expr::Array { .. } => Some(LocalSlot::Array),
         _ => None,
     }
 }
@@ -171,7 +171,7 @@ pub(super) fn array_expr_elem_kind(
     expr: &Expr,
     arr_inits: &HashMap<LocalId, Expr>,
     arr_elem: &HashMap<LocalId, ElemKind>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<ElemKind> {
     match expr {
         Expr::Array { elements, .. } => array_lit_elem_kind(elements, arr_inits, arr_elem, slot_of),
@@ -209,7 +209,7 @@ pub(super) fn array_lit_elem_kind(
     elements: &[ArrayElement],
     arr_inits: &HashMap<LocalId, Expr>,
     arr_elem: &HashMap<LocalId, ElemKind>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<ElemKind> {
     let mut kind: Option<ElemKind> = None;
     for el in elements {
@@ -231,7 +231,7 @@ pub(super) fn expr_as_elem_kind(
     expr: &Expr,
     arr_inits: &HashMap<LocalId, Expr>,
     arr_elem: &HashMap<LocalId, ElemKind>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<ElemKind> {
     match expr {
         Expr::Number { .. } => Some(ElemKind::Number),
@@ -242,9 +242,9 @@ pub(super) fn expr_as_elem_kind(
             Some(ElemKind::Unknown)
         }
         Expr::Local { id, .. } => match slot_of.get(id) {
-            Some(SlotTy::Number) => Some(ElemKind::Number),
-            Some(SlotTy::String) => Some(ElemKind::String),
-            Some(SlotTy::Array) => Some(ElemKind::Array),
+            Some(LocalSlot::Number) => Some(ElemKind::Number),
+            Some(LocalSlot::String) => Some(ElemKind::String),
+            Some(LocalSlot::Array) => Some(ElemKind::Array),
             // Global `undefined` binding — hole-like.
             None => Some(ElemKind::Unknown),
             _ => None,
@@ -280,13 +280,13 @@ pub(super) fn spread_source_elem_kind(
     expr: &Expr,
     arr_inits: &HashMap<LocalId, Expr>,
     arr_elem: &HashMap<LocalId, ElemKind>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<ElemKind> {
     match expr {
         Expr::String { .. } => Some(ElemKind::String),
         Expr::Local { id, .. } => match slot_of.get(id) {
-            Some(SlotTy::String) => Some(ElemKind::String),
-            Some(SlotTy::Array) => arr_elem.get(id).copied().or_else(|| {
+            Some(LocalSlot::String) => Some(ElemKind::String),
+            Some(LocalSlot::Array) => arr_elem.get(id).copied().or_else(|| {
                 arr_inits
                     .get(id)
                     .and_then(|e| array_expr_elem_kind(e, arr_inits, arr_elem, slot_of))
@@ -329,7 +329,7 @@ pub(super) fn is_number_slot_ty(ty: &Type) -> bool {
 pub(super) fn array_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Array { elements, .. } => elements.iter().all(|el| match el {
@@ -340,7 +340,7 @@ pub(super) fn array_expr_ok(
             }
         }),
         Expr::Local { id, ty } => {
-            slot_of.get(id) == Some(&SlotTy::Array)
+            slot_of.get(id) == Some(&LocalSlot::Array)
                 || is_array_slot_ty(ty)
                 || by_id
                     .get(id)
@@ -379,7 +379,7 @@ pub(super) fn array_expr_ok(
 pub(super) fn value_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     number_expr_ok(expr, by_id, slot_of)
         || string_expr_ok(expr, by_id, slot_of)
@@ -393,12 +393,12 @@ pub(super) fn value_expr_ok(
 pub(super) fn number_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, ty } => {
-            slot_of.get(id) == Some(&SlotTy::Number)
+            slot_of.get(id) == Some(&LocalSlot::Number)
                 || is_number_slot_ty(ty)
                 || by_id
                     .get(id)
@@ -464,7 +464,7 @@ pub(super) fn number_expr_ok(
 pub(super) fn member_assign_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Assign {
@@ -490,12 +490,12 @@ pub(super) fn member_assign_ok(
 pub(super) fn string_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::String { .. } => true,
         Expr::Local { id, ty } => {
-            slot_of.get(id) == Some(&SlotTy::String)
+            slot_of.get(id) == Some(&LocalSlot::String)
                 || matches!(ty, Type::String)
                 || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::String))
         }
@@ -524,12 +524,12 @@ pub(super) fn string_expr_ok(
 pub(super) fn bool_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Boolean { .. } => true,
         Expr::Local { id, ty } => {
-            slot_of.get(id) == Some(&SlotTy::Bool)
+            slot_of.get(id) == Some(&LocalSlot::Bool)
                 || matches!(ty, Type::Boolean)
                 || by_id.get(id).is_some_and(|l| matches!(l.ty, Type::Boolean))
         }
@@ -552,14 +552,14 @@ pub(super) fn bool_expr_ok(
 pub(super) fn null_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Null { .. } => true,
         _ if is_undefined_expr(expr) => true,
         Expr::Local { id, ty } => {
             is_undefined_local(*id, by_id)
-                || slot_of.get(id) == Some(&SlotTy::Null)
+                || slot_of.get(id) == Some(&LocalSlot::Null)
                 || matches!(ty, Type::Null | Type::Any)
                     && by_id.get(id).is_some_and(|l| {
                         matches!(l.ty, Type::Null | Type::Any) || l.name == "undefined"

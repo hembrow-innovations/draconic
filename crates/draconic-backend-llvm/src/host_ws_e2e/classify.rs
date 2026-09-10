@@ -67,7 +67,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
@@ -77,14 +77,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             if args.len() == 2 {
                 classify_number_arg(arg_expr(&args[1])?, ctx)?;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpAccept") =>
         {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
@@ -92,14 +92,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_tcp = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             classify_number_arg(arg_expr(&args[1])?, ctx)?;
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
         {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
@@ -107,7 +107,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_tcp = true;
             classify_handle_arg(arg_expr(&args[0])?, ctx)?;
             classify_number_arg(arg_expr(&args[1])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 3 && is_named_callee(callee, "wsClientHandshakeRequest") =>
@@ -116,58 +116,58 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
             classify_string_arg(arg_expr(&args[2])?, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsHandshakeResponse") =>
         {
             // Allowed in e2e when paired with client APIs; does not claim alone.
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeTextClient") =>
         {
             ctx.has_ws_client = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeText") =>
         {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeBinary") =>
         {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "wsEncodeClose") =>
         {
             classify_number_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodePing") =>
         {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodePong") =>
         {
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsDecodeFrame") =>
         {
             classify_bytes_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::WsFrame)
+            Some(LocalSlot::WsFrame)
         }
         Expr::Member {
             object,
@@ -178,14 +178,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
-                (SlotTy::WsFrame, "fin" | "opcode" | "closeCode") => Some(SlotTy::Number),
-                (SlotTy::WsFrame, "payload") => Some(SlotTy::String),
+                (LocalSlot::DynBytes, "length") => Some(LocalSlot::Number),
+                (LocalSlot::WsFrame, "fin" | "opcode" | "closeCode") => Some(LocalSlot::Number),
+                (LocalSlot::WsFrame, "payload") => Some(LocalSlot::String),
                 _ => None,
             }
         }
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Number { .. } => Some(SlotTy::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
     }
@@ -194,10 +194,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
 fn classify_handle_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::Handle => Some(()),
+            LocalSlot::Handle => Some(()),
             _ => None,
         },
-        Expr::Call { .. } => matches!(classify_expr(expr, ctx)?, SlotTy::Handle).then_some(()),
+        Expr::Call { .. } => matches!(classify_expr(expr, ctx)?, LocalSlot::Handle).then_some(()),
         _ => None,
     }
 }
@@ -206,14 +206,14 @@ fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::Number { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::Number | SlotTy::Handle => Some(()),
+            LocalSlot::Number | LocalSlot::Handle => Some(()),
             _ => None,
         },
         Expr::Call { .. } => {
             let ty = classify_expr(expr, ctx)?;
-            matches!(ty, SlotTy::Number | SlotTy::Handle).then_some(())
+            matches!(ty, LocalSlot::Number | LocalSlot::Handle).then_some(())
         }
-        Expr::Member { .. } => matches!(classify_expr(expr, ctx)?, SlotTy::Number).then_some(()),
+        Expr::Member { .. } => matches!(classify_expr(expr, ctx)?, LocalSlot::Number).then_some(()),
         _ => None,
     }
 }
@@ -222,11 +222,11 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::String => Some(()),
+            LocalSlot::String => Some(()),
             _ => None,
         },
-        Expr::Call { .. } => matches!(classify_expr(expr, ctx)?, SlotTy::String).then_some(()),
-        Expr::Member { .. } => matches!(classify_expr(expr, ctx)?, SlotTy::String).then_some(()),
+        Expr::Call { .. } => matches!(classify_expr(expr, ctx)?, LocalSlot::String).then_some(()),
+        Expr::Member { .. } => matches!(classify_expr(expr, ctx)?, LocalSlot::String).then_some(()),
         _ => None,
     }
 }
@@ -235,16 +235,16 @@ fn classify_bytes_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::String | SlotTy::DynBytes => Some(()),
+            LocalSlot::String | LocalSlot::DynBytes => Some(()),
             _ => None,
         },
         Expr::Call { .. } => {
             let ty = classify_expr(expr, ctx)?;
-            matches!(ty, SlotTy::DynBytes | SlotTy::String).then_some(())
+            matches!(ty, LocalSlot::DynBytes | LocalSlot::String).then_some(())
         }
         Expr::Member { .. } => {
             let ty = classify_expr(expr, ctx)?;
-            matches!(ty, SlotTy::String | SlotTy::DynBytes).then_some(())
+            matches!(ty, LocalSlot::String | LocalSlot::DynBytes).then_some(())
         }
         _ => None,
     }

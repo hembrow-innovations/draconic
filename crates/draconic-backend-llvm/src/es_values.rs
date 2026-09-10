@@ -44,7 +44,7 @@ pub(crate) fn walk_es_values(module: &Module) -> Option<Result<String, Diagnosti
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     /// JS Symbol as unique i64 id (not printed).
     Symbol,
     Boolean,
@@ -56,7 +56,7 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    user_locals: Vec<(LocalId, SlotTy)>,
+    user_locals: Vec<(LocalId, LocalSlot)>,
     symbol_locals: std::collections::HashSet<LocalId>,
     undefined_locals: std::collections::HashSet<LocalId>,
     needs_gc: bool,
@@ -272,7 +272,7 @@ fn member_get_ok(
     by_id: &HashMap<LocalId, &Local>,
     symbols: &std::collections::HashSet<LocalId>,
     objects: &std::collections::HashSet<LocalId>,
-) -> Option<SlotTy> {
+) -> Option<LocalSlot> {
     let Expr::Member {
         object,
         property,
@@ -290,10 +290,10 @@ fn member_get_ok(
         return None;
     }
     if member_key_is_symbol(property, by_id, symbols) {
-        Some(SlotTy::Number)
+        Some(LocalSlot::Number)
     } else if member_key_is_string(property) {
         // Fixture only uses string keys for intentional misses.
-        Some(SlotTy::Undefined)
+        Some(LocalSlot::Undefined)
     } else {
         None
     }
@@ -336,7 +336,7 @@ struct StrVal {
 
 struct Emitter<'a> {
     module: &'a Module,
-    allocas: HashMap<LocalId, (String, SlotTy)>,
+    allocas: HashMap<LocalId, (String, LocalSlot)>,
     string_lens: HashMap<LocalId, String>,
     symbol_locals: std::collections::HashSet<LocalId>,
     undefined_locals: std::collections::HashSet<LocalId>,
@@ -400,25 +400,25 @@ impl<'a> Emitter<'a> {
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, (ptr.clone(), *slot));
             match slot {
-                SlotTy::Symbol => {
+                LocalSlot::Symbol => {
                     writeln!(self.body, "  {ptr} = alloca i64, align 8").ok();
                 }
-                SlotTy::Boolean => {
+                LocalSlot::Boolean => {
                     writeln!(self.body, "  {ptr} = alloca i1, align 1").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     let len_ptr = format!("%l{}_len", id.0);
                     writeln!(self.body, "  {len_ptr} = alloca i64, align 8").ok();
                     self.string_lens.insert(*id, len_ptr);
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::Object => {
+                LocalSlot::Object => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Undefined => {
+                LocalSlot::Undefined => {
                     // no storage; typeof is compile-time
                 }
             }
@@ -430,8 +430,8 @@ impl<'a> Emitter<'a> {
 
         for (id, slot) in &info.user_locals {
             match slot {
-                SlotTy::Symbol | SlotTy::Object | SlotTy::Undefined => {}
-                SlotTy::Boolean => {
+                LocalSlot::Symbol | LocalSlot::Object | LocalSlot::Undefined => {}
+                LocalSlot::Boolean => {
                     let (ptr, _) = self.allocas.get(id).cloned().unwrap();
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i1, ptr {ptr}").ok();
@@ -439,7 +439,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {ext} = zext i1 {v} to i8").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {ext}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let (ptr, _) = self.allocas.get(id).cloned().unwrap();
                     let len_ptr = self.string_lens.get(id).cloned().unwrap();
                     let v = self.fresh();
@@ -453,7 +453,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let (ptr, _) = self.allocas.get(id).cloned().unwrap();
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
@@ -508,7 +508,7 @@ impl<'a> Emitter<'a> {
                     .map(|(_, s)| *s)
                     .or_else(|| {
                         if self.undefined_locals.contains(local) {
-                            Some(SlotTy::Undefined)
+                            Some(LocalSlot::Undefined)
                         } else {
                             None
                         }
@@ -518,34 +518,34 @@ impl<'a> Emitter<'a> {
                     .as_ref()
                     .ok_or_else(|| diag("es_values: declare requires init"))?;
                 match slot {
-                    SlotTy::Symbol => {
+                    LocalSlot::Symbol => {
                         let (ptr, _) = self.allocas.get(local).cloned().unwrap();
                         let v = self.emit_symbol_expr(init)?;
                         writeln!(self.body, "  store i64 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Boolean => {
+                    LocalSlot::Boolean => {
                         let (ptr, _) = self.allocas.get(local).cloned().unwrap();
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i1 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let (ptr, _) = self.allocas.get(local).cloned().unwrap();
                         let s = self.emit_string_expr(init)?;
                         let len_ptr = self.string_lens.get(local).cloned().unwrap();
                         writeln!(self.body, "  store ptr {}, ptr {ptr}", s.data).ok();
                         writeln!(self.body, "  store i64 {}, ptr {len_ptr}", s.len).ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let (ptr, _) = self.allocas.get(local).cloned().unwrap();
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let (ptr, _) = self.allocas.get(local).cloned().unwrap();
                         let v = self.emit_object_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Undefined => {
+                    LocalSlot::Undefined => {
                         // Missing property — no runtime store.
                     }
                 }
@@ -644,7 +644,7 @@ impl<'a> Emitter<'a> {
             .get(&id)
             .cloned()
             .ok_or_else(|| diag("es_values: unknown symbol local"))?;
-        if slot != SlotTy::Symbol {
+        if slot != LocalSlot::Symbol {
             return Err(diag("es_values: local is not symbol"));
         }
         let v = self.fresh();
@@ -658,7 +658,7 @@ impl<'a> Emitter<'a> {
             .get(&id)
             .cloned()
             .ok_or_else(|| diag("es_values: unknown object local"))?;
-        if slot != SlotTy::Object {
+        if slot != LocalSlot::Object {
             return Err(diag("es_values: local is not object"));
         }
         let v = self.fresh();
@@ -745,7 +745,7 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .cloned()
                     .ok_or_else(|| diag("es_values: unknown number local"))?;
-                if slot != SlotTy::Number {
+                if slot != LocalSlot::Number {
                     return Err(diag("es_values: local is not number"));
                 }
                 let v = self.fresh();
@@ -783,7 +783,7 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .cloned()
                     .ok_or_else(|| diag("es_values: unknown bool local"))?;
-                if slot != SlotTy::Boolean {
+                if slot != LocalSlot::Boolean {
                     return Err(diag("es_values: local is not bool"));
                 }
                 let v = self.fresh();
@@ -821,7 +821,7 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .cloned()
                     .ok_or_else(|| diag("es_values: unknown string local"))?;
-                if slot != SlotTy::String {
+                if slot != LocalSlot::String {
                     return Err(diag("es_values: local is not string"));
                 }
                 let len_ptr = self.string_lens.get(id).cloned().unwrap();
@@ -885,12 +885,12 @@ impl<'a> Emitter<'a> {
                     return Ok("symbol");
                 }
                 match self.allocas.get(id).map(|(_, s)| *s) {
-                    Some(SlotTy::Symbol) => Ok("symbol"),
-                    Some(SlotTy::String) => Ok("string"),
-                    Some(SlotTy::Boolean) => Ok("boolean"),
-                    Some(SlotTy::Number) => Ok("number"),
-                    Some(SlotTy::Object) => Ok("object"),
-                    Some(SlotTy::Undefined) => Ok("undefined"),
+                    Some(LocalSlot::Symbol) => Ok("symbol"),
+                    Some(LocalSlot::String) => Ok("string"),
+                    Some(LocalSlot::Boolean) => Ok("boolean"),
+                    Some(LocalSlot::Number) => Ok("number"),
+                    Some(LocalSlot::Object) => Ok("object"),
+                    Some(LocalSlot::Undefined) => Ok("undefined"),
                     None if is_symbol_ctor_local(*id, Type::Function, &by_id) => Ok("function"),
                     _ => Err(diag("es_values: typeof unsupported local")),
                 }

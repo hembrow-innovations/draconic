@@ -7,7 +7,7 @@ use draconic_runtime::abi::{ALLOC_OBJECT, OBJECT_GET, OBJECT_SET, OBJECT_SET_PRO
 
 use super::ok::is_undefined_expr;
 use super::{
-    diag, format_number_const, member_field_val, undef_double_const, FieldVal, SlotTy,
+    diag, format_number_const, member_field_val, undef_double_const, FieldVal, LocalSlot,
     MAX_METHOD_ARGS,
 };
 
@@ -233,7 +233,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_classes: number local unknown"))?;
-                if kind != SlotTy::Number {
+                if kind != LocalSlot::Number {
                     return Err(diag("es_classes: expected number local"));
                 }
                 let ptr = self.number_slot_ptr(*id)?;
@@ -348,7 +348,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_method_call(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_method_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Member {
             object,
             property,
@@ -542,7 +546,7 @@ impl<'a> super::Emitter<'a> {
                 .ok_or_else(|| diag("es_classes: This outside method")),
             Expr::New { callee, args, .. } => self.emit_new(callee, args),
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) == Some(&SlotTy::Object)
+                if self.slot_of.get(id) == Some(&LocalSlot::Object)
                     || self.info.class_of.contains_key(id)
                 {
                     let ptr = self
@@ -579,5 +583,4 @@ impl<'a> super::Emitter<'a> {
             _ => Err(diag("es_classes: unsupported object expr")),
         }
     }
-
 }

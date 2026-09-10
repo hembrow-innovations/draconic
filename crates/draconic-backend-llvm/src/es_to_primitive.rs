@@ -32,7 +32,7 @@ pub(crate) fn walk_es_to_primitive(module: &Module) -> Option<Result<String, Dia
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Boolean,
     String,
     Number,
@@ -42,7 +42,7 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    user_locals: Vec<(LocalId, SlotTy)>,
+    user_locals: Vec<(LocalId, LocalSlot)>,
     values: HashMap<LocalId, JsVal>,
 }
 
@@ -441,24 +441,24 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     saw_marker = true;
                 }
                 let slot = match &loc.ty {
-                    Type::Boolean => SlotTy::Boolean,
-                    Type::String => SlotTy::String,
-                    Type::Number => SlotTy::Number,
+                    Type::Boolean => LocalSlot::Boolean,
+                    Type::String => LocalSlot::String,
+                    Type::Number => LocalSlot::Number,
                     Type::Any => {
                         if matches!(init, Expr::Object { .. }) {
                             objs.insert(*local);
-                            SlotTy::Object
+                            LocalSlot::Object
                         } else {
-                            SlotTy::Any
+                            LocalSlot::Any
                         }
                     }
                     ty if matches!(ty, Type::Object | Type::Shape(_)) => {
                         objs.insert(*local);
-                        SlotTy::Object
+                        LocalSlot::Object
                     }
                     _ => return None,
                 };
-                if matches!(slot, SlotTy::Object) {
+                if matches!(slot, LocalSlot::Object) {
                     objs.insert(*local);
                 }
                 if seen.insert(*local) {
@@ -473,7 +473,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         return None;
     }
     // Must include at least one ToPrimitive object hook lit.
-    if !user_locals.iter().any(|(_, s)| *s == SlotTy::Object) {
+    if !user_locals.iter().any(|(_, s)| *s == LocalSlot::Object) {
         return None;
     }
 
@@ -613,26 +613,26 @@ impl Emitter {
                 .get(id)
                 .ok_or_else(|| diag("es_to_primitive: missing value"))?;
             match slot {
-                SlotTy::Object => {}
-                SlotTy::Boolean => {
+                LocalSlot::Object => {}
+                LocalSlot::Boolean => {
                     let JsVal::Bool(b) = v else {
                         return Err(diag("es_to_primitive: expected bool"));
                     };
                     self.emit_bool(*b);
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let JsVal::Str(s) = v else {
                         return Err(diag("es_to_primitive: expected string"));
                     };
                     self.emit_str(s);
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let JsVal::Num(n) = v else {
                         return Err(diag("es_to_primitive: expected number"));
                     };
                     self.emit_num(*n);
                 }
-                SlotTy::Any => self.emit_val(v)?,
+                LocalSlot::Any => self.emit_val(v)?,
             }
         }
 

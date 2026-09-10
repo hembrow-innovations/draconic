@@ -53,7 +53,7 @@ pub(crate) fn walk_host_http_server(module: &Module) -> Option<Result<String, Di
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Handle,
     Number,
     String,
@@ -63,8 +63,8 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     /// H10.05 client observations: auto-print string/number locals at end.
     client_print: bool,
     /// P04: one-arg string functions (linked `greet`) → (param, return expr).
@@ -73,9 +73,9 @@ struct ModuleInfo {
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_tcp: bool,
     has_http: bool,
     has_client: bool,
@@ -114,7 +114,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 #[cfg(test)]

@@ -64,7 +64,7 @@ impl<'a> super::Emitter<'a> {
 
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = format!("es_cs_n{}", id.0);
                     writeln!(
                         self.out,
@@ -73,12 +73,12 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String | SlotTy::Array | SlotTy::Object => {
+                LocalSlot::String | LocalSlot::Array | LocalSlot::Object => {
                     let tag = match kind {
-                        SlotTy::String => "s",
-                        SlotTy::Array => "a",
-                        SlotTy::Object => "o",
-                        SlotTy::Number => "n",
+                        LocalSlot::String => "s",
+                        LocalSlot::Array => "a",
+                        LocalSlot::Object => "o",
+                        LocalSlot::Number => "n",
                     };
                     let g = format!("es_cs_{tag}{}", id.0);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
@@ -101,12 +101,12 @@ impl<'a> super::Emitter<'a> {
         for (id, kind) in &info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
@@ -347,19 +347,19 @@ impl<'a> super::Emitter<'a> {
                     .ok_or_else(|| diag("es_call_spread: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -379,7 +379,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {t} = load double, ptr {ptr}").ok();
                     return Ok(t);
                 }
-                if self.slot_of.get(id) != Some(&SlotTy::Number) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Number) {
                     return Err(diag("es_call_spread: expected number local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -456,7 +456,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
                     return Ok(t);
                 }
-                if self.slot_of.get(id) != Some(&SlotTy::String) {
+                if self.slot_of.get(id) != Some(&LocalSlot::String) {
                     return Err(diag("es_call_spread: expected string local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -579,7 +579,7 @@ impl<'a> super::Emitter<'a> {
     fn emit_object_expr(&mut self, expr: &Expr) -> Result<String, Diagnostic> {
         match expr {
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::Object) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Object) {
                     return Err(diag("es_call_spread: expected object local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -651,7 +651,7 @@ impl<'a> super::Emitter<'a> {
         match expr {
             Expr::Array { elements, .. } => self.emit_array_lit(elements),
             Expr::Local { id, .. } => {
-                if self.slot_of.get(id) != Some(&SlotTy::Array) {
+                if self.slot_of.get(id) != Some(&LocalSlot::Array) {
                     return Err(diag("es_call_spread: expected array local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -703,11 +703,11 @@ impl<'a> super::Emitter<'a> {
                 }
                 ArrayElement::Expr(e) => {
                     let v = if matches!(e, Expr::Array { .. })
-                        || matches!(e, Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::Array))
+                        || matches!(e, Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::Array))
                     {
                         self.emit_array_expr(e)?
                     } else if matches!(e, Expr::String { .. })
-                        || matches!(e, Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::String))
+                        || matches!(e, Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::String))
                     {
                         self.emit_string_expr(e)?
                     } else {

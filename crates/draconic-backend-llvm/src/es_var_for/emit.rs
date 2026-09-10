@@ -44,7 +44,7 @@ impl<'a> super::Emitter<'a> {
             .ok_or_else(|| diag(format!("es_var_for: missing alloca %{}", p.0)))
     }
 
-    pub(super) fn slot_ty(&self, id: LocalId) -> Result<SlotTy, Diagnostic> {
+    pub(super) fn slot_ty(&self, id: LocalId) -> Result<LocalSlot, Diagnostic> {
         let p = self.resolve(id);
         self.info
             .slots
@@ -102,7 +102,7 @@ impl<'a> super::Emitter<'a> {
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                     writeln!(
                         self.body,
@@ -110,7 +110,7 @@ impl<'a> super::Emitter<'a> {
                     )
                     .ok();
                 }
-                SlotTy::String | SlotTy::Heap => {
+                LocalSlot::String | LocalSlot::Heap => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                 }
@@ -124,17 +124,17 @@ impl<'a> super::Emitter<'a> {
         for (id, kind) in &info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Heap => {}
+                LocalSlot::Heap => {}
             }
         }
 
@@ -184,17 +184,17 @@ impl<'a> super::Emitter<'a> {
                 let kind = self.slot_ty(p)?;
                 let ptr = self.slot_ptr(p)?;
                 match (kind, init) {
-                    (SlotTy::Number, Some(init)) => {
+                    (LocalSlot::Number, Some(init)) => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    (SlotTy::String, Some(init)) => {
+                    (LocalSlot::String, Some(init)) => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    (SlotTy::Heap, Some(init)) => {
+                    (LocalSlot::Heap, Some(init)) => {
                         if matches!(init, Expr::Array { .. })
-                            || self.slot_ty_of_expr(init) == Some(SlotTy::Heap)
+                            || self.slot_ty_of_expr(init) == Some(LocalSlot::Heap)
                                 && matches!(init, Expr::Local { .. })
                         {
                             // Prefer array when Array lit; object otherwise.
@@ -317,7 +317,12 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_for_in(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
+    pub(super) fn emit_for_in(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
         let (bind_id, annex_init) = match left {
             Stmt::Declare { local, init, .. } => (*local, init.as_ref()),
             _ => return Err(diag("es_var_for: for-in left must be var declare")),
@@ -351,7 +356,12 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_for_of(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
+    pub(super) fn emit_for_of(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
         let bind_id = match left {
             Stmt::Declare {
                 local, init: None, ..
@@ -432,15 +442,15 @@ impl<'a> super::Emitter<'a> {
                 let kind = self.slot_ty(*id)?;
                 let ptr = self.slot_ptr(*id)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(value)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(value)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Heap => {
+                    LocalSlot::Heap => {
                         let v = self.emit_heap_local(value)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -458,14 +468,14 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn slot_map(&self) -> HashMap<LocalId, SlotTy> {
+    pub(super) fn slot_map(&self) -> HashMap<LocalId, LocalSlot> {
         self.info.slots.iter().copied().collect()
     }
 
     pub(super) fn is_number_slot_expr(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Number { .. } => true,
-            Expr::Local { id, .. } => self.slot_ty(*id).ok() == Some(SlotTy::Number),
+            Expr::Local { id, .. } => self.slot_ty(*id).ok() == Some(LocalSlot::Number),
             Expr::Binary {
                 op:
                     BinaryOp::Add
@@ -488,7 +498,9 @@ impl<'a> super::Emitter<'a> {
                 target: AssignTarget::Local(id),
                 value,
                 ..
-            } => self.slot_ty(*id).ok() == Some(SlotTy::Number) && self.is_number_slot_expr(value),
+            } => {
+                self.slot_ty(*id).ok() == Some(LocalSlot::Number) && self.is_number_slot_expr(value)
+            }
             _ => false,
         }
     }
@@ -576,7 +588,7 @@ impl<'a> super::Emitter<'a> {
     pub(super) fn is_stringish(&self, expr: &Expr) -> bool {
         match expr {
             Expr::String { .. } => true,
-            Expr::Local { id, .. } => self.slot_ty(*id).ok() == Some(SlotTy::String),
+            Expr::Local { id, .. } => self.slot_ty(*id).ok() == Some(LocalSlot::String),
             Expr::Binary {
                 op: BinaryOp::Add,
                 left,
@@ -658,18 +670,18 @@ impl<'a> super::Emitter<'a> {
             Expr::String { value, .. } => self.string_const(&value.to_string_lossy()),
             Expr::Local { id, .. } => {
                 match self.slot_ty(*id)? {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let ptr = self.slot_ptr(*id)?;
                         let t = self.fresh();
                         writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
                         Ok(t)
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         // ToString number
                         let n = self.emit_number_expr(expr)?;
                         self.number_to_cstr(&n)
                     }
-                    SlotTy::Heap => Err(diag("es_var_for: heap local is not a string")),
+                    LocalSlot::Heap => Err(diag("es_var_for: heap local is not a string")),
                 }
             }
             Expr::Binary {
@@ -716,7 +728,7 @@ impl<'a> super::Emitter<'a> {
         }
         // Local number slot
         if let Expr::Local { id, .. } = expr {
-            if self.slot_ty(*id).ok() == Some(SlotTy::Number) {
+            if self.slot_ty(*id).ok() == Some(LocalSlot::Number) {
                 let n = self.emit_number_expr(expr)?;
                 return self.number_to_cstr(&n);
             }
@@ -832,12 +844,12 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn slot_ty_of_expr(&self, expr: &Expr) -> Option<SlotTy> {
+    pub(super) fn slot_ty_of_expr(&self, expr: &Expr) -> Option<LocalSlot> {
         match expr {
             Expr::Local { id, .. } => self.slot_ty(*id).ok(),
-            Expr::Object { .. } | Expr::Array { .. } => Some(SlotTy::Heap),
-            Expr::Number { .. } => Some(SlotTy::Number),
-            Expr::String { .. } => Some(SlotTy::String),
+            Expr::Object { .. } | Expr::Array { .. } => Some(LocalSlot::Heap),
+            Expr::Number { .. } => Some(LocalSlot::Number),
+            Expr::String { .. } => Some(LocalSlot::String),
             _ => None,
         }
     }

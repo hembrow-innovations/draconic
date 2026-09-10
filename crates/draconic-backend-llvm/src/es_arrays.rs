@@ -25,9 +25,9 @@ use draconic_runtime::abi::{
 };
 
 mod classify;
-mod ok;
 mod emit;
 mod emit_expr;
+mod ok;
 
 use classify::classify;
 
@@ -50,7 +50,7 @@ pub(crate) fn walk_es_arrays(module: &Module) -> Option<Result<String, Diagnosti
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Array,
     String,
@@ -69,19 +69,19 @@ enum ElemKind {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     /// Observation prints: numbers via `print_f64`, strings via `print_str`.
-    print_locals: Vec<(LocalId, SlotTy)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx<'a> {
     by_id: &'a HashMap<LocalId, &'a Local>,
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_array: bool,
     arr_inits: HashMap<LocalId, Expr>,
     arr_elem: HashMap<LocalId, ElemKind>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 struct CtrlFrame {
@@ -94,7 +94,7 @@ struct Emitter<'a> {
     out: String,
     body: String,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     str_globals: Vec<(String, String)>,
     tmp: usize,
     str_n: usize,
@@ -105,14 +105,14 @@ fn number_global_name(id: LocalId) -> String {
     format!("es_arr_n{}", id.0)
 }
 
-fn ptr_global_name(id: LocalId, kind: SlotTy) -> String {
+fn ptr_global_name(id: LocalId, kind: LocalSlot) -> String {
     let tag = match kind {
-        SlotTy::Array => "a",
-        SlotTy::String => "s",
-        SlotTy::Bool => "b",
-        SlotTy::Null => "z",
-        SlotTy::Object => "o",
-        SlotTy::Number => "n",
+        LocalSlot::Array => "a",
+        LocalSlot::String => "s",
+        LocalSlot::Bool => "b",
+        LocalSlot::Null => "z",
+        LocalSlot::Object => "o",
+        LocalSlot::Number => "n",
     };
     format!("es_arr_{tag}{}", id.0)
 }

@@ -20,19 +20,19 @@ pub(super) fn classify(module: &Module) -> Option<ModuleInfo> {
                         if !expr_is_boolean(init, &by_id, &symbols) {
                             return None;
                         }
-                        SlotTy::Boolean
+                        LocalSlot::Boolean
                     }
                     Type::String => {
                         if !expr_is_string(init, &by_id, &symbols, &undefineds) {
                             return None;
                         }
-                        SlotTy::String
+                        LocalSlot::String
                     }
                     Type::Number => {
                         if !expr_is_number(init) {
                             return None;
                         }
-                        SlotTy::Number
+                        LocalSlot::Number
                     }
                     ty if is_object_ty(ty) => {
                         if !object_expr_ok(init, &by_id, &symbols) {
@@ -40,7 +40,7 @@ pub(super) fn classify(module: &Module) -> Option<ModuleInfo> {
                         }
                         needs_gc = true;
                         objects.insert(*local);
-                        SlotTy::Object
+                        LocalSlot::Object
                     }
                     Type::Object => {
                         if !object_expr_ok(init, &by_id, &symbols) {
@@ -48,18 +48,18 @@ pub(super) fn classify(module: &Module) -> Option<ModuleInfo> {
                         }
                         needs_gc = true;
                         objects.insert(*local);
-                        SlotTy::Object
+                        LocalSlot::Object
                     }
                     Type::Any => {
                         if expr_is_symbol_key_for(init, &by_id, &symbols) {
-                            SlotTy::String
+                            LocalSlot::String
                         } else if expr_is_symbol_new(init, &by_id) {
                             saw_symbol = true;
                             symbols.insert(*local);
-                            SlotTy::Symbol
+                            LocalSlot::Symbol
                         } else if let Some(st) = member_get_ok(init, &by_id, &symbols, &objects) {
                             needs_gc = true;
-                            if st == SlotTy::Undefined {
+                            if st == LocalSlot::Undefined {
                                 undefineds.insert(*local);
                             }
                             st

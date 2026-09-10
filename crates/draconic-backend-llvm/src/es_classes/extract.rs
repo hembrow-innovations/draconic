@@ -15,7 +15,7 @@ use super::private::{
 };
 use super::{
     find_method_function, is_define_on_ctor, is_define_on_proto, is_object_define_property,
-    is_object_set_prototype_of, string_arg, ClassInfo, FieldVal, FnInfo, MethodRet, SlotTy,
+    is_object_set_prototype_of, string_arg, ClassInfo, FieldVal, FnInfo, LocalSlot, MethodRet,
 };
 
 pub(super) fn try_extract_class(
@@ -402,7 +402,7 @@ pub(super) fn try_fold_new_class_iife_member(
     functions: &mut Vec<FnInfo>,
     class_of: &HashMap<LocalId, usize>,
     classes: &[ClassInfo],
-) -> Option<(SlotTy, Option<String>)> {
+) -> Option<(LocalSlot, Option<String>)> {
     let Expr::Member {
         object,
         property,
@@ -437,7 +437,7 @@ pub(super) fn try_fold_new_class_iife_member(
     // Drop the extracted class methods from functions — observation is folded;
     // keeping orphan m_fn_* is fine but wastes IR. Leave them; emit still works.
     let _ = cls;
-    Some((SlotTy::Number, Some(raw)))
+    Some((LocalSlot::Number, Some(raw)))
 }
 
 fn ctor_this_prop_number(body: &[Stmt], key: &str) -> Option<String> {

@@ -59,7 +59,7 @@ impl<'a> super::Emitter<'a> {
         // Number/string slots as module globals so method bodies can load free vars.
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = number_global_name(*id);
                     writeln!(
                         self.out,
@@ -68,18 +68,18 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let g = string_global_name(*id);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::Object => {}
+                LocalSlot::Object => {}
             }
         }
         if info
             .slots
             .iter()
-            .any(|(_, k)| matches!(k, SlotTy::Number | SlotTy::String))
+            .any(|(_, k)| matches!(k, LocalSlot::Number | LocalSlot::String))
         {
             writeln!(self.out).ok();
         }
@@ -91,7 +91,7 @@ impl<'a> super::Emitter<'a> {
 
         // Main body into self.body — object slots stay stack allocas.
         for (id, kind) in &info.slots {
-            if *kind != SlotTy::Object {
+            if *kind != LocalSlot::Object {
                 continue;
             }
             let ptr = format!("%l{}", id.0);
@@ -235,17 +235,17 @@ impl<'a> super::Emitter<'a> {
                     .get(local)
                     .ok_or_else(|| diag("es_objects: declare unknown slot"))?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.number_slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.string_slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(init)?;
                         let ptr = self.allocas.get(local).cloned().unwrap();
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
@@ -316,7 +316,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_objects: number local unknown"))?;
-                if kind != SlotTy::Number {
+                if kind != LocalSlot::Number {
                     return Err(diag("es_objects: expected number local"));
                 }
                 let ptr = self.number_slot_ptr(*id)?;
@@ -404,7 +404,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_method_call(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_method_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Member {
             object,
             property,
@@ -582,7 +586,7 @@ impl<'a> super::Emitter<'a> {
             }
             Expr::Local { id, .. } => {
                 if let Some(kind) = self.slot_of.get(id).copied() {
-                    if kind != SlotTy::Object {
+                    if kind != LocalSlot::Object {
                         return Err(diag("es_objects: expected object local"));
                     }
                     let ptr = self.allocas.get(id).cloned().unwrap();
@@ -665,7 +669,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_objects: string local unknown"))?;
-                if kind != SlotTy::String {
+                if kind != LocalSlot::String {
                     return Err(diag("es_objects: expected string local"));
                 }
                 let ptr = self.string_slot_ptr(*id)?;
@@ -682,7 +686,7 @@ impl<'a> super::Emitter<'a> {
             return Ok(ptr.clone());
         }
         // Methods emit before main fills object allocas; number slots are globals.
-        if self.slot_of.get(&id) == Some(&SlotTy::Number) {
+        if self.slot_of.get(&id) == Some(&LocalSlot::Number) {
             return Ok(format!("@{}", number_global_name(id)));
         }
         Err(diag("es_objects: number slot missing"))
@@ -692,7 +696,7 @@ impl<'a> super::Emitter<'a> {
         if let Some(ptr) = self.allocas.get(&id) {
             return Ok(ptr.clone());
         }
-        if self.slot_of.get(&id) == Some(&SlotTy::String) {
+        if self.slot_of.get(&id) == Some(&LocalSlot::String) {
             return Ok(format!("@{}", string_global_name(id)));
         }
         Err(diag("es_objects: string slot missing"))

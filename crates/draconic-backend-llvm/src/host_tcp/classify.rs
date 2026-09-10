@@ -35,7 +35,7 @@ fn is_dynbytes_length(expr: &Expr, ctx: &ClassifyCtx) -> bool {
                 return false;
             }
             match object.as_ref() {
-                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&SlotTy::DynBytes),
+                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&LocalSlot::DynBytes),
                 _ => false,
             }
         }
@@ -52,8 +52,8 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.slot_of.insert(*local, ty);
             // Auto-print bools/strings always; numbers only from DynBytes.length
             // (ports etc. must not pollute native.stdout).
-            if matches!(ty, SlotTy::Bool | SlotTy::String)
-                || (ty == SlotTy::Number && is_dynbytes_length(init, ctx))
+            if matches!(ty, LocalSlot::Bool | LocalSlot::String)
+                || (ty == LocalSlot::Number && is_dynbytes_length(init, ctx))
             {
                 ctx.print_locals.push((*local, ty));
             }
@@ -84,10 +84,10 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
             let dt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            if !matches!(dt, SlotTy::String | SlotTy::DynBytes) {
+            if !matches!(dt, LocalSlot::String | LocalSlot::DynBytes) {
                 return None;
             }
             Some(())
@@ -97,12 +97,12 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
             if args.len() == 2 {
                 let ht2 = classify_expr(arg_expr(&args[1])?, ctx)?;
-                if ht2 != SlotTy::Number {
+                if ht2 != LocalSlot::Number {
                     return None;
                 }
             }
@@ -112,7 +112,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             if args.len() == 1 && is_named_callee(callee, "stdoutWrite") =>
         {
             let t = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if matches!(t, SlotTy::String | SlotTy::DynBytes) {
+            if matches!(t, LocalSlot::String | LocalSlot::DynBytes) {
                 Some(())
             } else {
                 None
@@ -122,57 +122,57 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.len() == 3 && is_named_callee(callee, "tlsClientWrap") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
             let nt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if nt != SlotTy::String {
+            if nt != LocalSlot::String {
                 return None;
             }
             let it = classify_expr(arg_expr(&args[2])?, ctx)?;
-            if it != SlotTy::Number {
+            if it != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 3 && is_named_callee(callee, "tlsServerWrap") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
             let ct = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ct != SlotTy::String {
+            if ct != LocalSlot::String {
                 return None;
             }
             let kt = classify_expr(arg_expr(&args[2])?, ctx)?;
-            if kt != SlotTy::String {
+            if kt != LocalSlot::String {
                 return None;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tlsRead") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
             let mt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if mt != SlotTy::Number {
+            if mt != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
@@ -182,27 +182,27 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             if args.len() == 2 {
                 classify_expr(arg_expr(&args[1])?, ctx)?;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpAccept") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
@@ -210,30 +210,30 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
             let pt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ht != SlotTy::String || pt != SlotTy::Number {
+            if ht != LocalSlot::String || pt != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpPeerAddress") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpPeerPort") =>
         {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
@@ -241,10 +241,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_tcp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
             let mt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ht != SlotTy::Handle || mt != SlotTy::Number {
+            if ht != LocalSlot::Handle || mt != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Member {
             object,
@@ -255,7 +255,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
+                (LocalSlot::DynBytes, "length") => Some(LocalSlot::Number),
                 _ => None,
             }
         }
@@ -275,10 +275,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if matches!(lt, SlotTy::Number | SlotTy::Handle)
-                && matches!(rt, SlotTy::Number | SlotTy::Handle)
+            if matches!(lt, LocalSlot::Number | LocalSlot::Handle)
+                && matches!(rt, LocalSlot::Number | LocalSlot::Handle)
             {
-                Some(SlotTy::Bool)
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
@@ -289,11 +289,11 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             let _ = classify_expr(arg, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
         _ => None,
     }
 }

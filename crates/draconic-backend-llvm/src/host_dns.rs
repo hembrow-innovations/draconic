@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -17,7 +18,6 @@ use draconic_runtime::abi::{
     HOST_HANDLE_CLOSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_TCP_CONNECT, HOST_TCP_LISTEN,
     HOST_TCP_LOCAL_PORT, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_dns_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -38,7 +38,7 @@ pub(crate) fn walk_host_dns(module: &Module) -> Option<Result<String, Diagnostic
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     String,
     Number,
     Array,
@@ -47,14 +47,14 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_dns: bool,
 }
 
@@ -84,8 +84,8 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if matches!(ty, SlotTy::Bool | SlotTy::String)
-                || (ty == SlotTy::Number && is_array_length(init, ctx))
+            if matches!(ty, LocalSlot::Bool | LocalSlot::String)
+                || (ty == LocalSlot::Number && is_array_length(init, ctx))
             {
                 ctx.print_locals.push((*local, ty));
             }
@@ -112,7 +112,7 @@ fn is_array_length(expr: &Expr, ctx: &ClassifyCtx) -> bool {
                 return false;
             }
             match object.as_ref() {
-                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&SlotTy::Array),
+                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&LocalSlot::Array),
                 _ => false,
             }
         }
@@ -139,14 +139,14 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "dnsLookup") =>
         {
             ctx.has_dns = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Array)
+            Some(LocalSlot::Array)
         }
         Expr::Call { callee, args, .. }
             if (args.len() == 1 || args.len() == 2) && is_named_callee(callee, "tcpListen") =>
@@ -155,26 +155,26 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             if args.len() == 2 {
                 classify_expr(arg_expr(&args[1])?, ctx)?;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "tcpLocalPort") =>
         {
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "tcpConnect") =>
         {
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
             let pt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ht != SlotTy::String || pt != SlotTy::Number {
+            if ht != LocalSlot::String || pt != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Member {
             object,
@@ -185,7 +185,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::Array, "length") => Some(SlotTy::Number),
+                (LocalSlot::Array, "length") => Some(LocalSlot::Number),
                 _ => None,
             }
         }
@@ -197,10 +197,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let ot = classify_expr(object, ctx)?;
             let it = classify_expr(property, ctx)?;
-            if ot != SlotTy::Array || it != SlotTy::Number {
+            if ot != LocalSlot::Array || it != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Binary {
             op:
@@ -218,10 +218,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if matches!(lt, SlotTy::Number | SlotTy::Handle)
-                && matches!(rt, SlotTy::Number | SlotTy::Handle)
+            if matches!(lt, LocalSlot::Number | LocalSlot::Handle)
+                && matches!(rt, LocalSlot::Number | LocalSlot::Handle)
             {
-                Some(SlotTy::Bool)
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
@@ -232,10 +232,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             let _ = classify_expr(arg, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
     }
@@ -245,7 +245,7 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::String => Some(()),
+            LocalSlot::String => Some(()),
             _ => None,
         },
         _ => None,
@@ -282,7 +282,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 impl<'a> Emitter<'a> {
@@ -371,13 +371,13 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::String | SlotTy::Array => {
+                LocalSlot::String | LocalSlot::Array => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number | SlotTy::Handle => {
+                LocalSlot::Number | LocalSlot::Handle => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                 }
             }
@@ -390,22 +390,22 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::Array | SlotTy::Handle => {}
+                LocalSlot::Array | LocalSlot::Handle => {}
             }
         }
 
@@ -514,27 +514,27 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_dns: declare unknown slot"))?;
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Handle => {
+                    LocalSlot::Handle => {
                         let v = self.emit_handle_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
@@ -712,9 +712,9 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_dns: typeof unknown local"))?;
                 let s = match ty {
-                    SlotTy::Handle | SlotTy::Number => "number",
-                    SlotTy::Bool => "boolean",
-                    SlotTy::String | SlotTy::Array => "object",
+                    LocalSlot::Handle | LocalSlot::Number => "number",
+                    LocalSlot::Bool => "boolean",
+                    LocalSlot::String | LocalSlot::Array => "object",
                 };
                 Ok(self.emit_cstr_ptr(s))
             }
@@ -897,7 +897,7 @@ impl<'a> Emitter<'a> {
                     _ => return Err(diag("host_dns: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::Array), "length") => {
+                    (Some(LocalSlot::Array), "length") => {
                         let ap = self.slot_ptr(id)?;
                         let arr = self.fresh();
                         let iv = self.fresh();

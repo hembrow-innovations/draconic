@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -17,7 +18,6 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_CHDIR, HOST_CWD, HOST_HOME_DIR, HOST_HOSTNAME, HOST_OS_ARCH,
     HOST_OS_TYPE, HOST_TEMP_DIR, PRINT_BOOL, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_os_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -38,7 +38,7 @@ pub(crate) fn walk_host_os(module: &Module) -> Option<Result<String, Diagnostic>
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     /// Path from `cwd()` — stored, not auto-printed.
     Path,
     /// `typeof` / string literals — auto-printed.
@@ -47,14 +47,14 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     has_os: bool,
 }
 
@@ -84,7 +84,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if matches!(ty, SlotTy::String | SlotTy::Bool) {
+            if matches!(ty, LocalSlot::String | LocalSlot::Bool) {
                 ctx.print_locals.push((*local, ty));
             }
             Some(())
@@ -108,7 +108,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.is_empty()
@@ -120,12 +120,12 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                     || is_named_callee(callee, "homeDir")) =>
         {
             ctx.has_os = true;
-            Some(SlotTy::Path)
+            Some(LocalSlot::Path)
         }
         Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "chdir") => {
             ctx.has_os = true;
             let _ = classify_expr(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Bool)
+            Some(LocalSlot::Bool)
         }
         Expr::Unary {
             op: UnaryOp::TypeOf,
@@ -133,7 +133,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             let _ = classify_expr(arg, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Binary {
             op: BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::NotEqEq | BinaryOp::NotEq,
@@ -143,16 +143,16 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if matches!(lt, SlotTy::Path | SlotTy::String)
-                && matches!(rt, SlotTy::Path | SlotTy::String)
+            if matches!(lt, LocalSlot::Path | LocalSlot::String)
+                && matches!(rt, LocalSlot::Path | LocalSlot::String)
             {
-                Some(SlotTy::Bool)
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
-        Expr::String { .. } => Some(SlotTy::String),
+        Expr::String { .. } => Some(LocalSlot::String),
         _ => None,
     }
 }
@@ -176,7 +176,7 @@ struct Emitter<'a> {
     module: &'a Module,
     info: &'a ModuleInfo,
     by_id: HashMap<LocalId, &'a Local>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     body: String,
     out: String,
     next_tmp: u32,
@@ -186,7 +186,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
         let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
+        let slot_of: HashMap<LocalId, LocalSlot> = info.slots.iter().copied().collect();
         Self {
             module,
             info,
@@ -260,8 +260,8 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
-                SlotTy::Path | SlotTy::String => "ptr",
-                SlotTy::Bool => "i8",
+                LocalSlot::Path | LocalSlot::String => "ptr",
+                LocalSlot::Bool => "i8",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -273,17 +273,17 @@ impl<'a> Emitter<'a> {
         for (id, kind) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::Path => {}
+                LocalSlot::Path => {}
             }
         }
 
@@ -322,11 +322,11 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("host_os: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Path | SlotTy::String => {
+                    LocalSlot::Path | LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }

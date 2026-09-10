@@ -49,7 +49,7 @@ fn is_make_channel_call(expr: &Expr) -> bool {
     matches!(expr, Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") && args.len() <= 1)
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. } if is_named_callee(callee, "makeChannel") => {
             if args.len() > 1 {
@@ -57,12 +57,12 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             if args.len() == 1 {
                 let cap = arg_expr(&args[0])?;
-                if classify_expr(cap, ctx)? != SlotTy::Number {
+                if classify_expr(cap, ctx)? != LocalSlot::Number {
                     return None;
                 }
             }
             ctx.uses_make = true;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. } if is_named_callee(callee, "channelSend") => {
             if args.len() != 2 {
@@ -71,7 +71,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let handle = arg_expr(&args[0])?;
             let value = arg_expr(&args[1])?;
             let ht = classify_expr(handle, ctx)?;
-            if ht != SlotTy::Number {
+            if ht != LocalSlot::Number {
                 return None;
             }
             let vt = classify_expr(value, ctx)?;
@@ -81,7 +81,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
                 }
             }
             ctx.uses_send = true;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. } if is_named_callee(callee, "channelRecv") => {
             if args.len() != 1 {
@@ -89,7 +89,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             let handle = arg_expr(&args[0])?;
             let ht = classify_expr(handle, ctx)?;
-            if ht != SlotTy::Number {
+            if ht != LocalSlot::Number {
                 return None;
             }
             ctx.uses_recv = true;
@@ -116,15 +116,15 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if lt == SlotTy::Number && rt == SlotTy::Number {
-                Some(SlotTy::Bool)
+            if lt == LocalSlot::Number && rt == LocalSlot::Number {
+                Some(LocalSlot::Bool)
             } else if matches!(
                 op,
                 BinaryOp::EqEqEq | BinaryOp::NotEqEq | BinaryOp::EqEq | BinaryOp::NotEq
-            ) && matches!(lt, SlotTy::Object(_))
-                && matches!(rt, SlotTy::Object(_))
+            ) && matches!(lt, LocalSlot::Object(_))
+                && matches!(rt, LocalSlot::Object(_))
             {
-                Some(SlotTy::Bool)
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
@@ -136,22 +136,22 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             if is_named_ident(arg, "makeChannel") {
                 ctx.uses_make = true;
-                Some(SlotTy::String)
+                Some(LocalSlot::String)
             } else if is_named_ident(arg, "channelSend") {
                 ctx.uses_send = true;
-                Some(SlotTy::String)
+                Some(LocalSlot::String)
             } else if is_named_ident(arg, "channelRecv") {
                 ctx.uses_recv = true;
-                Some(SlotTy::String)
+                Some(LocalSlot::String)
             } else {
                 let _ = classify_expr(arg, ctx)?;
-                Some(SlotTy::String)
+                Some(LocalSlot::String)
             }
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).cloned(),
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Boolean { .. } => Some(SlotTy::Bool),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Boolean { .. } => Some(LocalSlot::Bool),
         Expr::Object { properties, .. } => classify_object_lit(properties, ctx),
         Expr::Member {
             object, property, ..
@@ -168,10 +168,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let key = static_prop_key(property)?;
             let vt = classify_expr(value, ctx)?;
             match ot {
-                SlotTy::Object(mut shape) => {
+                LocalSlot::Object(mut shape) => {
                     shape.insert(key, vt.clone());
                     if let Expr::Local { id, .. } = object.as_ref() {
-                        ctx.slot_of.insert(*id, SlotTy::Object(shape));
+                        ctx.slot_of.insert(*id, LocalSlot::Object(shape));
                     }
                     Some(vt)
                 }
@@ -182,7 +182,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
     }
 }
 
-fn classify_object_lit(properties: &[ObjectProp], ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_object_lit(properties: &[ObjectProp], ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     let mut shape = HashMap::new();
     for p in properties {
         let ObjectProp::Property {
@@ -195,14 +195,14 @@ fn classify_object_lit(properties: &[ObjectProp], ctx: &mut ClassifyCtx) -> Opti
         let ty = classify_expr(value, ctx)?;
         shape.insert(k.to_string_lossy(), ty);
     }
-    Some(SlotTy::Object(shape))
+    Some(LocalSlot::Object(shape))
 }
 
-fn classify_member(object: &Expr, property: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_member(object: &Expr, property: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     let ot = classify_expr(object, ctx)?;
     let key = static_prop_key(property)?;
     match ot {
-        SlotTy::Object(shape) => shape.get(&key).cloned(),
+        LocalSlot::Object(shape) => shape.get(&key).cloned(),
         _ => None,
     }
 }

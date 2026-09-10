@@ -41,7 +41,7 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.slot_of.insert(*local, ty);
             if matches!(
                 ty,
-                SlotTy::Number | SlotTy::Bool | SlotTy::String | SlotTy::MaybeString
+                LocalSlot::Number | LocalSlot::Bool | LocalSlot::String | LocalSlot::MaybeString
             ) {
                 ctx.print_locals.push((*local, ty));
             }
@@ -90,26 +90,26 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.is_empty() && is_named_callee(callee, "processArgs") =>
         {
             ctx.has_process_args = true;
-            Some(SlotTy::Array)
+            Some(LocalSlot::Array)
         }
         Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "pid") => {
             ctx.has_pid = true;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. } if args.is_empty() && is_named_callee(callee, "ppid") => {
             ctx.has_pid = true;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. } if args.len() == 1 && is_named_callee(callee, "envGet") => {
             ctx.has_env = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::MaybeString)
+            Some(LocalSlot::MaybeString)
         }
         Expr::Binary {
             op: BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq,
@@ -119,8 +119,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if lt == SlotTy::Number && rt == SlotTy::Number {
-                Some(SlotTy::Bool)
+            if lt == LocalSlot::Number && rt == LocalSlot::Number {
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
@@ -130,20 +130,20 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             classify_expr(arg_expr(&args[0])?, ctx)?;
             classify_expr(arg_expr(&args[1])?, ctx)?;
             // Not assigned as value in fixtures; treat as void if ever used as expr.
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "envDelete") =>
         {
             ctx.has_env = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.is_empty() && is_named_callee(callee, "exitCode") =>
         {
             ctx.has_exit = true;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if (args.is_empty() || args.len() == 1) && is_named_callee(callee, "exit") =>
@@ -152,14 +152,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             if args.len() == 1 {
                 classify_expr(arg_expr(&args[0])?, ctx)?;
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "setExitCode") =>
         {
             ctx.has_exit = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Unary {
             op: UnaryOp::TypeOf,
@@ -167,7 +167,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             let _ = classify_expr(arg, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Member {
             object,
@@ -177,8 +177,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let obj_ty = classify_expr(object, ctx)?;
             let prop = string_lit(property)?;
-            if obj_ty == SlotTy::Array && prop.as_str() == "length" {
-                Some(SlotTy::Number)
+            if obj_ty == LocalSlot::Array && prop.as_str() == "length" {
+                Some(LocalSlot::Number)
             } else {
                 None
             }
@@ -191,15 +191,15 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let obj_ty = classify_expr(object, ctx)?;
             let _idx = classify_expr(property, ctx)?;
-            if obj_ty == SlotTy::Array {
-                Some(SlotTy::String)
+            if obj_ty == LocalSlot::Array {
+                Some(LocalSlot::String)
             } else {
                 None
             }
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
         _ => None,
     }
 }

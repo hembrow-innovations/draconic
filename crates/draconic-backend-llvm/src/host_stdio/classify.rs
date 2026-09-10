@@ -34,10 +34,10 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
             match ty {
-                SlotTy::MaybeString | SlotTy::Number => {
+                LocalSlot::MaybeString | LocalSlot::Number => {
                     ctx.print_locals.push((*local, ty));
                 }
-                SlotTy::Bytes(_) | SlotTy::DynBytes => {}
+                LocalSlot::Bytes(_) | LocalSlot::DynBytes => {}
             }
             Some(())
         }
@@ -74,7 +74,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
             let idx = number_lit_usize(property)?;
             let _byte = number_lit_u8(value)?;
             match obj_ty {
-                SlotTy::Bytes(n) if idx < n => Some(()),
+                LocalSlot::Bytes(n) if idx < n => Some(()),
                 _ => None,
             }
         }
@@ -86,27 +86,27 @@ fn classify_write_arg(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::Bytes(_) | SlotTy::DynBytes => Some(()),
+            LocalSlot::Bytes(_) | LocalSlot::DynBytes => Some(()),
             _ => None,
         },
         _ => None,
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<LocalSlot> {
     match expr {
         Expr::New { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "Uint8Array", ctx.module) =>
         {
             let n = number_lit_usize(arg_expr(&args[0])?)?;
-            Some(SlotTy::Bytes(n))
+            Some(LocalSlot::Bytes(n))
         }
         Expr::Call { callee, args, .. }
             if args.is_empty() && is_named_callee(callee, "stdinReadLine", ctx.module) =>
         {
             ctx.has_stdio = true;
             ctx.needs_stdin_line = true;
-            Some(SlotTy::MaybeString)
+            Some(LocalSlot::MaybeString)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "stdinReadBytes", ctx.module) =>
@@ -117,7 +117,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
             }
             ctx.has_stdio = true;
             ctx.needs_stdin_bytes = true;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Member {
             object,
@@ -129,7 +129,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
             let prop = string_lit(property)?;
             if prop == "length" {
                 match obj {
-                    SlotTy::Bytes(_) | SlotTy::DynBytes => Some(SlotTy::Number),
+                    LocalSlot::Bytes(_) | LocalSlot::DynBytes => Some(LocalSlot::Number),
                     _ => None,
                 }
             } else {
@@ -151,11 +151,11 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
             // I'll emit typeof into a string global and store as "string slot" via MaybeString
             // but always non-null. PRINT_STR works.
             let _ = arg;
-            Some(SlotTy::MaybeString) // reused: non-null cstr from typeof
+            Some(LocalSlot::MaybeString) // reused: non-null cstr from typeof
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::MaybeString),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::MaybeString),
         _ => None,
     }
 }

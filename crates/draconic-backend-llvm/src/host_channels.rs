@@ -11,6 +11,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -22,7 +23,6 @@ use draconic_runtime::abi::{
     HOST_CHANNEL_SEND_F64, HOST_CHANNEL_SEND_OBJ, HOST_CHANNEL_SEND_STR, OBJECT_GET, OBJECT_SET,
     PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -47,27 +47,27 @@ pub(crate) fn walk_host_channels(module: &Module) -> Option<Result<String, Diagn
 }
 
 #[derive(Clone, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Bool,
     String,
-    Object(HashMap<String, SlotTy>),
+    Object(HashMap<String, LocalSlot>),
 }
 
-fn is_scalar_print(ty: &SlotTy) -> bool {
-    matches!(ty, SlotTy::Number | SlotTy::Bool | SlotTy::String)
+fn is_scalar_print(ty: &LocalSlot) -> bool {
+    matches!(ty, LocalSlot::Number | LocalSlot::Bool | LocalSlot::String)
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    queues: HashMap<LocalId, VecDeque<SlotTy>>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    queues: HashMap<LocalId, VecDeque<LocalSlot>>,
     uses_make: bool,
     uses_send: bool,
     uses_recv: bool,
@@ -103,7 +103,7 @@ struct Emitter<'a> {
     module: &'a Module,
     info: &'a ModuleInfo,
     by_id: HashMap<LocalId, &'a Local>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     body: String,
     out: String,
     next_tmp: u32,
@@ -113,7 +113,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
         let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().cloned().collect();
+        let slot_of: HashMap<LocalId, LocalSlot> = info.slots.iter().cloned().collect();
         Self {
             module,
             info,
@@ -192,9 +192,9 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
-                SlotTy::Number => "double",
-                SlotTy::Bool => "i8",
-                SlotTy::String | SlotTy::Object(_) => "ptr",
+                LocalSlot::Number => "double",
+                LocalSlot::Bool => "i8",
+                LocalSlot::String | LocalSlot::Object(_) => "ptr",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -206,22 +206,22 @@ impl<'a> Emitter<'a> {
         for (id, kind) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Object(_) => {}
+                LocalSlot::Object(_) => {}
             }
         }
 
@@ -261,19 +261,19 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("host_channels: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object(_) => {
+                    LocalSlot::Object(_) => {
                         let v = self.emit_object_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -356,7 +356,7 @@ impl<'a> Emitter<'a> {
                 )
                 .ok();
             }
-            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::String) => {
+            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::String) => {
                 let p = self.emit_string_expr(value)?;
                 writeln!(
                     self.body,
@@ -365,7 +365,7 @@ impl<'a> Emitter<'a> {
                 )
                 .ok();
             }
-            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::Bool) => {
+            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::Bool) => {
                 let b = self.emit_bool_expr(value)?;
                 let b_i32 = self.fresh();
                 writeln!(self.body, "  {b_i32} = zext i8 {b} to i32").ok();
@@ -474,27 +474,27 @@ impl<'a> Emitter<'a> {
     }
 
     fn expr_is_object(&self, expr: &Expr) -> bool {
-        matches!(self.expr_slot(expr), Some(SlotTy::Object(_)))
+        matches!(self.expr_slot(expr), Some(LocalSlot::Object(_)))
             || matches!(expr, Expr::Object { .. })
     }
 
-    fn expr_slot(&self, expr: &Expr) -> Option<SlotTy> {
+    fn expr_slot(&self, expr: &Expr) -> Option<LocalSlot> {
         match expr {
             Expr::Local { id, .. } => self.slot_of.get(id).cloned(),
             Expr::Member {
                 object, property, ..
             } => self.member_slot(object, property),
-            Expr::Number { .. } => Some(SlotTy::Number),
-            Expr::String { .. } => Some(SlotTy::String),
-            Expr::Boolean { .. } => Some(SlotTy::Bool),
+            Expr::Number { .. } => Some(LocalSlot::Number),
+            Expr::String { .. } => Some(LocalSlot::String),
+            Expr::Boolean { .. } => Some(LocalSlot::Bool),
             _ => None,
         }
     }
 
-    fn member_slot(&self, object: &Expr, property: &Expr) -> Option<SlotTy> {
+    fn member_slot(&self, object: &Expr, property: &Expr) -> Option<LocalSlot> {
         let key = static_prop_key(property)?;
         match self.expr_slot(object)? {
-            SlotTy::Object(shape) => shape.get(&key).cloned(),
+            LocalSlot::Object(shape) => shape.get(&key).cloned(),
             _ => None,
         }
     }
@@ -532,7 +532,7 @@ impl<'a> Emitter<'a> {
         let key = self.emit_member_key(property)?;
         let val_ptr = if self.expr_is_object(value) {
             self.emit_object_expr(value)?
-        } else if matches!(self.expr_slot(value), Some(SlotTy::String))
+        } else if matches!(self.expr_slot(value), Some(LocalSlot::String))
             || matches!(value.as_ref(), Expr::String { .. })
         {
             self.emit_string_expr(value)?
@@ -570,7 +570,7 @@ impl<'a> Emitter<'a> {
                     let val_ptr =
                         if self.expr_is_object(value) || matches!(value, Expr::Object { .. }) {
                             self.emit_object_expr(value)?
-                        } else if matches!(self.expr_slot(value), Some(SlotTy::String))
+                        } else if matches!(self.expr_slot(value), Some(LocalSlot::String))
                             || matches!(value, Expr::String { .. })
                         {
                             self.emit_string_expr(value)?

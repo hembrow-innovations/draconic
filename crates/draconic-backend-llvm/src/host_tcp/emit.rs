@@ -176,16 +176,16 @@ impl<'a> super::Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::Handle | SlotTy::Number => {
+                LocalSlot::Handle | LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
@@ -202,22 +202,22 @@ impl<'a> super::Emitter<'a> {
         for (id, kind) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Handle | SlotTy::DynBytes => {}
+                LocalSlot::Handle | LocalSlot::DynBytes => {}
             }
         }
 
@@ -257,23 +257,23 @@ impl<'a> super::Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_tcp: unknown slot"))?;
                 match ty {
-                    SlotTy::Handle => {
+                    LocalSlot::Handle => {
                         let v = self.emit_handle_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -282,7 +282,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_dynbytes_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 2
@@ -411,7 +415,10 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+    pub(super) fn emit_bytes_ptr_len(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
                 let s = value.to_string_lossy();
@@ -419,7 +426,7 @@ impl<'a> super::Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -428,7 +435,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -492,7 +499,7 @@ impl<'a> super::Emitter<'a> {
                 Ok(())
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -507,7 +514,7 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     Ok(())
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();

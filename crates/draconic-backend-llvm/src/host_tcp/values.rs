@@ -78,7 +78,8 @@ impl<'a> super::Emitter<'a> {
                 let name = string_lit(property).ok_or_else(|| diag("host_tcp: bad prop"))?;
                 match object.as_ref() {
                     Expr::Local { id, .. }
-                        if name == "length" && self.slot_of.get(id) == Some(&SlotTy::DynBytes) =>
+                        if name == "length"
+                            && self.slot_of.get(id) == Some(&LocalSlot::DynBytes) =>
                     {
                         let lp = self.slot_len_ptr(*id)?;
                         let n = self.fresh();
@@ -191,10 +192,10 @@ impl<'a> super::Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_tcp: typeof unknown local"))?;
                 let s = match ty {
-                    SlotTy::Handle | SlotTy::Number => "number",
-                    SlotTy::Bool => "boolean",
-                    SlotTy::String => "string",
-                    SlotTy::DynBytes => "object",
+                    LocalSlot::Handle | LocalSlot::Number => "number",
+                    LocalSlot::Bool => "boolean",
+                    LocalSlot::String => "string",
+                    LocalSlot::DynBytes => "object",
                 };
                 Ok(self.emit_cstr_ptr(s))
             }

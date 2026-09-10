@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::{escape_llvm_string, Emitter as IrEmitter, SlotTy};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -13,7 +14,6 @@ use draconic_runtime::abi::{
     HOST_PATH_IS_ABSOLUTE, HOST_PATH_JOIN, HOST_PATH_NORMALIZE, HOST_PATH_RESOLVE, PRINT_BOOL,
     PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_path_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -21,7 +21,7 @@ pub(crate) fn is_host_path_module(module: &Module) -> bool {
 
 pub(crate) fn emit_host_path(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not a host_path module"))?;
-    let mut em = Emitter::new(module, &info);
+    let mut em = new_emitter(module, &info);
     em.emit_module()?;
     Ok(em.finish())
 }
@@ -31,12 +31,6 @@ pub(crate) fn walk_host_path(module: &Module) -> Option<Result<String, Diagnosti
         return None;
     }
     Some(emit_host_path(module))
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
-    String,
-    Bool,
 }
 
 struct ModuleInfo {
@@ -138,7 +132,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             }
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
             ctx.has_path = true;
-            Some(SlotTy::Bool)
+            Some(SlotTy::Boolean)
         }
         Expr::String { .. } => Some(SlotTy::String),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
@@ -151,7 +145,9 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
             SlotTy::String => Some(()),
-            SlotTy::Bool => None,
+            SlotTy::Boolean => None,
+
+            _ => None,
         },
         // Nested path helpers that yield strings (e.g. pathIsAbsolute(pathResolve(...))).
         Expr::Call { callee, args, .. }
@@ -187,45 +183,33 @@ fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
 
-struct Emitter<'a> {
-    module: &'a Module,
+struct EmitState<'a> {
     info: &'a ModuleInfo,
-    out: String,
-    body: String,
-    next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
 }
 
-impl<'a> Emitter<'a> {
-    fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
-        let mut local_name = HashMap::new();
-        for Local { id, name, .. } in &module.locals {
-            local_name.insert(*id, name.clone());
-        }
-        Self {
-            module,
-            info,
-            out: String::new(),
-            body: String::new(),
-            next_tmp: 0,
+type Emitter<'a> = IrEmitter<'a, EmitState<'a>>;
+
+fn new_emitter<'a>(module: &'a Module, info: &'a ModuleInfo) -> Emitter<'a> {
+    let mut local_name = HashMap::new();
+    for Local { id, name, .. } in &module.locals {
+        local_name.insert(*id, name.clone());
+    }
+    Emitter::new(
+        module,
+        EmitState {
+            info: info,
             str_globals: Vec::new(),
-            local_name,
-        }
-    }
+            local_name: local_name,
+        },
+    )
+}
 
-    fn finish(self) -> String {
-        self.out
-    }
-
-    fn fresh(&mut self) -> String {
-        let n = self.next_tmp;
-        self.next_tmp += 1;
-        format!("%t{n}")
-    }
-
+impl<'a> Emitter<'a> {
     fn slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
         let name = self
+            .state
             .local_name
             .get(&id)
             .ok_or_else(|| diag("host_path: unknown local"))?;
@@ -233,11 +217,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn intern_cstr(&mut self, s: &str) -> String {
-        if let Some((_, g)) = self.str_globals.iter().find(|(c, _)| c == s) {
+        if let Some((_, g)) = self.state.str_globals.iter().find(|(c, _)| c == s) {
             return g.clone();
         }
-        let g = format!(".str.path.{}", self.str_globals.len());
-        self.str_globals.push((s.to_string(), g.clone()));
+        let g = format!(".str.path.{}", self.state.str_globals.len());
+        self.state.str_globals.push((s.to_string(), g.clone()));
         g
     }
 
@@ -270,11 +254,13 @@ impl<'a> Emitter<'a> {
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
-        for (id, ty) in &self.info.slots {
+        for (id, ty) in &self.state.info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
                 SlotTy::String => "ptr",
-                SlotTy::Bool => "i8",
+                SlotTy::Boolean => "i8",
+
+                _ => unreachable!(),
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -283,7 +269,7 @@ impl<'a> Emitter<'a> {
             self.emit_stmt(stmt)?;
         }
 
-        for (id, ty) in &self.info.print_locals {
+        for (id, ty) in &self.state.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match ty {
                 SlotTy::String => {
@@ -291,16 +277,18 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                SlotTy::Boolean => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
+
+                _ => unreachable!(),
             }
         }
 
         let body = std::mem::take(&mut self.body);
-        for (content, gname) in &self.str_globals {
+        for (content, gname) in &self.state.str_globals {
             let n = content.len() + 1;
             let esc = escape_llvm_string(content);
             writeln!(
@@ -309,7 +297,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         }
-        if !self.str_globals.is_empty() {
+        if !self.state.str_globals.is_empty() {
             writeln!(self.out).ok();
         }
 
@@ -330,6 +318,7 @@ impl<'a> Emitter<'a> {
                 };
                 let ptr = self.slot_ptr(*local)?;
                 let ty = self
+                    .state
                     .info
                     .slots
                     .iter()
@@ -341,10 +330,12 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    SlotTy::Boolean => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
+
+                    _ => unreachable!(),
                 }
                 Ok(())
             }

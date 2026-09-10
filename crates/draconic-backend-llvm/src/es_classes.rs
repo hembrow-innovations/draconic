@@ -17,17 +17,15 @@ use draconic_ast::UnaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, ObjectProp, Stmt};
 
-mod private;
 mod ctor;
-mod ok;
-mod extract;
 mod emit;
 mod emit_expr;
+mod extract;
+mod ok;
+mod private;
 
 use extract::{try_extract_class, try_fold_new_class_iife_member};
-use ok::{
-    is_object_slot, number_expr_ok, object_expr_ok, side_effect_ok, typeof_string_expr_ok,
-};
+use ok::{is_object_slot, number_expr_ok, object_expr_ok, side_effect_ok, typeof_string_expr_ok};
 
 const MAX_METHOD_ARGS: usize = 4;
 /// qNaN payload marking JS `undefined` (matches es_functions).
@@ -53,7 +51,7 @@ fn emit_classified(module: &Module, info: &ModuleInfo) -> Result<String, Diagnos
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Object,
     /// Top-level typeof observation (`"undefined"` / `"function"` / …).
@@ -104,7 +102,7 @@ struct ClassInfo {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     /// Observation print order (numbers/strings/undefined interleaved by declare order).
     observe_locals: Vec<LocalId>,
     functions: Vec<FnInfo>,
@@ -145,18 +143,18 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     let idx = classes.len();
                     class_of.insert(*local, idx);
                     classes.push(cls);
-                    slots.push((*local, SlotTy::Object));
+                    slots.push((*local, LocalSlot::Object));
                 } else if let Some(ci) = new_class_idx(init, &class_of) {
                     if !object_expr_ok(init, &class_of, &by_id, &functions, &classes) {
                         return None;
                     }
                     instance_of.insert(*local, ci);
-                    slots.push((*local, SlotTy::Object));
+                    slots.push((*local, LocalSlot::Object));
                 } else if is_object_slot(init, &class_of, &by_id) {
                     if !object_expr_ok(init, &class_of, &by_id, &functions, &classes) {
                         return None;
                     }
-                    slots.push((*local, SlotTy::Object));
+                    slots.push((*local, LocalSlot::Object));
                 } else if let Some((st, raw)) = try_fold_new_class_iife_member(
                     init,
                     &by_id,
@@ -170,14 +168,20 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if let Some(raw) = raw {
                         const_number.insert(*local, raw);
                     }
-                    if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
+                    if matches!(
+                        st,
+                        LocalSlot::Number | LocalSlot::String | LocalSlot::Undefined
+                    ) {
                         observe_locals.push(*local);
                     }
                 } else if let Some(st) =
                     classify_value_init(init, &class_of, &instance_of, &classes, &by_id, &functions)
                 {
                     slots.push((*local, st));
-                    if matches!(st, SlotTy::Number | SlotTy::String | SlotTy::Undefined) {
+                    if matches!(
+                        st,
+                        LocalSlot::Number | LocalSlot::String | LocalSlot::Undefined
+                    ) {
                         observe_locals.push(*local);
                     }
                 } else {
@@ -224,7 +228,7 @@ fn classify_value_init(
     classes: &[ClassInfo],
     by_id: &HashMap<LocalId, &Local>,
     functions: &[FnInfo],
-) -> Option<SlotTy> {
+) -> Option<LocalSlot> {
     if let Expr::Unary {
         op: UnaryOp::TypeOf,
         arg,
@@ -235,22 +239,22 @@ fn classify_value_init(
             || object_expr_ok(arg, class_of, by_id, functions, classes)
             || matches!(arg.as_ref(), Expr::Local { .. } | Expr::Member { .. })
         {
-            return Some(SlotTy::String);
+            return Some(LocalSlot::String);
         }
         return None;
     }
     if let Some(fv) = member_field_val(init, class_of, instance_of, classes) {
         return Some(match fv {
-            FieldVal::Number(_) => SlotTy::Number,
-            FieldVal::String(_) => SlotTy::String,
-            FieldVal::Undef => SlotTy::Undefined,
+            FieldVal::Number(_) => LocalSlot::Number,
+            FieldVal::String(_) => LocalSlot::String,
+            FieldVal::Undef => LocalSlot::Undefined,
         });
     }
     if typeof_string_expr_ok(init, class_of, by_id, functions, classes) {
-        return Some(SlotTy::String);
+        return Some(LocalSlot::String);
     }
     if number_expr_ok(init, class_of, by_id, functions, classes) {
-        return Some(SlotTy::Number);
+        return Some(LocalSlot::Number);
     }
     None
 }
@@ -478,7 +482,7 @@ struct Emitter<'a> {
     out: String,
     body: String,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     param_allocas: HashMap<LocalId, String>,
     this_ssa: Option<String>,
     active_parent_ctor: Option<usize>,
@@ -511,4 +515,3 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
 fn diag(message: impl Into<String>) -> Diagnostic {
     Diagnostic::new(message, Span::dummy())
 }
-

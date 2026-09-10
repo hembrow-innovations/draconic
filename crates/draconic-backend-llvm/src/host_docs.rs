@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::{escape_llvm_string, Emitter as IrEmitter, SlotTy};
 use draconic_ast::{AssignOp, BinaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, LocalId, Module, Stmt};
@@ -13,7 +14,6 @@ use draconic_runtime::abi::{
     HOST_FS_APPEND_TEXT, HOST_FS_READ_TEXT, HOST_FS_WRITE_TEXT, HOST_PROCESS_EXIT,
     HOST_STDERR_WRITE,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_docs_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -21,7 +21,7 @@ pub(crate) fn is_host_docs_module(module: &Module) -> bool {
 
 pub(crate) fn emit_host_docs(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not a host_docs module"))?;
-    let mut em = Emitter::new(module, &info);
+    let mut em = new_emitter(module, &info);
     em.emit_module()?;
     Ok(em.finish())
 }
@@ -31,12 +31,6 @@ pub(crate) fn walk_host_docs(module: &Module) -> Option<Result<String, Diagnosti
         return None;
     }
     Some(emit_host_docs(module))
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
-    String,
-    Number,
 }
 
 struct ModuleInfo {
@@ -195,6 +189,8 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             match (lt, rt) {
                 (SlotTy::String, _) | (_, SlotTy::String) => Some(SlotTy::String),
                 (SlotTy::Number, SlotTy::Number) => Some(SlotTy::Number),
+
+                _ => None,
             }
         }
         Expr::Member {
@@ -270,59 +266,40 @@ fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
 
-struct Emitter<'a> {
-    module: &'a Module,
+struct EmitState<'a> {
     info: &'a ModuleInfo,
-    out: String,
-    body: String,
-    next_tmp: usize,
     str_globals: Vec<(String, String)>,
     slot_of: HashMap<LocalId, SlotTy>,
 }
 
-impl<'a> Emitter<'a> {
-    fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
-        let mut slot_of = HashMap::new();
-        for (id, ty) in &info.slots {
-            slot_of.insert(*id, *ty);
-        }
-        Self {
-            module,
-            info,
-            out: String::new(),
-            body: String::new(),
-            next_tmp: 0,
+type Emitter<'a> = IrEmitter<'a, EmitState<'a>>;
+
+fn new_emitter<'a>(module: &'a Module, info: &'a ModuleInfo) -> Emitter<'a> {
+    let mut slot_of = HashMap::new();
+    for (id, ty) in &info.slots {
+        slot_of.insert(*id, *ty);
+    }
+    Emitter::new(
+        module,
+        EmitState {
+            info: info,
             str_globals: Vec::new(),
-            slot_of,
-        }
-    }
+            slot_of: slot_of,
+        },
+    )
+}
 
-    fn finish(self) -> String {
-        self.out
-    }
-
-    fn fresh(&mut self) -> String {
-        let n = self.next_tmp;
-        self.next_tmp += 1;
-        format!("%t{n}")
-    }
-
-    fn fresh_label(&mut self, prefix: &str) -> String {
-        let n = self.next_tmp;
-        self.next_tmp += 1;
-        format!("{prefix}_{n}")
-    }
-
+impl<'a> Emitter<'a> {
     fn slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
         Ok(format!("%slot_{}", id.0))
     }
 
     fn intern_cstr(&mut self, s: &str) -> String {
-        if let Some((_, g)) = self.str_globals.iter().find(|(c, _)| c == s) {
+        if let Some((_, g)) = self.state.str_globals.iter().find(|(c, _)| c == s) {
             return g.clone();
         }
-        let g = format!(".str.docs.{}", self.str_globals.len());
-        self.str_globals.push((s.to_string(), g.clone()));
+        let g = format!(".str.docs.{}", self.state.str_globals.len());
+        self.state.str_globals.push((s.to_string(), g.clone()));
         g
     }
 
@@ -359,7 +336,7 @@ impl<'a> Emitter<'a> {
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
-        for (id, ty) in &self.info.slots {
+        for (id, ty) in &self.state.info.slots {
             let ptr = self.slot_ptr(*id)?;
             match ty {
                 SlotTy::String => {
@@ -368,6 +345,8 @@ impl<'a> Emitter<'a> {
                 SlotTy::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
+
+                _ => unreachable!(),
             }
         }
 
@@ -376,7 +355,7 @@ impl<'a> Emitter<'a> {
         }
 
         let body = std::mem::take(&mut self.body);
-        for (content, gname) in &self.str_globals {
+        for (content, gname) in &self.state.str_globals {
             let n = content.len() + 1;
             let esc = escape_llvm_string(content);
             writeln!(
@@ -385,7 +364,7 @@ impl<'a> Emitter<'a> {
             )
             .ok();
         }
-        if !self.str_globals.is_empty() {
+        if !self.state.str_globals.is_empty() {
             writeln!(self.out).ok();
         }
 
@@ -437,17 +416,6 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn body_ends_with_terminator(&self) -> bool {
-        self.body
-            .lines()
-            .rev()
-            .find(|l| !l.is_empty())
-            .is_some_and(|l| {
-                let t = l.trim();
-                t.starts_with("br ") || t.starts_with("ret ") || t == "unreachable"
-            })
-    }
-
     fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
@@ -455,6 +423,7 @@ impl<'a> Emitter<'a> {
                     return Ok(());
                 };
                 let ty = self
+                    .state
                     .slot_of
                     .get(local)
                     .copied()
@@ -470,6 +439,8 @@ impl<'a> Emitter<'a> {
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
+
+                    _ => unreachable!(),
                 }
                 Ok(())
             }
@@ -592,6 +563,7 @@ impl<'a> Emitter<'a> {
             return Err(diag("host_docs: only local assign"));
         };
         let ty = self
+            .state
             .slot_of
             .get(id)
             .copied()
@@ -606,6 +578,8 @@ impl<'a> Emitter<'a> {
                 let v = self.emit_number_expr(value)?;
                 writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
             }
+
+            _ => unreachable!(),
         }
         Ok(ty)
     }
@@ -614,7 +588,7 @@ impl<'a> Emitter<'a> {
         match expr {
             Expr::String { .. } => Some(SlotTy::String),
             Expr::Number { .. } => Some(SlotTy::Number),
-            Expr::Local { id, .. } => self.slot_of.get(id).copied(),
+            Expr::Local { id, .. } => self.state.slot_of.get(id).copied(),
             Expr::Call { callee, .. } if is_named_callee(callee, "readFileText") => {
                 Some(SlotTy::String)
             }

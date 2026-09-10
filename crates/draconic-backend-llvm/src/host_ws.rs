@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -14,7 +15,6 @@ use draconic_runtime::abi::{
     HOST_WS_DECODE_FRAME, HOST_WS_ENCODE_BINARY, HOST_WS_ENCODE_CLOSE, HOST_WS_ENCODE_PING,
     HOST_WS_ENCODE_PONG, HOST_WS_ENCODE_TEXT, PRINT_I64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_ws_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -35,7 +35,7 @@ pub(crate) fn walk_host_ws(module: &Module) -> Option<Result<String, Diagnostic>
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     String,
     Number,
     DynBytes,
@@ -43,14 +43,14 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_ws: bool,
 }
 
@@ -81,10 +81,10 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
             match ty {
-                SlotTy::Number | SlotTy::String => {
+                LocalSlot::Number | LocalSlot::String => {
                     ctx.print_locals.push((*local, ty));
                 }
-                SlotTy::DynBytes | SlotTy::WsFrame => {}
+                LocalSlot::DynBytes | LocalSlot::WsFrame => {}
             }
             Some(())
         }
@@ -110,21 +110,21 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeText") =>
         {
             ctx.has_ws = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodeBinary") =>
         {
             ctx.has_ws = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "wsEncodeClose") =>
@@ -132,28 +132,28 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_ws = true;
             classify_number_arg(arg_expr(&args[0])?, ctx)?;
             classify_string_arg(arg_expr(&args[1])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodePing") =>
         {
             ctx.has_ws = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsEncodePong") =>
         {
             ctx.has_ws = true;
             classify_string_arg(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "wsDecodeFrame") =>
         {
             ctx.has_ws = true;
             classify_bytes_or_string(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::WsFrame)
+            Some(LocalSlot::WsFrame)
         }
         Expr::Member {
             object,
@@ -164,14 +164,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
-                (SlotTy::WsFrame, "fin" | "opcode" | "closeCode") => Some(SlotTy::Number),
-                (SlotTy::WsFrame, "payload") => Some(SlotTy::String),
+                (LocalSlot::DynBytes, "length") => Some(LocalSlot::Number),
+                (LocalSlot::WsFrame, "fin" | "opcode" | "closeCode") => Some(LocalSlot::Number),
+                (LocalSlot::WsFrame, "payload") => Some(LocalSlot::String),
                 _ => None,
             }
         }
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Number { .. } => Some(SlotTy::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         _ => None,
     }
@@ -181,7 +181,7 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::String => Some(()),
+            LocalSlot::String => Some(()),
             _ => None,
         },
         Expr::Member {
@@ -192,7 +192,7 @@ fn classify_string_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
         } => {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
-            matches!((ot, name.as_str()), (SlotTy::WsFrame, "payload")).then_some(())
+            matches!((ot, name.as_str()), (LocalSlot::WsFrame, "payload")).then_some(())
         }
         _ => None,
     }
@@ -202,7 +202,7 @@ fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::Number { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::Number => Some(()),
+            LocalSlot::Number => Some(()),
             _ => None,
         },
         Expr::Member {
@@ -214,8 +214,8 @@ fn classify_number_arg(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::DynBytes, "length") => Some(()),
-                (SlotTy::WsFrame, "fin" | "opcode" | "closeCode") => Some(()),
+                (LocalSlot::DynBytes, "length") => Some(()),
+                (LocalSlot::WsFrame, "fin" | "opcode" | "closeCode") => Some(()),
                 _ => None,
             }
         }
@@ -227,12 +227,12 @@ fn classify_bytes_or_string(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     match expr {
         Expr::String { .. } => Some(()),
         Expr::Local { id, .. } => match ctx.slot_of.get(id)? {
-            SlotTy::String | SlotTy::DynBytes => Some(()),
+            LocalSlot::String | LocalSlot::DynBytes => Some(()),
             _ => None,
         },
         Expr::Call { .. } => {
             let ty = classify_expr(expr, ctx)?;
-            matches!(ty, SlotTy::DynBytes | SlotTy::String).then_some(())
+            matches!(ty, LocalSlot::DynBytes | LocalSlot::String).then_some(())
         }
         _ => None,
     }
@@ -268,7 +268,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 impl<'a> Emitter<'a> {
@@ -372,21 +372,21 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let ptr = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
                 }
-                SlotTy::WsFrame => {
+                LocalSlot::WsFrame => {
                     for f in ["fin", "opcode", "close_code"] {
                         let p = self.slot_frame_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca i32, align 4").ok();
@@ -405,13 +405,13 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.print_locals {
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     let i = self.fresh();
@@ -419,7 +419,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {i} = fptosi double {v} to i64").ok();
                     writeln!(self.body, "  {}", PRINT_I64.call(&format!("i64 {i}"))).ok();
                 }
-                SlotTy::DynBytes | SlotTy::WsFrame => {}
+                LocalSlot::DynBytes | LocalSlot::WsFrame => {}
             }
         }
 
@@ -541,18 +541,18 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_ws: unknown slot"))?;
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
-                    SlotTy::WsFrame => self.emit_frame_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::WsFrame => self.emit_frame_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -765,7 +765,7 @@ impl<'a> Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -774,7 +774,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -818,7 +818,7 @@ impl<'a> Emitter<'a> {
                     _ => return Err(diag("host_ws: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::DynBytes), "length") => {
+                    (Some(LocalSlot::DynBytes), "length") => {
                         let lp = self.slot_len_ptr(id)?;
                         let i = self.fresh();
                         let d = self.fresh();
@@ -826,7 +826,7 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                         Ok(d)
                     }
-                    (Some(SlotTy::WsFrame), "fin" | "opcode" | "closeCode") => {
+                    (Some(LocalSlot::WsFrame), "fin" | "opcode" | "closeCode") => {
                         let field = if prop == "closeCode" {
                             "close_code"
                         } else {
@@ -870,7 +870,7 @@ impl<'a> Emitter<'a> {
                     _ => return Err(diag("host_ws: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::WsFrame), "payload") => self.emit_frame_payload_cstr(id),
+                    (Some(LocalSlot::WsFrame), "payload") => self.emit_frame_payload_cstr(id),
                     _ => Err(diag("host_ws: unsupported string member")),
                 }
             }

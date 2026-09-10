@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -20,7 +21,6 @@ use draconic_runtime::abi::{
     HOST_HTTP_WRITE_RESPONSE, HOST_PROCESS_EXIT, HOST_STDERR_WRITE, HOST_WS_HANDSHAKE_RESPONSE,
     PRINT_I64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -45,7 +45,7 @@ pub(crate) fn walk_host_http(module: &Module) -> Option<Result<String, Diagnosti
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     String,
     Number,
     /// Opaque parse result: method/path/version/body + raw/raw_len for headers.
@@ -55,14 +55,14 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_http: bool,
 }
 
@@ -96,7 +96,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 impl<'a> Emitter<'a> {
@@ -190,15 +190,15 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::HttpReq => {
+                LocalSlot::HttpReq => {
                     for f in ["method", "path", "version", "body", "raw"] {
                         let p = self.slot_req_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
@@ -206,7 +206,7 @@ impl<'a> Emitter<'a> {
                     let plen = self.slot_req_field(*id, "raw_len")?;
                     writeln!(self.body, "  {plen} = alloca i64, align 8").ok();
                 }
-                SlotTy::HttpRes => {
+                LocalSlot::HttpRes => {
                     for f in ["version", "reason", "body", "raw"] {
                         let p = self.slot_req_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
@@ -225,13 +225,13 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.print_locals {
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     let i = self.fresh();
@@ -320,20 +320,20 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_http: declare unknown slot"))?;
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::HttpReq => {
+                    LocalSlot::HttpReq => {
                         self.emit_http_req_into(*local, init)?;
                     }
-                    SlotTy::HttpRes => {
+                    LocalSlot::HttpRes => {
                         self.emit_http_res_into(*local, init)?;
                     }
                 }
@@ -679,7 +679,7 @@ impl<'a> Emitter<'a> {
                     _ => return Err(diag("host_http: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::HttpRes), "status") => {
+                    (Some(LocalSlot::HttpRes), "status") => {
                         let fp = self.slot_req_field(id, "status")?;
                         let i = self.fresh();
                         let d = self.fresh();
@@ -761,13 +761,13 @@ impl<'a> Emitter<'a> {
                     _ => return Err(diag("host_http: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::HttpReq), "method" | "path" | "version" | "body") => {
+                    (Some(LocalSlot::HttpReq), "method" | "path" | "version" | "body") => {
                         let fp = self.slot_req_field(id, prop.as_str())?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();
                         Ok(v)
                     }
-                    (Some(SlotTy::HttpRes), "version" | "reason" | "body") => {
+                    (Some(LocalSlot::HttpRes), "version" | "reason" | "body") => {
                         let fp = self.slot_req_field(id, prop.as_str())?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();

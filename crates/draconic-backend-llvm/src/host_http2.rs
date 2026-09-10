@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -19,7 +20,6 @@ use draconic_runtime::abi::{
     HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ,
     HOST_TCP_WRITE, PRINT_I64,
 };
-use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -44,7 +44,7 @@ pub(crate) fn walk_host_http2(module: &Module) -> Option<Result<String, Diagnost
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Handle,
     Number,
     String,
@@ -54,13 +54,13 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     print_numbers: Vec<LocalId>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     print_numbers: Vec<LocalId>,
     has_h2: bool,
 }
@@ -95,7 +95,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 impl<'a> Emitter<'a> {
@@ -249,15 +249,15 @@ impl<'a> Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             match ty {
-                SlotTy::Handle | SlotTy::Number => {
+                LocalSlot::Handle | LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let ptr = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
@@ -265,7 +265,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                     writeln!(self.body, "  store i64 0, ptr {lp}").ok();
                 }
-                SlotTy::H2Req => {
+                LocalSlot::H2Req => {
                     for f in ["method", "path", "body"] {
                         let p = self.slot_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca ptr, align 8").ok();
@@ -275,7 +275,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {bl} = alloca i64, align 8").ok();
                     writeln!(self.body, "  {sid} = alloca i32, align 4").ok();
                 }
-                SlotTy::H2Res => {
+                LocalSlot::H2Res => {
                     let st = self.slot_field(*id, "status")?;
                     let body = self.slot_field(*id, "body")?;
                     let bl = self.slot_field(*id, "body_len")?;
@@ -336,19 +336,19 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_http2: unknown slot"))?;
                 match ty {
-                    SlotTy::Handle | SlotTy::Number => {
+                    LocalSlot::Handle | LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
-                    SlotTy::H2Req => self.emit_h2req_into(*local, init)?,
-                    SlotTy::H2Res => self.emit_h2res_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::H2Req => self.emit_h2req_into(*local, init)?,
+                    LocalSlot::H2Res => self.emit_h2res_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -764,7 +764,7 @@ impl<'a> Emitter<'a> {
                             .copied()
                             .ok_or_else(|| diag("host_http2: member local"))?;
                         match (ty, name.as_str()) {
-                            (SlotTy::DynBytes, "length") => {
+                            (LocalSlot::DynBytes, "length") => {
                                 let lp = self.slot_len_ptr(*id)?;
                                 let n = self.fresh();
                                 let d = self.fresh();
@@ -772,7 +772,7 @@ impl<'a> Emitter<'a> {
                                 writeln!(self.body, "  {d} = sitofp i64 {n} to double").ok();
                                 Ok(d)
                             }
-                            (SlotTy::H2Req, "streamId") | (SlotTy::H2Res, "streamId") => {
+                            (LocalSlot::H2Req, "streamId") | (LocalSlot::H2Res, "streamId") => {
                                 let p = self.slot_field(*id, "stream_id")?;
                                 let v = self.fresh();
                                 let d = self.fresh();
@@ -780,7 +780,7 @@ impl<'a> Emitter<'a> {
                                 writeln!(self.body, "  {d} = sitofp i32 {v} to double").ok();
                                 Ok(d)
                             }
-                            (SlotTy::H2Res, "status") => {
+                            (LocalSlot::H2Res, "status") => {
                                 let p = self.slot_field(*id, "status")?;
                                 let v = self.fresh();
                                 let d = self.fresh();
@@ -832,19 +832,19 @@ impl<'a> Emitter<'a> {
                             .copied()
                             .ok_or_else(|| diag("host_http2: str member local"))?;
                         match (ty, name.as_str()) {
-                            (SlotTy::H2Req, "method") => {
+                            (LocalSlot::H2Req, "method") => {
                                 let p = self.slot_field(*id, "method")?;
                                 let v = self.fresh();
                                 writeln!(self.body, "  {v} = load ptr, ptr {p}").ok();
                                 Ok(v)
                             }
-                            (SlotTy::H2Req, "path") => {
+                            (LocalSlot::H2Req, "path") => {
                                 let p = self.slot_field(*id, "path")?;
                                 let v = self.fresh();
                                 writeln!(self.body, "  {v} = load ptr, ptr {p}").ok();
                                 Ok(v)
                             }
-                            (SlotTy::H2Req, "body") | (SlotTy::H2Res, "body") => {
+                            (LocalSlot::H2Req, "body") | (LocalSlot::H2Res, "body") => {
                                 self.emit_body_cstr(*id)
                             }
                             _ => Err(diag("host_http2: bad string member")),
@@ -915,7 +915,7 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_http2: bytes local"))?;
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let ptr = self.slot_ptr(*id)?;
                         let p = self.fresh();
                         let n = self.fresh();
@@ -923,7 +923,7 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {n} = call i64 @strlen(ptr {p})").ok();
                         Ok((p, n))
                     }
-                    SlotTy::DynBytes => {
+                    LocalSlot::DynBytes => {
                         let ptr = self.slot_ptr(*id)?;
                         let lp = self.slot_len_ptr(*id)?;
                         let p = self.fresh();

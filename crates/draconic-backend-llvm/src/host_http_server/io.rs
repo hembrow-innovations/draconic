@@ -15,7 +15,10 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+    pub(super) fn emit_bytes_ptr_len(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
                 let s = value.to_string_lossy();
@@ -23,7 +26,7 @@ impl<'a> super::Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -32,7 +35,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -326,7 +329,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_http_server: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::HttpRes), "status") => {
+                    (Some(LocalSlot::HttpRes), "status") => {
                         let fp = self.slot_req_field(id, "status")?;
                         let i = self.fresh();
                         let d = self.fresh();
@@ -417,7 +420,11 @@ impl<'a> super::Emitter<'a> {
         Ok(v)
     }
 
-    pub(super) fn emit_response_header(&mut self, res: &Expr, name: &Expr) -> Result<String, Diagnostic> {
+    pub(super) fn emit_response_header(
+        &mut self,
+        res: &Expr,
+        name: &Expr,
+    ) -> Result<String, Diagnostic> {
         let id = match res {
             Expr::Local { id, .. } => *id,
             _ => return Err(diag("host_http_server: res must be local")),
@@ -471,7 +478,11 @@ impl<'a> super::Emitter<'a> {
         Ok(v)
     }
 
-    pub(super) fn emit_string_fn_call(&mut self, fn_id: LocalId, arg: &Expr) -> Result<String, Diagnostic> {
+    pub(super) fn emit_string_fn_call(
+        &mut self,
+        fn_id: LocalId,
+        arg: &Expr,
+    ) -> Result<String, Diagnostic> {
         let (param, ret) = self
             .info
             .string_fns
@@ -576,13 +587,13 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_http_server: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::HttpReq), "method" | "path" | "version" | "body") => {
+                    (Some(LocalSlot::HttpReq), "method" | "path" | "version" | "body") => {
                         let fp = self.slot_req_field(id, prop.as_str())?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();
                         Ok(v)
                     }
-                    (Some(SlotTy::HttpRes), "version" | "reason" | "body") => {
+                    (Some(LocalSlot::HttpRes), "version" | "reason" | "body") => {
                         let fp = self.slot_req_field(id, prop.as_str())?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {fp}").ok();

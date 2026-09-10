@@ -55,7 +55,7 @@ pub(crate) fn emit_host_fs(module: &Module) -> Result<String, Diagnostic> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     String,
     DynBytes,
     Number,
@@ -69,8 +69,8 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_text: bool,
     needs_bytes: bool,
     needs_write: bool,
@@ -95,9 +95,9 @@ struct ModuleInfo {
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_text: bool,
     needs_bytes: bool,
     needs_write: bool,
@@ -159,7 +159,7 @@ struct Emitter<'a> {
     next_tmp: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 #[cfg(test)]

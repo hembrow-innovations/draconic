@@ -41,7 +41,7 @@ pub(crate) fn walk_es_call_spread(module: &Module) -> Option<Result<String, Diag
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     String,
     Array,
@@ -67,9 +67,9 @@ struct FnInfo {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     /// Observation prints in declare order (numbers + strings).
-    print_locals: Vec<(LocalId, SlotTy)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     functions: Vec<FnInfo>,
     fn_binding: HashMap<LocalId, usize>,
     /// Array local → literal init expr (for static spread expansion).
@@ -84,7 +84,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     // First pass: array inits only (needed to expand spreads when refining kinds).
     let mut arr_inits: HashMap<LocalId, Expr> = HashMap::new();
-    let mut slot_of: HashMap<LocalId, SlotTy> = HashMap::new();
+    let mut slot_of: HashMap<LocalId, LocalSlot> = HashMap::new();
     for stmt in &module.body {
         if let Stmt::Declare {
             local,
@@ -96,7 +96,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 if !array_expr_ok(init, &slot_of) {
                     return None;
                 }
-                slot_of.insert(*local, SlotTy::Array);
+                slot_of.insert(*local, LocalSlot::Array);
                 arr_inits.insert(*local, init.clone());
             }
         }
@@ -122,8 +122,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             Stmt::Function { local, .. } => {
                 let idx = *fn_binding.get(local)?;
                 if functions[idx].kind == FnKind::Ctor {
-                    slots.push((*local, SlotTy::Object));
-                    slot_of.insert(*local, SlotTy::Object);
+                    slots.push((*local, LocalSlot::Object));
+                    slot_of.insert(*local, LocalSlot::Object);
                 }
             }
             Stmt::Declare { local, init, .. } => {
@@ -133,8 +133,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if !array_expr_ok(init, &slot_of) {
                         return None;
                     }
-                    slots.push((*local, SlotTy::Array));
-                    slot_of.insert(*local, SlotTy::Array);
+                    slots.push((*local, LocalSlot::Array));
+                    slot_of.insert(*local, LocalSlot::Array);
                     arr_inits.insert(*local, init.clone());
                 } else if let Some(kind) = infer_init_slot(init, &slot_of, &fn_binding, &functions)
                 {
@@ -147,13 +147,13 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     slots.push((*local, kind));
                     slot_of.insert(*local, kind);
                     match kind {
-                        SlotTy::Number | SlotTy::String => print_locals.push((*local, kind)),
-                        SlotTy::Array => {
+                        LocalSlot::Number | LocalSlot::String => print_locals.push((*local, kind)),
+                        LocalSlot::Array => {
                             if let Expr::Array { .. } = init {
                                 arr_inits.insert(*local, init.clone());
                             }
                         }
-                        SlotTy::Object => {}
+                        LocalSlot::Object => {}
                     }
                 } else if matches!(loc.ty, Type::Number | Type::Any)
                     && number_expr_ok(init, &slot_of, &fn_binding, &functions, &arr_inits)
@@ -161,9 +161,9 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if call_or_new_has_spread(init) {
                         has_spread_call = true;
                     }
-                    slots.push((*local, SlotTy::Number));
-                    slot_of.insert(*local, SlotTy::Number);
-                    print_locals.push((*local, SlotTy::Number));
+                    slots.push((*local, LocalSlot::Number));
+                    slot_of.insert(*local, LocalSlot::Number);
+                    print_locals.push((*local, LocalSlot::Number));
                 } else {
                     return None;
                 }
@@ -229,7 +229,7 @@ fn refine_fn_kinds_from_calls(
     functions: &mut [FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
     arr_inits: &HashMap<LocalId, Expr>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<()> {
     for stmt in body {
         let init = match stmt {
@@ -246,7 +246,7 @@ fn walk_calls_for_kind(
     functions: &mut [FnInfo],
     fn_binding: &HashMap<LocalId, usize>,
     arr_inits: &HashMap<LocalId, Expr>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<()> {
     match expr {
         Expr::Call {
@@ -317,13 +317,13 @@ fn walk_calls_for_kind(
 
 fn expr_is_stringish(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     arr_inits: &HashMap<LocalId, Expr>,
 ) -> bool {
     match expr {
         Expr::String { .. } => true,
         Expr::Local { id, ty } => {
-            matches!(ty, Type::String) || slot_of.get(id) == Some(&SlotTy::String)
+            matches!(ty, Type::String) || slot_of.get(id) == Some(&LocalSlot::String)
         }
         Expr::Binary {
             op: BinaryOp::Add,
@@ -571,23 +571,23 @@ fn call_or_new_has_spread(expr: &Expr) -> bool {
 
 fn infer_init_slot(
     init: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
-) -> Option<SlotTy> {
+) -> Option<LocalSlot> {
     match init {
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Array { .. } => Some(SlotTy::Array),
-        Expr::New { .. } => Some(SlotTy::Object),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Array { .. } => Some(LocalSlot::Array),
+        Expr::New { .. } => Some(LocalSlot::Object),
         Expr::Call { callee, .. } => {
             let Expr::Local { id, .. } = callee.as_ref() else {
                 return None;
             };
             let idx = *fn_binding.get(id)?;
             match functions[idx].kind {
-                FnKind::Number => Some(SlotTy::Number),
-                FnKind::String => Some(SlotTy::String),
+                FnKind::Number => Some(LocalSlot::Number),
+                FnKind::String => Some(LocalSlot::String),
                 FnKind::Ctor => None,
             }
         }
@@ -598,10 +598,10 @@ fn infer_init_slot(
         } => {
             if matches!(
                 object.as_ref(),
-                Expr::Local { id, .. } if slot_of.get(id) == Some(&SlotTy::Object)
+                Expr::Local { id, .. } if slot_of.get(id) == Some(&LocalSlot::Object)
             ) || matches!(object.as_ref(), Expr::New { .. })
             {
-                Some(SlotTy::Number)
+                Some(LocalSlot::Number)
             } else {
                 None
             }
@@ -613,7 +613,7 @@ fn infer_init_slot(
 
 fn value_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     arr_inits: &HashMap<LocalId, Expr>,
@@ -626,14 +626,14 @@ fn value_expr_ok(
 
 fn number_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     arr_inits: &HashMap<LocalId, Expr>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Number),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Number),
         Expr::Binary {
             op: BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem,
             left,
@@ -689,14 +689,14 @@ fn number_expr_ok(
 
 fn string_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     arr_inits: &HashMap<LocalId, Expr>,
 ) -> bool {
     match expr {
         Expr::String { .. } => true,
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::String),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::String),
         Expr::Binary {
             op: BinaryOp::Add,
             left,
@@ -738,7 +738,7 @@ fn string_expr_ok(
     }
 }
 
-fn array_expr_ok(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> bool {
+fn array_expr_ok(expr: &Expr, slot_of: &HashMap<LocalId, LocalSlot>) -> bool {
     match expr {
         Expr::Array { elements, .. } => elements.iter().all(|el| match el {
             ArrayElement::Expr(e) => {
@@ -751,7 +751,7 @@ fn array_expr_ok(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> bool {
             ArrayElement::Elision => true,
             ArrayElement::Spread(_) => false,
         }),
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Array),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Array),
         Expr::Member {
             object,
             property,
@@ -770,13 +770,13 @@ fn array_expr_ok(expr: &Expr, slot_of: &HashMap<LocalId, SlotTy>) -> bool {
 
 fn object_expr_ok(
     expr: &Expr,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
     functions: &[FnInfo],
     arr_inits: &HashMap<LocalId, Expr>,
 ) -> bool {
     match expr {
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Object),
         Expr::New { callee, args, .. } => {
             let Expr::Local { id, .. } = callee.as_ref() else {
                 return false;
@@ -805,7 +805,7 @@ fn object_expr_ok(
 fn expand_args_static(
     args: &[Arg],
     arr_inits: &HashMap<LocalId, Expr>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<Vec<Expr>> {
     let mut out = Vec::new();
     for a in args {
@@ -826,7 +826,7 @@ fn expand_args_static(
 fn resolve_array_elems(
     expr: &Expr,
     arr_inits: &HashMap<LocalId, Expr>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<Vec<Expr>> {
     let lit = match expr {
         Expr::Array { .. } => expr.clone(),
@@ -896,7 +896,7 @@ struct Emitter<'a> {
     out: String,
     body: String,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     param_allocas: HashMap<LocalId, String>,
     this_ssa: Option<String>,
     str_globals: Vec<(String, String)>,

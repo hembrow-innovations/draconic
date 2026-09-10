@@ -19,9 +19,8 @@ use draconic_runtime::abi::{
 };
 mod emit;
 
-
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Object,
     Array,
@@ -44,7 +43,7 @@ struct FnInfo {
 struct ModuleInfo {
     functions: Vec<FnInfo>,
     fn_binding: HashMap<LocalId, usize>,
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     print_locals: Vec<LocalId>,
 }
 
@@ -112,7 +111,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     slots.push((*local, ty));
                     slot_of.insert(*local, ty);
                 }
-                if ty == SlotTy::Number && !print_locals.contains(local) {
+                if ty == LocalSlot::Number && !print_locals.contains(local) {
                     print_locals.push(*local);
                 }
             }
@@ -236,14 +235,14 @@ fn push_fn(
 
 fn register_pattern_slots(
     pat: &Pattern,
-    slots: &mut Vec<(LocalId, SlotTy)>,
-    slot_of: &mut HashMap<LocalId, SlotTy>,
+    slots: &mut Vec<(LocalId, LocalSlot)>,
+    slot_of: &mut HashMap<LocalId, LocalSlot>,
 ) -> Option<()> {
     match pat {
         Pattern::Local(id) => {
             if !slot_of.contains_key(id) {
-                slots.push((*id, SlotTy::Number));
-                slot_of.insert(*id, SlotTy::Number);
+                slots.push((*id, LocalSlot::Number));
+                slot_of.insert(*id, LocalSlot::Number);
             }
             Some(())
         }
@@ -263,8 +262,8 @@ fn register_pattern_slots(
                     ObjectPatternEl::Rest(binding) => match binding {
                         Pattern::Local(id) => {
                             if !slot_of.contains_key(id) {
-                                slots.push((*id, SlotTy::Object));
-                                slot_of.insert(*id, SlotTy::Object);
+                                slots.push((*id, LocalSlot::Object));
+                                slot_of.insert(*id, LocalSlot::Object);
                             }
                         }
                         other => register_pattern_slots(other, slots, slot_of)?,
@@ -288,8 +287,8 @@ fn register_pattern_slots(
                     ArrayPatternEl::Rest(binding) => match binding {
                         Pattern::Local(id) => {
                             if !slot_of.contains_key(id) {
-                                slots.push((*id, SlotTy::Array));
-                                slot_of.insert(*id, SlotTy::Array);
+                                slots.push((*id, LocalSlot::Array));
+                                slot_of.insert(*id, LocalSlot::Array);
                             }
                         }
                         Pattern::Object(_) | Pattern::Array(_) => {
@@ -309,7 +308,7 @@ fn body_slots_ok(
     body: &[Stmt],
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> Option<()> {
     for s in body {
         match s {
@@ -329,12 +328,12 @@ fn top_init_ty(
     init: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
-) -> Option<SlotTy> {
+    slot_of: &HashMap<LocalId, LocalSlot>,
+) -> Option<LocalSlot> {
     match init {
-        Expr::Object { .. } => Some(SlotTy::Object),
-        Expr::Array { .. } => Some(SlotTy::Array),
-        Expr::Number { .. } => Some(SlotTy::Number),
+        Expr::Object { .. } => Some(LocalSlot::Object),
+        Expr::Array { .. } => Some(LocalSlot::Array),
+        Expr::Number { .. } => Some(LocalSlot::Number),
         Expr::Call {
             callee,
             args,
@@ -360,7 +359,7 @@ fn top_init_ty(
                     Arg::Spread(_) => return None,
                 }
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Local { id, .. } => slot_of.get(id).copied(),
         _ => None,
@@ -371,7 +370,7 @@ fn value_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Object { properties, .. } => properties.iter().all(|p| match p {
@@ -398,11 +397,13 @@ fn number_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Number) || is_undef(*id, by_id),
+        Expr::Local { id, .. } => {
+            slot_of.get(id) == Some(&LocalSlot::Number) || is_undef(*id, by_id)
+        }
         Expr::Binary {
             left, op, right, ..
         } => {
@@ -425,12 +426,14 @@ fn number_expr_ok(
             let Expr::Local { id, .. } = object.as_ref() else {
                 return false;
             };
-            matches!(slot_of.get(id), Some(SlotTy::Object) | Some(SlotTy::Array))
-                && if *computed {
-                    matches!(property.as_ref(), Expr::Number { .. })
-                } else {
-                    matches!(property.as_ref(), Expr::String { .. })
-                }
+            matches!(
+                slot_of.get(id),
+                Some(LocalSlot::Object) | Some(LocalSlot::Array)
+            ) && if *computed {
+                matches!(property.as_ref(), Expr::Number { .. })
+            } else {
+                matches!(property.as_ref(), Expr::String { .. })
+            }
         }
         Expr::Call {
             callee,
@@ -467,9 +470,8 @@ struct Emitter<'a> {
     str_n: usize,
     str_globals: String,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
-
 
 fn collect_bound_locals(pat: &Pattern, out: &mut Vec<LocalId>) {
     match pat {

@@ -9,8 +9,8 @@ use draconic_runtime::abi::{
 };
 
 use super::{
-    diag, format_number_const, number_global_name, string_global_name,
-    FieldVal, FnInfo, MethodRet, ModuleInfo, SlotTy, MAX_METHOD_ARGS, UNDEF_BITS,
+    diag, format_number_const, number_global_name, string_global_name, FieldVal, FnInfo, LocalSlot,
+    MethodRet, ModuleInfo, MAX_METHOD_ARGS, UNDEF_BITS,
 };
 use crate::emitter::escape_llvm_string;
 
@@ -77,7 +77,7 @@ impl<'a> super::Emitter<'a> {
 
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = number_global_name(*id);
                     writeln!(
                         self.out,
@@ -86,18 +86,18 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let g = string_global_name(*id);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::Object | SlotTy::Undefined => {}
+                LocalSlot::Object | LocalSlot::Undefined => {}
             }
         }
         if info
             .slots
             .iter()
-            .any(|(_, k)| matches!(k, SlotTy::Number | SlotTy::String))
+            .any(|(_, k)| matches!(k, LocalSlot::Number | LocalSlot::String))
         {
             writeln!(self.out).ok();
         }
@@ -107,7 +107,7 @@ impl<'a> super::Emitter<'a> {
         }
 
         for (id, kind) in &info.slots {
-            if *kind != SlotTy::Object {
+            if *kind != LocalSlot::Object {
                 continue;
             }
             let ptr = format!("%l{}", id.0);
@@ -122,7 +122,7 @@ impl<'a> super::Emitter<'a> {
 
         for id in &info.observe_locals {
             match self.slot_of.get(id).copied() {
-                Some(SlotTy::Number) => {
+                Some(LocalSlot::Number) => {
                     let ptr = self.number_slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
@@ -142,7 +142,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  br label %{end_l}").ok();
                     writeln!(self.body, "{end_l}:").ok();
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let ptr = self
                         .allocas
                         .get(id)
@@ -152,7 +152,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                Some(SlotTy::Undefined) => {
+                Some(LocalSlot::Undefined) => {
                     self.emit_print_str_lit("undefined")?;
                 }
                 _ => return Err(diag("es_classes: bad observe slot")),
@@ -347,7 +347,7 @@ impl<'a> super::Emitter<'a> {
                     return Ok(());
                 };
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = if let Some(raw) = self.info.const_number.get(local) {
                             format_number_const(raw)?
                         } else {
@@ -356,7 +356,7 @@ impl<'a> super::Emitter<'a> {
                         let ptr = self.number_slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self
                             .allocas
@@ -365,8 +365,8 @@ impl<'a> super::Emitter<'a> {
                             .ok_or_else(|| diag("es_classes: string alloca missing"))?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Undefined => {}
-                    SlotTy::Object => {
+                    LocalSlot::Undefined => {}
+                    LocalSlot::Object => {
                         let v = if let Some(ci) = self.info.class_of.get(local) {
                             self.emit_class_ctor(*ci)?
                         } else {
@@ -520,7 +520,7 @@ impl<'a> super::Emitter<'a> {
         if let Some(ptr) = self.allocas.get(&id) {
             return Ok(ptr.clone());
         }
-        if self.slot_of.get(&id) == Some(&SlotTy::Number) {
+        if self.slot_of.get(&id) == Some(&LocalSlot::Number) {
             return Ok(format!("@{}", number_global_name(id)));
         }
         Err(diag("es_classes: number slot missing"))
@@ -544,5 +544,4 @@ impl<'a> super::Emitter<'a> {
         .ok();
         Ok(t)
     }
-
 }

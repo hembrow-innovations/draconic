@@ -3,7 +3,11 @@ use std::fmt::Write as _;
 use super::*;
 
 impl<'a> super::Emitter<'a> {
-    pub(super) fn emit_path_void_call(&mut self, path: &Expr, symbol: &str) -> Result<(), Diagnostic> {
+    pub(super) fn emit_path_void_call(
+        &mut self,
+        path: &Expr,
+        symbol: &str,
+    ) -> Result<(), Diagnostic> {
         let p = self.emit_string_expr(path)?;
         let rc = self.fresh();
         writeln!(self.body, "  {rc} = call i32 @{symbol}(ptr {p})").ok();
@@ -138,7 +142,10 @@ impl<'a> super::Emitter<'a> {
         self.emit_check_rc(&rc)
     }
 
-    pub(super) fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+    pub(super) fn emit_bytes_ptr_len(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
                 let s = value.to_string_lossy();
@@ -146,7 +153,7 @@ impl<'a> super::Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -155,7 +162,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -220,7 +227,7 @@ impl<'a> super::Emitter<'a> {
                 Ok(())
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -235,7 +242,7 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     Ok(())
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     let n = self.fresh();

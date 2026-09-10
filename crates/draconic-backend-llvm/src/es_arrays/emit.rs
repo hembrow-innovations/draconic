@@ -84,7 +84,7 @@ impl<'a> super::Emitter<'a> {
 
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = number_global_name(*id);
                     writeln!(
                         self.out,
@@ -93,7 +93,11 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String | SlotTy::Bool | SlotTy::Null | SlotTy::Array | SlotTy::Object => {
+                LocalSlot::String
+                | LocalSlot::Bool
+                | LocalSlot::Null
+                | LocalSlot::Array
+                | LocalSlot::Object => {
                     let g = ptr_global_name(*id, *kind);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
@@ -111,12 +115,12 @@ impl<'a> super::Emitter<'a> {
         for (id, kind) in &info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
@@ -159,27 +163,27 @@ impl<'a> super::Emitter<'a> {
                     .ok_or_else(|| diag("es_arrays: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_as_ptr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Null => {
+                    LocalSlot::Null => {
                         let v = self.emit_null_as_ptr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -468,7 +472,11 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_bind_pattern(&mut self, binding: &Pattern, val_ptr: &str) -> Result<(), Diagnostic> {
+    pub(super) fn emit_bind_pattern(
+        &mut self,
+        binding: &Pattern,
+        val_ptr: &str,
+    ) -> Result<(), Diagnostic> {
         match binding {
             Pattern::Local(id) => {
                 let kind = *self
@@ -477,18 +485,18 @@ impl<'a> super::Emitter<'a> {
                     .ok_or_else(|| diag("es_arrays: pattern local unknown slot"))?;
                 let ptr = self.slot_ptr(*id)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let i = self.fresh();
                         writeln!(self.body, "  {i} = ptrtoint ptr {val_ptr} to i64").ok();
                         let d = self.fresh();
                         writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                         writeln!(self.body, "  store double {d}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array
-                    | SlotTy::String
-                    | SlotTy::Bool
-                    | SlotTy::Null
-                    | SlotTy::Object => {
+                    LocalSlot::Array
+                    | LocalSlot::String
+                    | LocalSlot::Bool
+                    | LocalSlot::Null
+                    | LocalSlot::Object => {
                         writeln!(self.body, "  store ptr {val_ptr}, ptr {ptr}").ok();
                     }
                 }
@@ -548,7 +556,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: object local unknown"))?;
-                if kind != SlotTy::Object {
+                if kind != LocalSlot::Object {
                     return Err(diag("es_arrays: expected object local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -587,7 +595,12 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_for_of(&mut self, left: &Stmt, right: &Expr, body: &Stmt) -> Result<(), Diagnostic> {
+    pub(super) fn emit_for_of(
+        &mut self,
+        left: &Stmt,
+        right: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Diagnostic> {
         let bind_id = match left {
             Stmt::Declare {
                 local, init: None, ..
@@ -635,14 +648,18 @@ impl<'a> super::Emitter<'a> {
         )
         .ok();
         match bind_kind {
-            SlotTy::Number => {
+            LocalSlot::Number => {
                 let i = self.fresh();
                 writeln!(self.body, "  {i} = ptrtoint ptr {elem} to i64").ok();
                 let d = self.fresh();
                 writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                 writeln!(self.body, "  store double {d}, ptr {bind_ptr}").ok();
             }
-            SlotTy::String | SlotTy::Array | SlotTy::Bool | SlotTy::Null | SlotTy::Object => {
+            LocalSlot::String
+            | LocalSlot::Array
+            | LocalSlot::Bool
+            | LocalSlot::Null
+            | LocalSlot::Object => {
                 writeln!(self.body, "  store ptr {elem}, ptr {bind_ptr}").ok();
             }
         }
@@ -682,27 +699,27 @@ impl<'a> super::Emitter<'a> {
             .ok_or_else(|| diag("es_arrays: assign unknown slot"))?;
         let ptr = self.slot_ptr(*id)?;
         match kind {
-            SlotTy::Number => {
+            LocalSlot::Number => {
                 let v = self.emit_number_expr(value)?;
                 writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
             }
-            SlotTy::String => {
+            LocalSlot::String => {
                 let v = self.emit_string_expr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
-            SlotTy::Array => {
+            LocalSlot::Array => {
                 let v = self.emit_array_expr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
-            SlotTy::Bool => {
+            LocalSlot::Bool => {
                 let v = self.emit_bool_as_ptr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
-            SlotTy::Null => {
+            LocalSlot::Null => {
                 let v = self.emit_null_as_ptr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }
-            SlotTy::Object => {
+            LocalSlot::Object => {
                 let v = self.emit_object_expr(value)?;
                 writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
             }

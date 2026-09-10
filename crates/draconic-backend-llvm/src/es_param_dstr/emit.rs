@@ -76,7 +76,7 @@ impl<'a> super::Emitter<'a> {
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
             match ty {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                     writeln!(
                         self.body,
@@ -84,7 +84,7 @@ impl<'a> super::Emitter<'a> {
                     )
                     .ok();
                 }
-                SlotTy::Object | SlotTy::Array => {
+                LocalSlot::Object | LocalSlot::Array => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                 }
@@ -146,11 +146,11 @@ impl<'a> super::Emitter<'a> {
             collect_bound_locals(&p.pattern, &mut bound);
         }
         for id in &bound {
-            let ty = *self.slot_of.get(id).unwrap_or(&SlotTy::Number);
+            let ty = *self.slot_of.get(id).unwrap_or(&LocalSlot::Number);
             let ptr = format!("%l{}", id.0);
             self.allocas.insert(*id, ptr.clone());
             match ty {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     writeln!(self.out, "  {ptr} = alloca double, align 8").ok();
                     writeln!(
                         self.out,
@@ -158,7 +158,7 @@ impl<'a> super::Emitter<'a> {
                     )
                     .ok();
                 }
-                SlotTy::Object | SlotTy::Array => {
+                LocalSlot::Object | LocalSlot::Array => {
                     writeln!(self.out, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.out, "  store ptr null, ptr {ptr}").ok();
                 }
@@ -270,11 +270,11 @@ impl<'a> super::Emitter<'a> {
                     .cloned()
                     .ok_or_else(|| diag("es_param_dstr: missing alloca"))?;
                 match ty {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object | SlotTy::Array => {
+                    LocalSlot::Object | LocalSlot::Array => {
                         let v = self.emit_value_ptr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -449,7 +449,10 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_object_lit(&mut self, properties: &[ObjectProp]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_object_lit(
+        &mut self,
+        properties: &[ObjectProp],
+    ) -> Result<String, Diagnostic> {
         let obj = self.fresh();
         writeln!(self.body, "  {}", ALLOC_OBJECT.call_to(&obj, "")).ok();
         for p in properties {
@@ -471,7 +474,10 @@ impl<'a> super::Emitter<'a> {
         Ok(obj)
     }
 
-    pub(super) fn emit_array_lit(&mut self, elements: &[ArrayElement]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_array_lit(
+        &mut self,
+        elements: &[ArrayElement],
+    ) -> Result<String, Diagnostic> {
         let n = elements.len();
         let arr = self.fresh();
         writeln!(
@@ -563,7 +569,11 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_object_rest(&mut self, src: &str, excluded: &[String]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_object_rest(
+        &mut self,
+        src: &str,
+        excluded: &[String],
+    ) -> Result<String, Diagnostic> {
         // @exN = global [k+1 x ptr] [ptr @str…, …, ptr null]
         let n = excluded.len() + 1;
         let gname = format!("ex{}", self.str_n);
@@ -705,7 +715,11 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_default_if_null(&mut self, got: &str, def: &Expr) -> Result<String, Diagnostic> {
+    pub(super) fn emit_default_if_null(
+        &mut self,
+        got: &str,
+        def: &Expr,
+    ) -> Result<String, Diagnostic> {
         let is_null = self.fresh();
         writeln!(self.body, "  {is_null} = icmp eq ptr {got}, null").ok();
         let then_l = self.fresh_label("dfl");
@@ -728,7 +742,11 @@ impl<'a> super::Emitter<'a> {
         Ok(out)
     }
 
-    pub(super) fn emit_bind_pattern(&mut self, binding: &Pattern, val: &str) -> Result<(), Diagnostic> {
+    pub(super) fn emit_bind_pattern(
+        &mut self,
+        binding: &Pattern,
+        val: &str,
+    ) -> Result<(), Diagnostic> {
         match binding {
             Pattern::Local(id) => {
                 let ty = *self
@@ -741,14 +759,14 @@ impl<'a> super::Emitter<'a> {
                     .cloned()
                     .ok_or_else(|| diag("es_param_dstr: bind alloca"))?;
                 match ty {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let i = self.fresh();
                         writeln!(self.body, "  {i} = ptrtoint ptr {val} to i64").ok();
                         let d = self.fresh();
                         writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                         writeln!(self.body, "  store double {d}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object | SlotTy::Array => {
+                    LocalSlot::Object | LocalSlot::Array => {
                         writeln!(self.body, "  store ptr {val}, ptr {ptr}").ok();
                     }
                 }

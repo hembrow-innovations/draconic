@@ -69,7 +69,7 @@ impl<'a> super::Emitter<'a> {
 
         for (id, kind) in &info.slots {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let g = format!("g_num_{}", id.0);
                     writeln!(
                         self.out,
@@ -78,7 +78,7 @@ impl<'a> super::Emitter<'a> {
                     .ok();
                     self.allocas.insert(*id, format!("@{g}"));
                 }
-                SlotTy::String | SlotTy::Object | SlotTy::Array | SlotTy::Function => {
+                LocalSlot::String | LocalSlot::Object | LocalSlot::Array | LocalSlot::Function => {
                     let g = format!("g_ptr_{}", id.0);
                     writeln!(self.out, "@{g} = internal global ptr null, align 8").ok();
                     self.allocas.insert(*id, format!("@{g}"));
@@ -103,7 +103,7 @@ impl<'a> super::Emitter<'a> {
         // Observations.
         for (id, kind) in &info.print_locals {
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
@@ -123,7 +123,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  br label %{end_l}").ok();
                     writeln!(self.body, "{end_l}:").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
@@ -211,8 +211,8 @@ impl<'a> super::Emitter<'a> {
             Stmt::Declare { local, init, .. } => {
                 let Some(init) = init else {
                     // bare — leave as 0 / undef
-                    let kind = *self.slot_of.get(local).unwrap_or(&SlotTy::Number);
-                    if kind == SlotTy::Number {
+                    let kind = *self.slot_of.get(local).unwrap_or(&LocalSlot::Number);
+                    if kind == LocalSlot::Number {
                         let ptr = self.slot_ptr(*local)?;
                         let u = format!("bitcast (i64 {UNDEF_BITS} to double)");
                         writeln!(self.body, "  store double {u}, ptr {ptr}").ok();
@@ -224,27 +224,27 @@ impl<'a> super::Emitter<'a> {
                     .get(local)
                     .ok_or_else(|| diag("es_od: declare unknown slot"))?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Function => {}
+                    LocalSlot::Function => {}
                 }
                 Ok(())
             }
@@ -283,12 +283,12 @@ impl<'a> super::Emitter<'a> {
                     .get(id)
                     .ok_or_else(|| diag("es_od: assign local unknown"))?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(value)?;
                         let ptr = self.slot_ptr(*id)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Object => {
+                    LocalSlot::Object => {
                         let v = self.emit_object_expr(value)?;
                         let ptr = self.slot_ptr(*id)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
@@ -311,7 +311,7 @@ impl<'a> super::Emitter<'a> {
     pub(super) fn emit_source(&mut self, expr: &Expr) -> Result<(String, bool), Diagnostic> {
         match expr {
             Expr::Array { .. } => Ok((self.emit_array_expr(expr)?, true)),
-            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::Array) => {
+            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::Array) => {
                 let ptr = self.slot_ptr(*id)?;
                 let t = self.fresh();
                 writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();
@@ -394,7 +394,10 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn static_key_string(&self, key: &ObjectPropKey) -> Result<Option<String>, Diagnostic> {
+    pub(super) fn static_key_string(
+        &self,
+        key: &ObjectPropKey,
+    ) -> Result<Option<String>, Diagnostic> {
         match key {
             ObjectPropKey::Static(s) => Ok(Some(s.to_string_lossy())),
             ObjectPropKey::Computed(_) => Ok(None),
@@ -452,11 +455,15 @@ impl<'a> super::Emitter<'a> {
         Ok(raw)
     }
 
-    pub(super) fn emit_bind_pattern(&mut self, binding: &Pattern, val_ptr: &str) -> Result<(), Diagnostic> {
+    pub(super) fn emit_bind_pattern(
+        &mut self,
+        binding: &Pattern,
+        val_ptr: &str,
+    ) -> Result<(), Diagnostic> {
         match binding {
             Pattern::Local(id) => {
                 let kind = if self.in_fn && self.fn_local_allocas.contains_key(id) {
-                    SlotTy::Number
+                    LocalSlot::Number
                 } else {
                     *self
                         .slot_of
@@ -465,7 +472,7 @@ impl<'a> super::Emitter<'a> {
                 };
                 let ptr = self.slot_ptr(*id)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         // null → undefined sentinel
                         let is_null = self.fresh();
                         writeln!(self.body, "  {is_null} = icmp eq ptr {val_ptr}, null").ok();
@@ -490,7 +497,10 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  br label %{end_l}").ok();
                         writeln!(self.body, "{end_l}:").ok();
                     }
-                    SlotTy::Object | SlotTy::Array | SlotTy::String | SlotTy::Function => {
+                    LocalSlot::Object
+                    | LocalSlot::Array
+                    | LocalSlot::String
+                    | LocalSlot::Function => {
                         writeln!(self.body, "  store ptr {val_ptr}, ptr {ptr}").ok();
                     }
                 }
@@ -562,7 +572,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_od: object local unknown"))?;
-                if kind != SlotTy::Object {
+                if kind != LocalSlot::Object {
                     return Err(diag("es_od: expected object local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -600,7 +610,7 @@ impl<'a> super::Emitter<'a> {
     pub(super) fn expr_is_object_slot(&self, expr: &Expr) -> bool {
         matches!(
             expr,
-            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::Object)
+            Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::Object)
         )
     }
 
@@ -684,7 +694,7 @@ impl<'a> super::Emitter<'a> {
                 }
                 // Object or array member → number (null → undefined sentinel).
                 let (src, is_arr) = match object.as_ref() {
-                    Expr::Local { id, .. } if self.slot_of.get(id) == Some(&SlotTy::Array) => {
+                    Expr::Local { id, .. } if self.slot_of.get(id) == Some(&LocalSlot::Array) => {
                         let ptr = self.slot_ptr(*id)?;
                         let t = self.fresh();
                         writeln!(self.body, "  {t} = load ptr, ptr {ptr}").ok();

@@ -12,7 +12,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: number local unknown"))?;
-                if kind != SlotTy::Number {
+                if kind != LocalSlot::Number {
                     return Err(diag("es_arrays: expected number local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -123,7 +123,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: array local unknown"))?;
-                if kind != SlotTy::Array {
+                if kind != LocalSlot::Array {
                     return Err(diag("es_arrays: expected array local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -180,7 +180,10 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_array_lit(&mut self, elements: &[ArrayElement]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_array_lit(
+        &mut self,
+        elements: &[ArrayElement],
+    ) -> Result<String, Diagnostic> {
         let has_spread = elements
             .iter()
             .any(|el| matches!(el, ArrayElement::Spread(_)));
@@ -314,7 +317,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: string local unknown"))?;
-                if kind != SlotTy::String {
+                if kind != LocalSlot::String {
                     return Err(diag("es_arrays: expected string local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -379,7 +382,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: bool local unknown"))?;
-                if kind != SlotTy::Bool {
+                if kind != LocalSlot::Bool {
                     return Err(diag("es_arrays: expected bool local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -426,7 +429,7 @@ impl<'a> super::Emitter<'a> {
                     .slot_of
                     .get(id)
                     .ok_or_else(|| diag("es_arrays: null local unknown"))?;
-                if kind != SlotTy::Null {
+                if kind != LocalSlot::Null {
                     return Err(diag("es_arrays: expected null local"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -463,7 +466,7 @@ impl<'a> super::Emitter<'a> {
 
     pub(super) fn expr_is_array_slot(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::Array),
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&LocalSlot::Array),
             Expr::Member {
                 ty, computed: true, ..
             } => matches!(ty, Type::Object | Type::Any),
@@ -473,7 +476,7 @@ impl<'a> super::Emitter<'a> {
 
     pub(super) fn expr_is_object_slot(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::Object),
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&LocalSlot::Object),
             Expr::Object { .. } => true,
             _ => false,
         }
@@ -481,7 +484,7 @@ impl<'a> super::Emitter<'a> {
 
     pub(super) fn expr_is_string_slot(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::String),
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&LocalSlot::String),
             Expr::Member { ty, .. } => matches!(ty, Type::String),
             _ => false,
         }
@@ -489,7 +492,7 @@ impl<'a> super::Emitter<'a> {
 
     pub(super) fn expr_is_bool_slot(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::Bool),
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&LocalSlot::Bool),
             Expr::Member { ty, .. } => matches!(ty, Type::Boolean),
             _ => false,
         }
@@ -497,7 +500,7 @@ impl<'a> super::Emitter<'a> {
 
     pub(super) fn expr_is_null_slot(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&SlotTy::Null),
+            Expr::Local { id, .. } => self.slot_of.get(id) == Some(&LocalSlot::Null),
             Expr::Member { ty, .. } => matches!(ty, Type::Null | Type::Any),
             _ => false,
         }

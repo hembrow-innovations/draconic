@@ -90,9 +90,9 @@ pub(super) fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx<'_>) -> Option<()
                 // bind as Number when element kind is unknown (body never observes).
                 .unwrap_or(ElemKind::Unknown);
             let bind_ty = match ek {
-                ElemKind::Number | ElemKind::Unknown => SlotTy::Number,
-                ElemKind::String => SlotTy::String,
-                ElemKind::Array => SlotTy::Array,
+                ElemKind::Number | ElemKind::Unknown => LocalSlot::Number,
+                ElemKind::String => LocalSlot::String,
+                ElemKind::Array => LocalSlot::Array,
             };
             classify_for_of_left(left, right, bind_ty, ek, ctx)?;
             classify_stmt(body, ctx)
@@ -136,9 +136,9 @@ pub(super) fn classify_array_pattern(
                     }
                 }
                 let bind_ty = match elem_kind {
-                    ElemKind::Number | ElemKind::Unknown => SlotTy::Number,
-                    ElemKind::String => SlotTy::String,
-                    ElemKind::Array => SlotTy::Array,
+                    ElemKind::Number | ElemKind::Unknown => LocalSlot::Number,
+                    ElemKind::String => LocalSlot::String,
+                    ElemKind::Array => LocalSlot::Array,
                 };
                 classify_pattern_binding(binding, bind_ty, elem_kind, print_nums, ctx)?;
             }
@@ -146,7 +146,7 @@ pub(super) fn classify_array_pattern(
                 // Rest binds an array; nested patterns (e.g. `[...[x]]`) still
                 // observe inner number locals. Bare rest locals are Array slots
                 // (print_nums only applies to Number bindings).
-                classify_pattern_binding(binding, SlotTy::Array, elem_kind, print_nums, ctx)?;
+                classify_pattern_binding(binding, LocalSlot::Array, elem_kind, print_nums, ctx)?;
             }
         }
     }
@@ -155,7 +155,7 @@ pub(super) fn classify_array_pattern(
 
 pub(super) fn classify_pattern_binding(
     binding: &Pattern,
-    bind_ty: SlotTy,
+    bind_ty: LocalSlot,
     elem_kind: ElemKind,
     print_nums: bool,
     ctx: &mut ClassifyCtx<'_>,
@@ -165,14 +165,14 @@ pub(super) fn classify_pattern_binding(
             if let Some(existing) = ctx.slot_of.get(id).copied() {
                 if existing == bind_ty {
                     // already registered
-                } else if existing == SlotTy::Number && bind_ty == SlotTy::Number {
+                } else if existing == LocalSlot::Number && bind_ty == LocalSlot::Number {
                     // bare let provisional number
-                } else if existing == SlotTy::Number && bind_ty == SlotTy::Array {
+                } else if existing == LocalSlot::Number && bind_ty == LocalSlot::Array {
                     // bare `let tail` upgraded when bound by rest pattern
                     if let Some((_, slot)) = ctx.slots.iter_mut().find(|(l, _)| l == id) {
-                        *slot = SlotTy::Array;
+                        *slot = LocalSlot::Array;
                     }
-                    ctx.slot_of.insert(*id, SlotTy::Array);
+                    ctx.slot_of.insert(*id, LocalSlot::Array);
                 } else {
                     return None;
                 }
@@ -180,17 +180,17 @@ pub(super) fn classify_pattern_binding(
                 ctx.slots.push((*id, bind_ty));
                 ctx.slot_of.insert(*id, bind_ty);
             }
-            if bind_ty == SlotTy::Array {
+            if bind_ty == LocalSlot::Array {
                 ctx.has_array = true;
                 if elem_kind != ElemKind::Unknown {
                     ctx.arr_elem.insert(*id, elem_kind);
                 }
             }
             if print_nums
-                && bind_ty == SlotTy::Number
+                && bind_ty == LocalSlot::Number
                 && !ctx.print_locals.iter().any(|(l, _)| l == id)
             {
-                ctx.print_locals.push((*id, SlotTy::Number));
+                ctx.print_locals.push((*id, LocalSlot::Number));
             }
             Some(())
         }
@@ -216,11 +216,11 @@ pub(super) fn classify_pattern_binding(
         Pattern::Array(inner) => {
             // Nested array pattern: elements are of bind_ty's element kind.
             let inner_ek = match bind_ty {
-                SlotTy::Array => elem_kind,
+                LocalSlot::Array => elem_kind,
                 _ => ElemKind::Unknown,
             };
             // When outer elem is Array, nested binds the inner array's elements.
-            let nested_ek = if bind_ty == SlotTy::Array {
+            let nested_ek = if bind_ty == LocalSlot::Array {
                 // Infer from known array-of-arrays when possible is handled by caller;
                 // default nested number elements (fixture uses number matrices).
                 match elem_kind {
@@ -239,12 +239,12 @@ pub(super) fn classify_pattern_binding(
 pub(super) fn object_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Object { properties, .. } => properties.is_empty(),
         // Arrays also use Type::Object in IR — only trust explicit Object slots.
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Object),
         Expr::Member {
             object,
             property,
@@ -269,7 +269,7 @@ pub(super) fn object_expr_ok(
 pub(super) fn classify_for_of_left(
     left: &Stmt,
     right: &Expr,
-    bind_ty: SlotTy,
+    bind_ty: LocalSlot,
     ek: ElemKind,
     ctx: &mut ClassifyCtx<'_>,
 ) -> Option<()> {
@@ -282,7 +282,7 @@ pub(super) fn classify_for_of_left(
             }
             ctx.slots.push((*local, bind_ty));
             ctx.slot_of.insert(*local, bind_ty);
-            if bind_ty == SlotTy::Array {
+            if bind_ty == LocalSlot::Array {
                 ctx.has_array = true;
                 if let Some(inner) = for_of_bound_array_elem_kind(right, ek, ctx) {
                     ctx.arr_elem.insert(*local, inner);
@@ -295,7 +295,7 @@ pub(super) fn classify_for_of_left(
         } => match ctx.slot_of.get(id).copied() {
             Some(existing) if existing == bind_ty => Some(()),
             // Bare `let y` provisionally Number before for-of assign.
-            Some(SlotTy::Number) if bind_ty == SlotTy::Number => Some(()),
+            Some(LocalSlot::Number) if bind_ty == LocalSlot::Number => Some(()),
             None => {
                 ctx.slots.push((*id, bind_ty));
                 ctx.slot_of.insert(*id, bind_ty);
@@ -343,15 +343,19 @@ pub(super) fn for_of_bound_array_elem_kind(
     kind
 }
 
-pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut ClassifyCtx<'_>) -> Option<()> {
+pub(super) fn classify_declare(
+    local: LocalId,
+    init: Option<&Expr>,
+    ctx: &mut ClassifyCtx<'_>,
+) -> Option<()> {
     let loc = ctx.by_id.get(&local)?;
     let Some(init) = init else {
         // Bare `let y` — provisional number slot (for-of assign target).
         if ctx.slot_of.contains_key(&local) {
             return Some(());
         }
-        ctx.slots.push((local, SlotTy::Number));
-        ctx.slot_of.insert(local, SlotTy::Number);
+        ctx.slots.push((local, LocalSlot::Number));
+        ctx.slot_of.insert(local, LocalSlot::Number);
         return Some(());
     };
     if matches!(init, Expr::Array { .. }) {
@@ -359,8 +363,8 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
             return None;
         }
         ctx.has_array = true;
-        ctx.slots.push((local, SlotTy::Array));
-        ctx.slot_of.insert(local, SlotTy::Array);
+        ctx.slots.push((local, LocalSlot::Array));
+        ctx.slot_of.insert(local, LocalSlot::Array);
         ctx.arr_inits.insert(local, init.clone());
         if let Some(k) = array_expr_elem_kind(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of) {
             ctx.arr_elem.insert(local, k);
@@ -371,25 +375,25 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
         if !object_expr_ok(init, ctx.by_id, &ctx.slot_of) {
             return None;
         }
-        ctx.slots.push((local, SlotTy::Object));
-        ctx.slot_of.insert(local, SlotTy::Object);
+        ctx.slots.push((local, LocalSlot::Object));
+        ctx.slot_of.insert(local, LocalSlot::Object);
         return Some(());
     }
     if is_undefined_expr(init) {
-        ctx.slots.push((local, SlotTy::Null));
-        ctx.slot_of.insert(local, SlotTy::Null);
+        ctx.slots.push((local, LocalSlot::Null));
+        ctx.slot_of.insert(local, LocalSlot::Null);
         return Some(());
     }
     if matches!(init, Expr::String { .. }) {
         if !string_expr_ok(init, ctx.by_id, &ctx.slot_of) {
             return None;
         }
-        ctx.slots.push((local, SlotTy::String));
-        ctx.slot_of.insert(local, SlotTy::String);
+        ctx.slots.push((local, LocalSlot::String));
+        ctx.slot_of.insert(local, LocalSlot::String);
         // Empty-string accumulators (for-of concat) are observations.
         if let Expr::String { value, .. } = init {
             if value.to_string_lossy().is_empty() {
-                ctx.print_locals.push((local, SlotTy::String));
+                ctx.print_locals.push((local, LocalSlot::String));
             }
         }
         return Some(());
@@ -398,11 +402,11 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
         if ctx
             .slots
             .iter()
-            .any(|(s, k)| s == id && *k == SlotTy::Array)
+            .any(|(s, k)| s == id && *k == LocalSlot::Array)
         {
             ctx.has_array = true;
-            ctx.slots.push((local, SlotTy::Array));
-            ctx.slot_of.insert(local, SlotTy::Array);
+            ctx.slots.push((local, LocalSlot::Array));
+            ctx.slot_of.insert(local, LocalSlot::Array);
             if let Some(e) = ctx.arr_inits.get(id).cloned() {
                 ctx.arr_inits.insert(local, e);
             }
@@ -414,21 +418,21 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
         if ctx
             .slots
             .iter()
-            .any(|(s, k)| s == id && *k == SlotTy::String)
+            .any(|(s, k)| s == id && *k == LocalSlot::String)
         {
-            ctx.slots.push((local, SlotTy::String));
-            ctx.slot_of.insert(local, SlotTy::String);
+            ctx.slots.push((local, LocalSlot::String));
+            ctx.slot_of.insert(local, LocalSlot::String);
             return Some(());
         }
         if ctx
             .slots
             .iter()
-            .any(|(s, k)| s == id && *k == SlotTy::Number)
+            .any(|(s, k)| s == id && *k == LocalSlot::Number)
             || matches!(loc.ty, Type::Number)
         {
-            ctx.slots.push((local, SlotTy::Number));
-            ctx.slot_of.insert(local, SlotTy::Number);
-            ctx.print_locals.push((local, SlotTy::Number));
+            ctx.slots.push((local, LocalSlot::Number));
+            ctx.slot_of.insert(local, LocalSlot::Number);
+            ctx.print_locals.push((local, LocalSlot::Number));
             return Some(());
         }
         return None;
@@ -440,13 +444,13 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
         ctx.slots.push((local, kind));
         ctx.slot_of.insert(local, kind);
         match kind {
-            SlotTy::Number => ctx.print_locals.push((local, SlotTy::Number)),
-            SlotTy::String => {
+            LocalSlot::Number => ctx.print_locals.push((local, LocalSlot::Number)),
+            LocalSlot::String => {
                 if matches!(init, Expr::Member { computed: true, .. }) {
-                    ctx.print_locals.push((local, SlotTy::String));
+                    ctx.print_locals.push((local, LocalSlot::String));
                 }
             }
-            SlotTy::Array => {
+            LocalSlot::Array => {
                 ctx.has_array = true;
                 if let Some(k) =
                     array_expr_elem_kind(init, &ctx.arr_inits, &ctx.arr_elem, &ctx.slot_of)
@@ -460,9 +464,9 @@ pub(super) fn classify_declare(local: LocalId, init: Option<&Expr>, ctx: &mut Cl
     }
     if number_expr_ok(init, ctx.by_id, &ctx.slot_of) {
         // Number from arithmetic, member read, pattern-bound locals, etc.
-        ctx.slots.push((local, SlotTy::Number));
-        ctx.slot_of.insert(local, SlotTy::Number);
-        ctx.print_locals.push((local, SlotTy::Number));
+        ctx.slots.push((local, LocalSlot::Number));
+        ctx.slot_of.insert(local, LocalSlot::Number);
+        ctx.print_locals.push((local, LocalSlot::Number));
         return Some(());
     }
     None

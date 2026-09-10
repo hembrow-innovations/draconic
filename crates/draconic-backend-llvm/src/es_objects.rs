@@ -55,7 +55,7 @@ pub(crate) fn walk_es_objects(module: &Module) -> Option<Result<String, Diagnost
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     Object,
     String,
@@ -69,7 +69,7 @@ struct FnInfo {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     number_locals: Vec<LocalId>,
     functions: Vec<FnInfo>,
     /// Function-declaration bindings → LLVM method index (`new` callees).
@@ -97,7 +97,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             Stmt::Function { local, .. } => {
                 // N08.04.05: ctor binding is a heap object with `.prototype`.
                 has_object = true;
-                slots.push((*local, SlotTy::Object));
+                slots.push((*local, LocalSlot::Object));
             }
             Stmt::Declare { local, init, .. } => {
                 let loc = by_id.get(local)?;
@@ -107,17 +107,17 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                         return None;
                     }
                     has_object = true;
-                    slots.push((*local, SlotTy::Object));
+                    slots.push((*local, LocalSlot::Object));
                 } else if is_string_slot_ty(&loc.ty) || expr_is_string_init(init) {
                     if !string_expr_ok(init, &by_id) {
                         return None;
                     }
-                    slots.push((*local, SlotTy::String));
+                    slots.push((*local, LocalSlot::String));
                 } else if is_number_slot_ty(&loc.ty) || expr_is_number_init(init) {
                     if !number_expr_ok(init, &by_id, &functions, &fn_binding) {
                         return None;
                     }
-                    slots.push((*local, SlotTy::Number));
+                    slots.push((*local, LocalSlot::Number));
                     number_locals.push(*local);
                 } else {
                     return None;
@@ -691,7 +691,7 @@ fn string_global_name(id: LocalId) -> String {
 struct Emitter<'a> {
     module: &'a Module,
     info: &'a ModuleInfo,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     allocas: HashMap<LocalId, String>,
     /// Method param local → alloca name (only while emitting a method).
     param_allocas: HashMap<LocalId, String>,

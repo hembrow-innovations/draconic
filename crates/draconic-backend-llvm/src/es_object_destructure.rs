@@ -40,7 +40,7 @@ pub(crate) fn walk_es_object_destructure(module: &Module) -> Option<Result<Strin
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SlotTy {
+enum LocalSlot {
     Number,
     String,
     Object,
@@ -60,15 +60,15 @@ struct FnInfo {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     functions: Vec<FnInfo>,
     fn_binding: HashMap<LocalId, usize>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-    let mut slot_of: HashMap<LocalId, SlotTy> = HashMap::new();
+    let mut slot_of: HashMap<LocalId, LocalSlot> = HashMap::new();
     let mut print_locals = Vec::new();
     let mut seen_print = HashSet::new();
     let mut functions = Vec::new();
@@ -93,7 +93,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
         return None;
     }
 
-    let mut slots: Vec<(LocalId, SlotTy)> = slot_of.into_iter().collect();
+    let mut slots: Vec<(LocalId, LocalSlot)> = slot_of.into_iter().collect();
     slots.sort_by_key(|(id, _)| id.0);
 
     Some(ModuleInfo {
@@ -108,8 +108,8 @@ fn classify_stmt(
     stmt: &Stmt,
     top: bool,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &mut HashMap<LocalId, SlotTy>,
-    print_locals: &mut Vec<(LocalId, SlotTy)>,
+    slot_of: &mut HashMap<LocalId, LocalSlot>,
+    print_locals: &mut Vec<(LocalId, LocalSlot)>,
     seen_print: &mut HashSet<LocalId>,
     functions: &mut Vec<FnInfo>,
     fn_binding: &mut HashMap<LocalId, usize>,
@@ -120,7 +120,7 @@ fn classify_stmt(
             let slot = slot_for_declare(*local, init.as_ref(), by_id, slot_of)?;
             slot_of.entry(*local).or_insert(slot);
             // Observe number results only (not key strings / heap objects).
-            if top && slot == SlotTy::Number && seen_print.insert(*local) {
+            if top && slot == LocalSlot::Number && seen_print.insert(*local) {
                 print_locals.push((*local, slot));
             }
             if *kind == BindingKind::Var {
@@ -180,7 +180,7 @@ fn classify_stmt(
             }
             // Register param locals as number (fixture only binds numbers).
             for &pl in &param_locals {
-                slot_of.entry(pl).or_insert(SlotTy::Number);
+                slot_of.entry(pl).or_insert(LocalSlot::Number);
             }
             let idx = functions.len();
             functions.push(FnInfo {
@@ -190,7 +190,7 @@ fn classify_stmt(
                 body: body.clone(),
             });
             fn_binding.insert(*local, idx);
-            slot_of.insert(*local, SlotTy::Function);
+            slot_of.insert(*local, LocalSlot::Function);
             Some(())
         }
         Stmt::Expr { expr } => {
@@ -245,8 +245,8 @@ fn classify_object_pattern(
     properties: &[ObjectPatternEl],
     top: bool,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &mut HashMap<LocalId, SlotTy>,
-    print_locals: &mut Vec<(LocalId, SlotTy)>,
+    slot_of: &mut HashMap<LocalId, LocalSlot>,
+    print_locals: &mut Vec<(LocalId, LocalSlot)>,
     seen_print: &mut HashSet<LocalId>,
 ) -> Option<()> {
     if !object_pattern_ok(properties, by_id, slot_of) {
@@ -264,7 +264,7 @@ fn classify_object_pattern(
                 }
                 classify_binding(
                     binding,
-                    SlotTy::Number,
+                    LocalSlot::Number,
                     top,
                     by_id,
                     slot_of,
@@ -275,7 +275,7 @@ fn classify_object_pattern(
             ObjectPatternEl::Rest(binding) => {
                 classify_binding(
                     binding,
-                    SlotTy::Object,
+                    LocalSlot::Object,
                     top,
                     by_id,
                     slot_of,
@@ -290,11 +290,11 @@ fn classify_object_pattern(
 
 fn classify_binding(
     binding: &Pattern,
-    bind_ty: SlotTy,
+    bind_ty: LocalSlot,
     top: bool,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &mut HashMap<LocalId, SlotTy>,
-    print_locals: &mut Vec<(LocalId, SlotTy)>,
+    slot_of: &mut HashMap<LocalId, LocalSlot>,
+    print_locals: &mut Vec<(LocalId, LocalSlot)>,
     seen_print: &mut HashSet<LocalId>,
 ) -> Option<()> {
     match binding {
@@ -302,11 +302,11 @@ fn classify_binding(
             if let Some(existing) = slot_of.get(id).copied() {
                 if existing == bind_ty {
                     // ok
-                } else if existing == SlotTy::Number && bind_ty == SlotTy::Number {
+                } else if existing == LocalSlot::Number && bind_ty == LocalSlot::Number {
                     // bare let provisional
-                } else if existing == SlotTy::Number && bind_ty == SlotTy::Object {
+                } else if existing == LocalSlot::Number && bind_ty == LocalSlot::Object {
                     // bare `let tail` upgraded by rest — drop number observation
-                    *slot_of.get_mut(id).unwrap() = SlotTy::Object;
+                    *slot_of.get_mut(id).unwrap() = LocalSlot::Object;
                     print_locals.retain(|(l, _)| l != id);
                     seen_print.remove(id);
                 } else {
@@ -315,8 +315,8 @@ fn classify_binding(
             } else {
                 slot_of.insert(*id, bind_ty);
             }
-            if top && bind_ty == SlotTy::Number && seen_print.insert(*id) {
-                print_locals.push((*id, SlotTy::Number));
+            if top && bind_ty == LocalSlot::Number && seen_print.insert(*id) {
+                print_locals.push((*id, LocalSlot::Number));
             }
             Some(())
         }
@@ -349,7 +349,7 @@ fn classify_binding(
 fn object_pattern_ok(
     properties: &[ObjectPatternEl],
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     for p in properties {
         match p {
@@ -384,7 +384,7 @@ fn object_pattern_ok(
 fn binding_ok(
     binding: &Pattern,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match binding {
         Pattern::Local(_) => true,
@@ -409,7 +409,7 @@ fn binding_ok(
 fn prop_key_ok(
     key: &ObjectPropKey,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match key {
         ObjectPropKey::Static(_) => true,
@@ -423,56 +423,60 @@ fn slot_for_declare(
     local: LocalId,
     init: Option<&Expr>,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
-) -> Option<SlotTy> {
+    slot_of: &HashMap<LocalId, LocalSlot>,
+) -> Option<LocalSlot> {
     let Some(init) = init else {
         // Bare let/var — provisional number (assignment target).
-        return Some(SlotTy::Number);
+        return Some(LocalSlot::Number);
     };
     if matches!(init, Expr::Object { .. }) {
-        return Some(SlotTy::Object);
+        return Some(LocalSlot::Object);
     }
     if matches!(init, Expr::Array { .. }) {
-        return Some(SlotTy::Array);
+        return Some(LocalSlot::Array);
     }
     if matches!(init, Expr::String { .. }) || string_expr_ok(init, by_id, slot_of) {
-        return Some(SlotTy::String);
+        return Some(LocalSlot::String);
     }
     if number_expr_ok(init, by_id, slot_of) {
-        return Some(SlotTy::Number);
+        return Some(LocalSlot::Number);
     }
     // Member read may be undefined (still number-ish observation).
     if member_get_ok(init, by_id, slot_of) {
-        return Some(SlotTy::Number);
+        return Some(LocalSlot::Number);
     }
     // Call returning number.
     if let Expr::Call { callee, args, .. } = init {
         if let Expr::Local { id, .. } = callee.as_ref() {
-            if slot_of.get(id) == Some(&SlotTy::Function)
+            if slot_of.get(id) == Some(&LocalSlot::Function)
                 && args.len() == 1
                 && arg_ok(&args[0], by_id, slot_of)
             {
-                return Some(SlotTy::Number);
+                return Some(LocalSlot::Number);
             }
         }
     }
     // Local copy of number.
     if let Expr::Local { id, .. } = init {
-        if slot_of.get(id) == Some(&SlotTy::Number) {
-            return Some(SlotTy::Number);
+        if slot_of.get(id) == Some(&LocalSlot::Number) {
+            return Some(LocalSlot::Number);
         }
         if by_id
             .get(id)
             .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
         {
-            return Some(SlotTy::Number);
+            return Some(LocalSlot::Number);
         }
     }
     let _ = local;
     None
 }
 
-fn arg_ok(arg: &Arg, by_id: &HashMap<LocalId, &Local>, slot_of: &HashMap<LocalId, SlotTy>) -> bool {
+fn arg_ok(
+    arg: &Arg,
+    by_id: &HashMap<LocalId, &Local>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
+) -> bool {
     match arg {
         Arg::Expr(e) => value_expr_ok(e, by_id, slot_of),
         Arg::Spread(_) => false,
@@ -482,14 +486,14 @@ fn arg_ok(arg: &Arg, by_id: &HashMap<LocalId, &Local>, slot_of: &HashMap<LocalId
 fn value_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Object { properties, .. } => object_lit_ok(properties, by_id, slot_of),
         Expr::Array { elements, .. } => array_lit_ok(elements, by_id, slot_of),
         Expr::Local { id, .. } => matches!(
             slot_of.get(id),
-            Some(SlotTy::Object | SlotTy::Array | SlotTy::Number | SlotTy::String)
+            Some(LocalSlot::Object | LocalSlot::Array | LocalSlot::Number | LocalSlot::String)
         ),
         _ => number_expr_ok(expr, by_id, slot_of) || string_expr_ok(expr, by_id, slot_of),
     }
@@ -498,7 +502,7 @@ fn value_expr_ok(
 fn object_lit_ok(
     properties: &[ObjectProp],
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     for p in properties {
         match p {
@@ -532,7 +536,7 @@ fn object_lit_ok(
 fn array_lit_ok(
     elements: &[ArrayElement],
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     for el in elements {
         match el {
@@ -550,11 +554,11 @@ fn array_lit_ok(
 fn object_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Object { properties, .. } => object_lit_ok(properties, by_id, slot_of),
-        Expr::Local { id, .. } => slot_of.get(id) == Some(&SlotTy::Object),
+        Expr::Local { id, .. } => slot_of.get(id) == Some(&LocalSlot::Object),
         Expr::Member {
             object,
             property,
@@ -578,7 +582,7 @@ fn object_expr_ok(
 fn member_get_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Member {
@@ -592,8 +596,8 @@ fn member_get_ok(
                 && (object_expr_ok(object, by_id, slot_of)
                     || matches!(
                         object.as_ref(),
-                        Expr::Local { id, .. } if slot_of.get(id) == Some(&SlotTy::Object)
-                            || slot_of.get(id) == Some(&SlotTy::Array)
+                        Expr::Local { id, .. } if slot_of.get(id) == Some(&LocalSlot::Object)
+                            || slot_of.get(id) == Some(&LocalSlot::Array)
                     ))
                 && if *computed {
                     string_expr_ok(property, by_id, slot_of)
@@ -610,12 +614,12 @@ fn member_get_ok(
 fn number_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Number { .. } => true,
         Expr::Local { id, .. } => {
-            slot_of.get(id) == Some(&SlotTy::Number)
+            slot_of.get(id) == Some(&LocalSlot::Number)
                 || by_id
                     .get(id)
                     .is_some_and(|l| matches!(l.ty, Type::Number | Type::Any))
@@ -630,7 +634,7 @@ fn number_expr_ok(
         Expr::Call { callee, args, .. } => {
             matches!(
                 callee.as_ref(),
-                Expr::Local { id, .. } if slot_of.get(id) == Some(&SlotTy::Function)
+                Expr::Local { id, .. } if slot_of.get(id) == Some(&LocalSlot::Function)
             ) && args.len() == 1
                 && arg_ok(&args[0], by_id, slot_of)
         }
@@ -641,12 +645,12 @@ fn number_expr_ok(
 fn string_expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::String { .. } => true,
         Expr::Local { id, .. } => {
-            slot_of.get(id) == Some(&SlotTy::String)
+            slot_of.get(id) == Some(&LocalSlot::String)
                 || by_id.get(id).is_some_and(|l| l.ty == Type::String)
         }
         _ => false,
@@ -656,7 +660,7 @@ fn string_expr_ok(
 fn expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     fn_binding: &HashMap<LocalId, usize>,
 ) -> bool {
     match expr {
@@ -670,7 +674,7 @@ fn expr_ok(
             matches!(
                 callee.as_ref(),
                 Expr::Local { id, .. }
-                    if slot_of.get(id) == Some(&SlotTy::Function) || fn_binding.contains_key(id)
+                    if slot_of.get(id) == Some(&LocalSlot::Function) || fn_binding.contains_key(id)
             ) && args.iter().all(|a| arg_ok(a, by_id, slot_of))
         }
         _ => number_expr_ok(expr, by_id, slot_of),
@@ -686,7 +690,7 @@ struct Emitter<'a> {
     str_n: usize,
     str_globals: Vec<(String, String)>,
     allocas: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     /// Inside function: param pattern local allocas.
     fn_local_allocas: HashMap<LocalId, String>,
     in_fn: bool,

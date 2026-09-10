@@ -31,7 +31,7 @@ pub(crate) fn walk_es_coercion(module: &Module) -> Option<Result<String, Diagnos
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Boolean,
     String,
     Number,
@@ -40,7 +40,7 @@ enum SlotTy {
 
 struct ModuleInfo {
     /// User locals in declaration order (print order skips Object).
-    user_locals: Vec<(LocalId, SlotTy)>,
+    user_locals: Vec<(LocalId, LocalSlot)>,
     /// Compile-time values for each user local after executing the body.
     values: HashMap<LocalId, JsVal>,
 }
@@ -361,12 +361,12 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
             Stmt::Declare { local, init, .. } => {
                 let loc = by_id.get(local)?;
                 let slot = match &loc.ty {
-                    Type::Boolean => SlotTy::Boolean,
-                    Type::String => SlotTy::String,
-                    Type::Number => SlotTy::Number,
+                    Type::Boolean => LocalSlot::Boolean,
+                    Type::String => LocalSlot::String,
+                    Type::Number => LocalSlot::Number,
                     ty if is_object_ty(ty) => {
                         objs.insert(*local);
-                        SlotTy::Object
+                        LocalSlot::Object
                     }
                     _ => return None,
                 };
@@ -645,8 +645,8 @@ impl<'a> Emitter<'a> {
                 .get(id)
                 .ok_or_else(|| diag("es_coercion: missing value"))?;
             match slot {
-                SlotTy::Object => {}
-                SlotTy::Boolean => {
+                LocalSlot::Object => {}
+                LocalSlot::Boolean => {
                     let JsVal::Bool(b) = v else {
                         return Err(diag("es_coercion: expected bool"));
                     };
@@ -655,7 +655,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {ext} = add i8 0, {bit}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {ext}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let JsVal::Str(s) = v else {
                         return Err(diag("es_coercion: expected string"));
                     };
@@ -667,7 +667,7 @@ impl<'a> Emitter<'a> {
                     )
                     .ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let JsVal::Num(n) = v else {
                         return Err(diag("es_coercion: expected number"));
                     };

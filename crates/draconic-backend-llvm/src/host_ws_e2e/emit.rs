@@ -156,15 +156,15 @@ impl<'a> super::Emitter<'a> {
 
         for (id, ty) in &self.info.slots {
             match ty {
-                SlotTy::Handle | SlotTy::Number => {
+                LocalSlot::Handle | LocalSlot::Number => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let ptr = self.slot_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let ptr = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
@@ -172,7 +172,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                     writeln!(self.body, "  store i64 0, ptr {lp}").ok();
                 }
-                SlotTy::WsFrame => {
+                LocalSlot::WsFrame => {
                     for f in ["fin", "opcode", "close_code"] {
                         let p = self.slot_frame_field(*id, f)?;
                         writeln!(self.body, "  {p} = alloca i32, align 4").ok();
@@ -224,18 +224,18 @@ impl<'a> super::Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_ws_e2e: unknown slot"))?;
                 match ty {
-                    SlotTy::Handle | SlotTy::Number => {
+                    LocalSlot::Handle | LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
-                    SlotTy::WsFrame => self.emit_frame_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::WsFrame => self.emit_frame_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -315,7 +315,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_dynbytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_dynbytes_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 2 && is_named_callee(callee, "tcpRead") =>
@@ -518,7 +522,11 @@ impl<'a> super::Emitter<'a> {
         Ok(())
     }
 
-    pub(super) fn emit_frame_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_frame_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. }
                 if args.len() == 1 && is_named_callee(callee, "wsDecodeFrame") =>
@@ -573,7 +581,10 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_bytes_ptr_len(&mut self, expr: &Expr) -> Result<(String, String), Diagnostic> {
+    pub(super) fn emit_bytes_ptr_len(
+        &mut self,
+        expr: &Expr,
+    ) -> Result<(String, String), Diagnostic> {
         match expr {
             Expr::String { value, .. } => {
                 let s = value.to_string_lossy();
@@ -581,7 +592,7 @@ impl<'a> super::Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -590,7 +601,7 @@ impl<'a> super::Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -612,7 +623,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_ws_e2e: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::WsFrame), "payload") => {
+                    (Some(LocalSlot::WsFrame), "payload") => {
                         let s = self.emit_frame_payload_cstr(id)?;
                         let n = self.fresh();
                         writeln!(self.body, "  {n} = call i64 @strlen(ptr {s})").ok();
@@ -813,7 +824,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_ws_e2e: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::DynBytes), "length") => {
+                    (Some(LocalSlot::DynBytes), "length") => {
                         let lp = self.slot_len_ptr(id)?;
                         let i = self.fresh();
                         let d = self.fresh();
@@ -821,7 +832,7 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {d} = sitofp i64 {i} to double").ok();
                         Ok(d)
                     }
-                    (Some(SlotTy::WsFrame), "fin" | "opcode" | "closeCode") => {
+                    (Some(LocalSlot::WsFrame), "fin" | "opcode" | "closeCode") => {
                         let field = if prop == "closeCode" {
                             "close_code"
                         } else {
@@ -913,7 +924,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_ws_e2e: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::WsFrame), "payload") => self.emit_frame_payload_cstr(id),
+                    (Some(LocalSlot::WsFrame), "payload") => self.emit_frame_payload_cstr(id),
                     _ => Err(diag("host_ws_e2e: unsupported string member")),
                 }
             }

@@ -41,7 +41,7 @@ pub(crate) fn walk_es_tagged_template(module: &Module) -> Option<Result<String, 
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum SlotTy {
+enum LocalSlot {
     String,
     Bool,
     Object,
@@ -68,9 +68,9 @@ struct ModuleInfo {
     /// Local → function index (decls + method expr bindings).
     fn_binding: HashMap<LocalId, usize>,
     /// Top-level slots (declare order for non-fn).
-    slots: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
     /// Observation prints in declare order.
-    print_locals: Vec<(LocalId, SlotTy)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -94,7 +94,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
 
     let mut slots = Vec::new();
     let mut print_locals = Vec::new();
-    let mut slot_of: HashMap<LocalId, SlotTy> = HashMap::new();
+    let mut slot_of: HashMap<LocalId, LocalSlot> = HashMap::new();
 
     for stmt in &module.body {
         match stmt {
@@ -108,8 +108,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                     if !object_ok(properties, &by_id, &fn_binding) {
                         return None;
                     }
-                    slots.push((*local, SlotTy::Object));
-                    slot_of.insert(*local, SlotTy::Object);
+                    slots.push((*local, LocalSlot::Object));
+                    slot_of.insert(*local, LocalSlot::Object);
                     continue;
                 }
                 if matches!(init, Expr::Function { .. }) {
@@ -124,7 +124,7 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 }
                 slots.push((*local, kind));
                 slot_of.insert(*local, kind);
-                if matches!(kind, SlotTy::String | SlotTy::Bool) {
+                if matches!(kind, LocalSlot::String | LocalSlot::Bool) {
                     print_locals.push((*local, kind));
                 }
             }
@@ -423,22 +423,22 @@ fn slot_kind_of(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
     ret_of: &HashMap<usize, RetKind>,
-) -> Option<SlotTy> {
+) -> Option<LocalSlot> {
     match expr {
-        Expr::String { .. } => Some(SlotTy::String),
-        Expr::Boolean { .. } => Some(SlotTy::Bool),
+        Expr::String { .. } => Some(LocalSlot::String),
+        Expr::Boolean { .. } => Some(LocalSlot::Bool),
         Expr::TaggedTemplate { tag, .. } => match tag.as_ref() {
             Expr::Local { id, .. } => {
                 let idx = *fn_binding.get(id)?;
                 match ret_of.get(&idx).copied().unwrap_or(RetKind::String) {
-                    RetKind::Bool => Some(SlotTy::Bool),
-                    RetKind::Function => Some(SlotTy::Function),
-                    RetKind::String => Some(SlotTy::String),
+                    RetKind::Bool => Some(LocalSlot::Bool),
+                    RetKind::Function => Some(LocalSlot::Function),
+                    RetKind::String => Some(LocalSlot::String),
                 }
             }
-            Expr::Call { .. } | Expr::Member { .. } => Some(SlotTy::String),
+            Expr::Call { .. } | Expr::Member { .. } => Some(LocalSlot::String),
             _ => None,
         },
         Expr::Local { id, ty } => {
@@ -446,16 +446,16 @@ fn slot_kind_of(
                 return Some(*k);
             }
             match ty {
-                Type::String => Some(SlotTy::String),
-                Type::Boolean => Some(SlotTy::Bool),
-                Type::Object => Some(SlotTy::Object),
-                Type::Function => Some(SlotTy::Function),
+                Type::String => Some(LocalSlot::String),
+                Type::Boolean => Some(LocalSlot::Bool),
+                Type::Object => Some(LocalSlot::Object),
+                Type::Function => Some(LocalSlot::Function),
                 Type::Any => by_id.get(id).map(|l| match l.ty {
-                    Type::String => SlotTy::String,
-                    Type::Boolean => SlotTy::Bool,
-                    Type::Object => SlotTy::Object,
-                    Type::Function => SlotTy::Function,
-                    _ => SlotTy::String,
+                    Type::String => LocalSlot::String,
+                    Type::Boolean => LocalSlot::Bool,
+                    Type::Object => LocalSlot::Object,
+                    Type::Function => LocalSlot::Function,
+                    _ => LocalSlot::String,
                 }),
                 _ => None,
             }
@@ -463,11 +463,11 @@ fn slot_kind_of(
         Expr::Binary {
             op: BinaryOp::EqEqEq | BinaryOp::EqEq | BinaryOp::And | BinaryOp::Or,
             ..
-        } => Some(SlotTy::Bool),
+        } => Some(LocalSlot::Bool),
         Expr::Binary {
             op: BinaryOp::Add, ..
-        } => Some(SlotTy::String),
-        Expr::Object { .. } => Some(SlotTy::Object),
+        } => Some(LocalSlot::String),
+        Expr::Object { .. } => Some(LocalSlot::Object),
         _ => None,
     }
 }
@@ -559,7 +559,7 @@ fn expr_ok(
     expr: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match expr {
         Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } => true,
@@ -614,7 +614,7 @@ fn tag_ok(
     tag: &Expr,
     by_id: &HashMap<LocalId, &Local>,
     fn_binding: &HashMap<LocalId, usize>,
-    slot_of: &HashMap<LocalId, SlotTy>,
+    slot_of: &HashMap<LocalId, LocalSlot>,
 ) -> bool {
     match tag {
         Expr::Local { id, .. } => fn_binding.contains_key(id),
@@ -634,7 +634,7 @@ fn tag_ok(
             optional: false,
             ..
         } => {
-            matches!(object.as_ref(), Expr::Local { id, .. } if slot_of.get(id) == Some(&SlotTy::Object) || matches!(by_id.get(id).map(|l| l.ty), Some(Type::Object | Type::Any)))
+            matches!(object.as_ref(), Expr::Local { id, .. } if slot_of.get(id) == Some(&LocalSlot::Object) || matches!(by_id.get(id).map(|l| l.ty), Some(Type::Object | Type::Any)))
                 && matches!(property.as_ref(), Expr::String { .. })
         }
         _ => false,
@@ -673,12 +673,12 @@ fn is_length_member(expr: &Expr) -> bool {
     )
 }
 
-fn slot_tag(k: SlotTy) -> &'static str {
+fn slot_tag(k: LocalSlot) -> &'static str {
     match k {
-        SlotTy::String => "s",
-        SlotTy::Bool => "b",
-        SlotTy::Object => "o",
-        SlotTy::Function => "f",
+        LocalSlot::String => "s",
+        LocalSlot::Bool => "b",
+        LocalSlot::Object => "o",
+        LocalSlot::Function => "f",
     }
 }
 

@@ -38,7 +38,7 @@ pub(crate) fn walk_host_stdio(module: &Module) -> Option<Result<String, Diagnost
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     /// `new Uint8Array(n)` fixed backing store.
     Bytes(usize),
     /// `stdinReadBytes(n)` result: data ptr + actual len.
@@ -50,8 +50,8 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_stdin_line: bool,
     needs_stdin_bytes: bool,
     needs_write: bool,
@@ -59,9 +59,9 @@ struct ModuleInfo {
 
 struct ClassifyCtx<'a> {
     module: &'a Module,
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_stdin_line: bool,
     needs_stdin_bytes: bool,
     needs_write: bool,
@@ -126,8 +126,8 @@ fn arg_expr(arg: &Arg) -> Option<&Expr> {
 struct Emitter<'a> {
     module: &'a Module,
     by_id: HashMap<LocalId, &'a Local>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_stdin_line: bool,
     needs_stdin_bytes: bool,
     needs_write: bool,
@@ -143,7 +143,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &ModuleInfo) -> Self {
         let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
+        let slot_of: HashMap<LocalId, LocalSlot> = info.slots.iter().copied().collect();
         Self {
             module,
             by_id,
@@ -218,14 +218,14 @@ impl<'a> Emitter<'a> {
             || self
                 .print_locals
                 .iter()
-                .any(|(_, t)| matches!(t, SlotTy::MaybeString))
+                .any(|(_, t)| matches!(t, LocalSlot::MaybeString))
         {
             push_unique(&mut decls, PRINT_STR);
         }
         if self
             .print_locals
             .iter()
-            .any(|(_, t)| matches!(t, SlotTy::Number))
+            .any(|(_, t)| matches!(t, LocalSlot::Number))
         {
             push_unique(&mut decls, PRINT_F64);
         }
@@ -235,7 +235,7 @@ impl<'a> Emitter<'a> {
         let needs_memset = self
             .slot_of
             .values()
-            .any(|t| matches!(t, SlotTy::Bytes(n) if *n > 0));
+            .any(|t| matches!(t, LocalSlot::Bytes(n) if *n > 0));
         if needs_memset {
             writeln!(
                 self.out,
@@ -248,7 +248,7 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.slot_of.clone() {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::Bytes(n) => {
+                LocalSlot::Bytes(n) => {
                     if *n == 0 {
                         writeln!(self.body, "  {ptr} = alloca [1 x i8], align 1").ok();
                     } else {
@@ -266,18 +266,18 @@ impl<'a> Emitter<'a> {
                         .ok();
                     }
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                     writeln!(self.body, "  store i64 0, ptr {lp}").ok();
                 }
-                SlotTy::MaybeString => {
+                LocalSlot::MaybeString => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  store ptr null, ptr {ptr}").ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                     writeln!(self.body, "  store double 0.0, ptr {ptr}").ok();
                 }
@@ -291,12 +291,12 @@ impl<'a> Emitter<'a> {
         for (id, kind) in &self.print_locals.clone() {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::MaybeString => {
+                LocalSlot::MaybeString => {
                     self.emit_print_maybe_string(ptr)?;
                 }
                 _ => {}
@@ -465,8 +465,8 @@ impl<'a> Emitter<'a> {
                             _ => return Err(diag("host_stdio: length object must be local")),
                         };
                         let n = match self.slot_of.get(&id) {
-                            Some(SlotTy::Bytes(n)) => *n as f64,
-                            Some(SlotTy::DynBytes) => {
+                            Some(LocalSlot::Bytes(n)) => *n as f64,
+                            Some(LocalSlot::DynBytes) => {
                                 let lp = self.slot_len_ptr(id)?;
                                 let iv = self.fresh();
                                 let fv = self.fresh();
@@ -503,7 +503,7 @@ impl<'a> Emitter<'a> {
     fn emit_typeof_cstr(&mut self, arg: &Expr) -> Result<String, Diagnostic> {
         match arg {
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::MaybeString) => {
+                Some(LocalSlot::MaybeString) => {
                     let ptr = self.slot_ptr(*id)?;
                     let v = self.fresh();
                     let is_null = self.fresh();
@@ -534,8 +534,8 @@ impl<'a> Emitter<'a> {
                     .ok();
                     Ok(phi)
                 }
-                Some(SlotTy::Bytes(_) | SlotTy::DynBytes) => Ok(self.emit_cstr_ptr("object")),
-                Some(SlotTy::Number) => Ok(self.emit_cstr_ptr("number")),
+                Some(LocalSlot::Bytes(_) | LocalSlot::DynBytes) => Ok(self.emit_cstr_ptr("object")),
+                Some(LocalSlot::Number) => Ok(self.emit_cstr_ptr("number")),
                 None => Err(diag("host_stdio: typeof unknown local")),
             },
             _ => Err(diag("host_stdio: typeof unsupported")),
@@ -576,7 +576,7 @@ impl<'a> Emitter<'a> {
                     Expr::Local { id, .. } => *id,
                     _ => return Err(diag("host_stdio: assign object must be local")),
                 };
-                let SlotTy::Bytes(n) = *self
+                let LocalSlot::Bytes(n) = *self
                     .slot_of
                     .get(&id)
                     .ok_or_else(|| diag("host_stdio: assign unknown bytes local"))?
@@ -649,7 +649,7 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .ok_or_else(|| diag("host_stdio: stream write unknown local"))?;
                 match ty {
-                    SlotTy::Bytes(n) => {
+                    LocalSlot::Bytes(n) => {
                         let base = self.slot_ptr(*id)?;
                         let p = self.fresh();
                         let rc = self.fresh();
@@ -673,7 +673,7 @@ impl<'a> Emitter<'a> {
                         .ok();
                         Ok(())
                     }
-                    SlotTy::DynBytes => {
+                    LocalSlot::DynBytes => {
                         let dp = self.slot_ptr(*id)?;
                         let lp = self.slot_len_ptr(*id)?;
                         let p = self.fresh();

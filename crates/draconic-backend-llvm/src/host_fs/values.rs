@@ -57,7 +57,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_read_bytes_into(&mut self, local: LocalId, expr: &Expr) -> Result<(), Diagnostic> {
+    pub(super) fn emit_read_bytes_into(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<(), Diagnostic> {
         match expr {
             Expr::Call { callee, args, .. } if is_named_callee(callee, "readFileBytes") => {
                 if args.len() != 1 {
@@ -265,7 +269,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_fs: member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::DynBytes), "length") => {
+                    (Some(LocalSlot::DynBytes), "length") => {
                         let lp = self.slot_len_ptr(id)?;
                         let iv = self.fresh();
                         let fv = self.fresh();
@@ -273,7 +277,7 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                         Ok(fv)
                     }
-                    (Some(SlotTy::Array), "length") => {
+                    (Some(LocalSlot::Array), "length") => {
                         let ap = self.slot_ptr(id)?;
                         let arr = self.fresh();
                         let iv = self.fresh();
@@ -288,7 +292,7 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                         Ok(fv)
                     }
-                    (Some(SlotTy::Stat), "size") => {
+                    (Some(LocalSlot::Stat), "size") => {
                         let sp = self.slot_stat_field(id, "size")?;
                         let iv = self.fresh();
                         let fv = self.fresh();
@@ -296,7 +300,7 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {fv} = sitofp i64 {iv} to double").ok();
                         Ok(fv)
                     }
-                    (Some(SlotTy::Stat), "mtime") => {
+                    (Some(LocalSlot::Stat), "mtime") => {
                         let mp = self.slot_stat_field(id, "mtime")?;
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load double, ptr {mp}").ok();
@@ -342,7 +346,7 @@ impl<'a> super::Emitter<'a> {
                     _ => return Err(diag("host_fs: bool member object must be local")),
                 };
                 match (self.slot_of.get(&id), prop.as_str()) {
-                    (Some(SlotTy::Stat), "isFile") => {
+                    (Some(LocalSlot::Stat), "isFile") => {
                         let p = self.slot_stat_field(id, "is_file")?;
                         let iv = self.fresh();
                         let b = self.fresh();
@@ -350,7 +354,7 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {b} = trunc i32 {iv} to i8").ok();
                         Ok(b)
                     }
-                    (Some(SlotTy::Stat), "isDir") => {
+                    (Some(LocalSlot::Stat), "isDir") => {
                         let p = self.slot_stat_field(id, "is_dir")?;
                         let iv = self.fresh();
                         let b = self.fresh();

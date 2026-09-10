@@ -126,10 +126,10 @@ impl<'a> super::Emitter<'a> {
             let v = self.fresh();
             writeln!(self.body, "  {v} = load ptr, ptr {g}").ok();
             match kind {
-                SlotTy::String => {
+                LocalSlot::String => {
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let i = self.fresh();
                     writeln!(self.body, "  {i} = ptrtoint ptr {v} to i64").ok();
                     let b = self.fresh();
@@ -273,7 +273,7 @@ impl<'a> super::Emitter<'a> {
                     .map(|(_, k)| *k)
                     .ok_or_else(|| diag("es_tt: slot kind"))?;
                 let v = match kind {
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let b = self.emit_bool_expr(init)?;
                         let z = self.fresh();
                         writeln!(self.body, "  {z} = zext i1 {b} to i64").ok();
@@ -281,9 +281,9 @@ impl<'a> super::Emitter<'a> {
                         writeln!(self.body, "  {p} = inttoptr i64 {z} to ptr").ok();
                         p
                     }
-                    SlotTy::String => self.emit_stringy(init)?,
-                    SlotTy::Object => self.emit_object(*local, init)?,
-                    SlotTy::Function => self.emit_fn_value(init)?,
+                    LocalSlot::String => self.emit_stringy(init)?,
+                    LocalSlot::Object => self.emit_object(*local, init)?,
+                    LocalSlot::Function => self.emit_fn_value(init)?,
                 };
                 writeln!(self.body, "  store ptr {v}, ptr {g}").ok();
                 Ok(())
@@ -292,7 +292,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_object(&mut self, local: LocalId, expr: &Expr) -> Result<String, Diagnostic> {
+    pub(super) fn emit_object(
+        &mut self,
+        local: LocalId,
+        expr: &Expr,
+    ) -> Result<String, Diagnostic> {
         let Expr::Object { .. } = expr else {
             return Err(diag("es_tt: expected object"));
         };
@@ -659,7 +663,14 @@ impl<'a> super::Emitter<'a> {
         Ok(out)
     }
 
-    pub(super) fn format_call(&self, idx: usize, nparams: usize, a0: &str, a1: &str, a2: &str) -> String {
+    pub(super) fn format_call(
+        &self,
+        idx: usize,
+        nparams: usize,
+        a0: &str,
+        a1: &str,
+        a2: &str,
+    ) -> String {
         match nparams {
             0 => format!("call ptr @d_tt_fn_{idx}()"),
             1 => format!("call ptr @d_tt_fn_{idx}(ptr {a0})"),
@@ -668,7 +679,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn call_fn_idx(&mut self, idx: usize, args: &[String]) -> Result<String, Diagnostic> {
+    pub(super) fn call_fn_idx(
+        &mut self,
+        idx: usize,
+        args: &[String],
+    ) -> Result<String, Diagnostic> {
         let f = &self.info.functions[idx];
         let n = f.params.len();
         let mut parts = Vec::new();
@@ -682,7 +697,10 @@ impl<'a> super::Emitter<'a> {
         Ok(t)
     }
 
-    pub(super) fn resolve_tag(&mut self, tag: &Expr) -> Result<(Option<usize>, Option<String>), Diagnostic> {
+    pub(super) fn resolve_tag(
+        &mut self,
+        tag: &Expr,
+    ) -> Result<(Option<usize>, Option<String>), Diagnostic> {
         match tag {
             Expr::Local { id, .. } => {
                 let idx = *self

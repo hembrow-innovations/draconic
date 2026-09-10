@@ -2,14 +2,14 @@
 id: "task-791-emitter-slotty-migrate"
 title: "Adapters use crate SlotTy and Emitter"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-790-emitter-escape"]
 sprint: "dragons-audit"
 slice: "slice-783-llvm-one-emitter"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T20:30:00Z"
 ---
 
 # Adapters use crate SlotTy and Emitter
@@ -61,9 +61,9 @@ Scalar adapters use crate types. llvm tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new nested classify.rs
-- [ ] try_folded_walks still present (not this sitting)
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new nested classify.rs
+- [x] try_folded_walks still present (not this sitting)
 
 **Out of scope:**
 - deleting the fingerprint chain
@@ -72,3 +72,12 @@ Scalar adapters use crate types. llvm tests green.
 
 **Explain this part:**
 If host Handle needs a crate SlotTy variant, add it once on emitter.rs. Do not leave 20 Handle copies.
+
+Handle/Stat/Object extras stayed off crate SlotTy (Copy scalar set; `Object(HashMap)` and `Bytes(usize)` are a large type change). Mixed adapters use a private `LocalSlot` wrapper. One `enum SlotTy` in `emitter.rs`.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python count `enum SlotTy`; cargo test -p draconic-backend-llvm --offline
+- **result**: win
+- **gap**: none. enum SlotTy count 1. O2 test result: ok. 315 passed. try_folded_walks present. no new classify.rs.

@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::{Emitter as IrEmitter, SlotTy};
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, LocalId, Module, Pattern, Stmt};
@@ -19,7 +20,7 @@ pub(crate) fn is_host_worker_channels_module(module: &Module) -> bool {
 pub(crate) fn emit_host_worker_channels(module: &Module) -> Result<String, Diagnostic> {
     let info =
         classify(module).ok_or_else(|| diag("internal: not a host_worker_channels module"))?;
-    let mut em = Emitter::new(module, &info);
+    let mut em = new_emitter(module, &info);
     em.emit_module()?;
     Ok(em.finish())
 }
@@ -29,12 +30,6 @@ pub(crate) fn walk_host_worker_channels(module: &Module) -> Option<Result<String
         return None;
     }
     Some(emit_host_worker_channels(module))
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
-    Number,
-    Bool,
 }
 
 struct ModuleInfo {
@@ -199,14 +194,14 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
             if lt == SlotTy::Number && rt == SlotTy::Number {
-                Some(SlotTy::Bool)
+                Some(SlotTy::Boolean)
             } else {
                 None
             }
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
         Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::Boolean { .. } => Some(SlotTy::Bool),
+        Expr::Boolean { .. } => Some(SlotTy::Boolean),
         _ => None,
     }
 }
@@ -226,38 +221,25 @@ fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
 }
 
-struct Emitter<'a> {
-    module: &'a Module,
+struct EmitState<'a> {
     info: &'a ModuleInfo,
     slot_of: HashMap<LocalId, SlotTy>,
-    body: String,
-    out: String,
-    next_tmp: u32,
+}
+
+type Emitter<'a> = IrEmitter<'a, EmitState<'a>>;
+
+fn new_emitter<'a>(module: &'a Module, info: &'a ModuleInfo) -> Emitter<'a> {
+    let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
+    Emitter::new(
+        module,
+        EmitState {
+            info: info,
+            slot_of: slot_of,
+        },
+    )
 }
 
 impl<'a> Emitter<'a> {
-    fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
-        Self {
-            module,
-            info,
-            slot_of,
-            body: String::new(),
-            out: String::new(),
-            next_tmp: 0,
-        }
-    }
-
-    fn finish(self) -> String {
-        self.out
-    }
-
-    fn fresh(&mut self) -> String {
-        let n = self.next_tmp;
-        self.next_tmp += 1;
-        format!("%t{n}")
-    }
-
     fn slot_ptr(&self, id: LocalId) -> Result<String, Diagnostic> {
         Ok(format!("%s{}", id.0))
     }
@@ -277,11 +259,13 @@ impl<'a> Emitter<'a> {
         self.out.push_str(&llvm_declares(&decls));
         writeln!(self.out).ok();
 
-        for (id, ty) in &self.info.slots {
+        for (id, ty) in &self.state.info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
                 SlotTy::Number => "double",
-                SlotTy::Bool => "i8",
+                SlotTy::Boolean => "i8",
+
+                _ => unreachable!(),
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -290,7 +274,7 @@ impl<'a> Emitter<'a> {
             self.emit_stmt(stmt)?;
         }
 
-        for (id, kind) in &self.info.print_locals {
+        for (id, kind) in &self.state.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
                 SlotTy::Number => {
@@ -298,11 +282,13 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                SlotTy::Boolean => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
+
+                _ => unreachable!(),
             }
         }
 
@@ -323,6 +309,7 @@ impl<'a> Emitter<'a> {
                     return Ok(());
                 };
                 let kind = *self
+                    .state
                     .slot_of
                     .get(local)
                     .ok_or_else(|| diag("host_worker_channels: declare unknown slot"))?;
@@ -332,10 +319,12 @@ impl<'a> Emitter<'a> {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    SlotTy::Boolean => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
+
+                    _ => unreachable!(),
                 }
                 Ok(())
             }

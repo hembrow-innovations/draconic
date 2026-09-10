@@ -475,7 +475,10 @@ pub(super) fn filter_method_body(body: &[Stmt]) -> Vec<Stmt> {
         .collect()
 }
 
-pub(super) fn simple_param_ids(params: &[Param], by_id: &HashMap<LocalId, &Local>) -> Option<Vec<LocalId>> {
+pub(super) fn simple_param_ids(
+    params: &[Param],
+    by_id: &HashMap<LocalId, &Local>,
+) -> Option<Vec<LocalId>> {
     let mut ids = Vec::new();
     for p in params {
         if p.rest || p.default.is_some() {
@@ -502,7 +505,8 @@ mod class_fields_tests {
 
     #[test]
     fn class_fields_classifies_and_emits() {
-        let src = include_str!("../../../../tests/conformance/fixtures/es/annex-b/class_fields.drac");
+        let src =
+            include_str!("../../../../tests/conformance/fixtures/es/annex-b/class_fields.drac");
         let module = compile_source(src).expect("compile");
         let ir = walk_es_classes(&module)
             .expect("should classify as es_classes (public fields)")

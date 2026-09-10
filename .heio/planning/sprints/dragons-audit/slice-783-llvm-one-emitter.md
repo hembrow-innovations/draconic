@@ -7,7 +7,7 @@ sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-11T19:30:00Z"
+updated_at: "2026-09-11T20:30:00Z"
 ---
 
 # LLVM one Emitter and SlotTy
@@ -39,7 +39,7 @@ None.
 - [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: test result: ok. 315 passed (task-790)
+  EVIDENCE: test result: ok. 315 passed (task-791)
 
 ## Pool
 

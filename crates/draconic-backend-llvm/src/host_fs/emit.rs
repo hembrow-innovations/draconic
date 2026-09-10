@@ -167,21 +167,21 @@ impl<'a> super::Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::String | SlotTy::Array => {
+                LocalSlot::String | LocalSlot::Array => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::Number | SlotTy::Handle => {
+                LocalSlot::Number | LocalSlot::Handle => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
                 }
-                SlotTy::Stat => {
+                LocalSlot::Stat => {
                     let size = self.slot_stat_field(*id, "size")?;
                     let is_file = self.slot_stat_field(*id, "is_file")?;
                     let is_dir = self.slot_stat_field(*id, "is_dir")?;
@@ -201,22 +201,22 @@ impl<'a> super::Emitter<'a> {
         for (id, ty) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::DynBytes | SlotTy::Stat | SlotTy::Array | SlotTy::Handle => {}
+                LocalSlot::DynBytes | LocalSlot::Stat | LocalSlot::Array | LocalSlot::Handle => {}
             }
         }
 
@@ -311,33 +311,33 @@ impl<'a> super::Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_fs: declare unknown slot"))?;
                 match ty {
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => {
+                    LocalSlot::DynBytes => {
                         self.emit_read_bytes_into(*local, init)?;
                     }
-                    SlotTy::Handle => {
+                    LocalSlot::Handle => {
                         let v = self.emit_handle_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Stat => {
+                    LocalSlot::Stat => {
                         self.emit_stat_into(*local, init)?;
                     }
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         let ptr = self.slot_ptr(*local)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();

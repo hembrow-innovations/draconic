@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -22,7 +23,6 @@ use draconic_runtime::abi::{
     HOST_PROCESS_PPID, HOST_PROCESS_SET_ARGV, HOST_PROCESS_SET_EXIT_CODE, HOST_PROCESS_USER_ARG,
     HOST_PROCESS_USER_ARGC, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -47,7 +47,7 @@ pub(crate) fn walk_host_process(module: &Module) -> Option<Result<String, Diagno
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Array,
     Number,
     Bool,
@@ -58,8 +58,8 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     needs_argv: bool,
     needs_env: bool,
     needs_exit: bool,
@@ -67,9 +67,9 @@ struct ModuleInfo {
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     has_process_args: bool,
     has_env: bool,
     has_exit: bool,
@@ -104,7 +104,7 @@ fn string_lit(expr: &Expr) -> Option<String> {
 struct Emitter<'a> {
     module: &'a Module,
     by_id: HashMap<LocalId, &'a Local>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
     body: String,
     out: String,
     next_tmp: u32,
@@ -116,7 +116,7 @@ struct Emitter<'a> {
 impl<'a> Emitter<'a> {
     fn new(module: &'a Module, info: &ModuleInfo) -> Self {
         let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
-        let slot_of: HashMap<LocalId, SlotTy> = info.slots.iter().copied().collect();
+        let slot_of: HashMap<LocalId, LocalSlot> = info.slots.iter().copied().collect();
         Self {
             module,
             by_id,
@@ -206,9 +206,9 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &info.slots {
             let ptr = self.slot_ptr(*id)?;
             let llvm_ty = match ty {
-                SlotTy::Number => "double",
-                SlotTy::Bool => "i8",
-                SlotTy::Array | SlotTy::String | SlotTy::MaybeString => "ptr",
+                LocalSlot::Number => "double",
+                LocalSlot::Bool => "i8",
+                LocalSlot::Array | LocalSlot::String | LocalSlot::MaybeString => "ptr",
             };
             writeln!(self.body, "  {ptr} = alloca {llvm_ty}, align 8").ok();
         }
@@ -224,25 +224,25 @@ impl<'a> Emitter<'a> {
             for (id, kind) in &info.print_locals {
                 let ptr = self.slot_ptr(*id)?;
                 match kind {
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                         writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                         writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.fresh();
                         writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                         writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                     }
-                    SlotTy::MaybeString => {
+                    LocalSlot::MaybeString => {
                         self.emit_print_maybe_string(ptr)?;
                     }
-                    SlotTy::Array => {}
+                    LocalSlot::Array => {}
                 }
             }
         }
@@ -334,23 +334,23 @@ impl<'a> Emitter<'a> {
                     .ok_or_else(|| diag("host_process: declare unknown slot"))?;
                 let ptr = self.slot_ptr(*local)?;
                 match kind {
-                    SlotTy::Array => {
+                    LocalSlot::Array => {
                         let v = self.emit_array_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::MaybeString => {
+                    LocalSlot::MaybeString => {
                         let v = self.emit_maybe_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
@@ -729,7 +729,7 @@ impl<'a> Emitter<'a> {
                     .get(id)
                     .copied()
                     .ok_or_else(|| diag("host_process: unknown string local"))?;
-                if kind == SlotTy::MaybeString {
+                if kind == LocalSlot::MaybeString {
                     return Err(diag("host_process: maybe-string not a bare string"));
                 }
                 let ptr = self.slot_ptr(*id)?;
@@ -756,7 +756,7 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_process: typeof unknown local"))?;
                 match kind {
-                    SlotTy::MaybeString => {
+                    LocalSlot::MaybeString => {
                         let ptr = self.slot_ptr(*id)?;
                         let v = self.fresh();
                         let is_null = self.fresh();
@@ -786,9 +786,9 @@ impl<'a> Emitter<'a> {
                         writeln!(self.body, "  {r} = load ptr, ptr {out_slot}").ok();
                         Ok(r)
                     }
-                    SlotTy::String => Ok(self.emit_cstr_ptr("string")),
-                    SlotTy::Array => Ok(self.emit_cstr_ptr("object")),
-                    SlotTy::Number | SlotTy::Bool => Ok(self.emit_cstr_ptr("number")),
+                    LocalSlot::String => Ok(self.emit_cstr_ptr("string")),
+                    LocalSlot::Array => Ok(self.emit_cstr_ptr("object")),
+                    LocalSlot::Number | LocalSlot::Bool => Ok(self.emit_cstr_ptr("number")),
                 }
             }
             _ => Err(diag("host_process: typeof unsupported arg")),

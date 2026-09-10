@@ -82,7 +82,10 @@ fn private_key_string(field_key: &str) -> Expr {
     }
 }
 
-pub(super) fn rewrite_private_stmts(body: &[Stmt], wm_fields: &HashMap<LocalId, String>) -> Vec<Stmt> {
+pub(super) fn rewrite_private_stmts(
+    body: &[Stmt],
+    wm_fields: &HashMap<LocalId, String>,
+) -> Vec<Stmt> {
     body.iter()
         .filter_map(|s| rewrite_private_stmt(s, wm_fields))
         .collect()

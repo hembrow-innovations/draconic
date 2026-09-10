@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -20,7 +21,6 @@ use draconic_runtime::abi::{
     HOST_STDOUT_WRITE, HOST_UDP_BIND, HOST_UDP_LOCAL_PORT, HOST_UDP_RECVFROM, HOST_UDP_SENDTO,
     PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_udp_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -41,7 +41,7 @@ pub(crate) fn walk_host_udp(module: &Module) -> Option<Result<String, Diagnostic
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum SlotTy {
+enum LocalSlot {
     Handle,
     Number,
     Bool,
@@ -50,14 +50,14 @@ enum SlotTy {
 }
 
 struct ModuleInfo {
-    slots: Vec<(LocalId, SlotTy)>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
 }
 
 struct ClassifyCtx {
-    slots: Vec<(LocalId, SlotTy)>,
-    slot_of: HashMap<LocalId, SlotTy>,
-    print_locals: Vec<(LocalId, SlotTy)>,
+    slots: Vec<(LocalId, LocalSlot)>,
+    slot_of: HashMap<LocalId, LocalSlot>,
+    print_locals: Vec<(LocalId, LocalSlot)>,
     has_udp: bool,
 }
 
@@ -96,7 +96,7 @@ fn is_dynbytes_length(expr: &Expr, ctx: &ClassifyCtx) -> bool {
                 return false;
             }
             match object.as_ref() {
-                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&SlotTy::DynBytes),
+                Expr::Local { id, .. } => ctx.slot_of.get(id) == Some(&LocalSlot::DynBytes),
                 _ => false,
             }
         }
@@ -111,8 +111,8 @@ fn classify_stmt(stmt: &Stmt, ctx: &mut ClassifyCtx) -> Option<()> {
             let ty = classify_expr(init, ctx)?;
             ctx.slots.push((*local, ty));
             ctx.slot_of.insert(*local, ty);
-            if matches!(ty, SlotTy::Bool | SlotTy::String)
-                || (ty == SlotTy::Number && is_dynbytes_length(init, ctx))
+            if matches!(ty, LocalSlot::Bool | LocalSlot::String)
+                || (ty == LocalSlot::Number && is_dynbytes_length(init, ctx))
             {
                 ctx.print_locals.push((*local, ty));
             }
@@ -143,13 +143,13 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             let dt = classify_expr(arg_expr(&args[1])?, ctx)?;
             let host_t = classify_expr(arg_expr(&args[2])?, ctx)?;
             let pt = classify_expr(arg_expr(&args[3])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            if !matches!(dt, SlotTy::String | SlotTy::DynBytes) {
+            if !matches!(dt, LocalSlot::String | LocalSlot::DynBytes) {
                 return None;
             }
-            if host_t != SlotTy::String || pt != SlotTy::Number {
+            if host_t != LocalSlot::String || pt != LocalSlot::Number {
                 return None;
             }
             Some(())
@@ -158,7 +158,7 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
             if args.len() == 1 && is_named_callee(callee, "stdoutWrite") =>
         {
             let t = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if matches!(t, SlotTy::String | SlotTy::DynBytes) {
+            if matches!(t, LocalSlot::String | LocalSlot::DynBytes) {
                 Some(())
             } else {
                 None
@@ -168,24 +168,24 @@ fn classify_side_effect(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<()> {
     }
 }
 
-fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
+fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<LocalSlot> {
     match expr {
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "udpBind") =>
         {
             ctx.has_udp = true;
             classify_expr(arg_expr(&args[0])?, ctx)?;
-            Some(SlotTy::Handle)
+            Some(LocalSlot::Handle)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 1 && is_named_callee(callee, "udpLocalPort") =>
         {
             ctx.has_udp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
-            if ht != SlotTy::Handle {
+            if ht != LocalSlot::Handle {
                 return None;
             }
-            Some(SlotTy::Number)
+            Some(LocalSlot::Number)
         }
         Expr::Call { callee, args, .. }
             if args.len() == 2 && is_named_callee(callee, "udpRecvFrom") =>
@@ -193,10 +193,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ctx.has_udp = true;
             let ht = classify_expr(arg_expr(&args[0])?, ctx)?;
             let mt = classify_expr(arg_expr(&args[1])?, ctx)?;
-            if ht != SlotTy::Handle || mt != SlotTy::Number {
+            if ht != LocalSlot::Handle || mt != LocalSlot::Number {
                 return None;
             }
-            Some(SlotTy::DynBytes)
+            Some(LocalSlot::DynBytes)
         }
         Expr::Member {
             object,
@@ -207,7 +207,7 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             let ot = classify_expr(object, ctx)?;
             let name = string_lit(property)?;
             match (ot, name.as_str()) {
-                (SlotTy::DynBytes, "length") => Some(SlotTy::Number),
+                (LocalSlot::DynBytes, "length") => Some(LocalSlot::Number),
                 _ => None,
             }
         }
@@ -227,10 +227,10 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
         } => {
             let lt = classify_expr(left, ctx)?;
             let rt = classify_expr(right, ctx)?;
-            if matches!(lt, SlotTy::Number | SlotTy::Handle)
-                && matches!(rt, SlotTy::Number | SlotTy::Handle)
+            if matches!(lt, LocalSlot::Number | LocalSlot::Handle)
+                && matches!(rt, LocalSlot::Number | LocalSlot::Handle)
             {
-                Some(SlotTy::Bool)
+                Some(LocalSlot::Bool)
             } else {
                 None
             }
@@ -241,11 +241,11 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx) -> Option<SlotTy> {
             ..
         } => {
             let _ = classify_expr(arg, ctx)?;
-            Some(SlotTy::String)
+            Some(LocalSlot::String)
         }
         Expr::Local { id, .. } => ctx.slot_of.get(id).copied(),
-        Expr::Number { .. } => Some(SlotTy::Number),
-        Expr::String { .. } => Some(SlotTy::String),
+        Expr::Number { .. } => Some(LocalSlot::Number),
+        Expr::String { .. } => Some(LocalSlot::String),
         _ => None,
     }
 }
@@ -281,7 +281,7 @@ struct Emitter<'a> {
     next_label: usize,
     str_globals: Vec<(String, String)>,
     local_name: HashMap<LocalId, String>,
-    slot_of: HashMap<LocalId, SlotTy>,
+    slot_of: HashMap<LocalId, LocalSlot>,
 }
 
 impl<'a> Emitter<'a> {
@@ -412,16 +412,16 @@ impl<'a> Emitter<'a> {
         for (id, ty) in &self.info.slots {
             let ptr = self.slot_ptr(*id)?;
             match ty {
-                SlotTy::Handle | SlotTy::Number => {
+                LocalSlot::Handle | LocalSlot::Number => {
                     writeln!(self.body, "  {ptr} = alloca double, align 8").ok();
                 }
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     writeln!(self.body, "  {ptr} = alloca i8, align 1").ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                 }
-                SlotTy::DynBytes => {
+                LocalSlot::DynBytes => {
                     let lp = self.slot_len_ptr(*id)?;
                     writeln!(self.body, "  {ptr} = alloca ptr, align 8").ok();
                     writeln!(self.body, "  {lp} = alloca i64, align 8").ok();
@@ -438,22 +438,22 @@ impl<'a> Emitter<'a> {
         for (id, kind) in &self.info.print_locals {
             let ptr = self.slot_ptr(*id)?;
             match kind {
-                SlotTy::Bool => {
+                LocalSlot::Bool => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load i8, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_BOOL.call(&format!("i8 {v}"))).ok();
                 }
-                SlotTy::String => {
+                LocalSlot::String => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load ptr, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_STR.call(&format!("ptr {v}"))).ok();
                 }
-                SlotTy::Number => {
+                LocalSlot::Number => {
                     let v = self.fresh();
                     writeln!(self.body, "  {v} = load double, ptr {ptr}").ok();
                     writeln!(self.body, "  {}", PRINT_F64.call(&format!("double {v}"))).ok();
                 }
-                SlotTy::Handle | SlotTy::DynBytes => {}
+                LocalSlot::Handle | LocalSlot::DynBytes => {}
             }
         }
 
@@ -493,23 +493,23 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_udp: unknown slot"))?;
                 match ty {
-                    SlotTy::Handle => {
+                    LocalSlot::Handle => {
                         let v = self.emit_handle_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Number => {
+                    LocalSlot::Number => {
                         let v = self.emit_number_expr(init)?;
                         writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::Bool => {
+                    LocalSlot::Bool => {
                         let v = self.emit_bool_expr(init)?;
                         writeln!(self.body, "  store i8 {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::String => {
+                    LocalSlot::String => {
                         let v = self.emit_string_expr(init)?;
                         writeln!(self.body, "  store ptr {v}, ptr {ptr}").ok();
                     }
-                    SlotTy::DynBytes => self.emit_dynbytes_into(*local, init)?,
+                    LocalSlot::DynBytes => self.emit_dynbytes_into(*local, init)?,
                 }
                 Ok(())
             }
@@ -622,7 +622,7 @@ impl<'a> Emitter<'a> {
                 Ok((p, s.len().to_string()))
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -631,7 +631,7 @@ impl<'a> Emitter<'a> {
                     writeln!(self.body, "  {n} = load i64, ptr {lp}").ok();
                     Ok((d, n))
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -695,7 +695,7 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Expr::Local { id, .. } => match self.slot_of.get(id) {
-                Some(SlotTy::DynBytes) => {
+                Some(LocalSlot::DynBytes) => {
                     let dp = self.slot_ptr(*id)?;
                     let lp = self.slot_len_ptr(*id)?;
                     let d = self.fresh();
@@ -710,7 +710,7 @@ impl<'a> Emitter<'a> {
                     .ok();
                     Ok(())
                 }
-                Some(SlotTy::String) => {
+                Some(LocalSlot::String) => {
                     let sp = self.slot_ptr(*id)?;
                     let s = self.fresh();
                     writeln!(self.body, "  {s} = load ptr, ptr {sp}").ok();
@@ -818,7 +818,8 @@ impl<'a> Emitter<'a> {
                 let name = string_lit(property).ok_or_else(|| diag("host_udp: bad prop"))?;
                 match object.as_ref() {
                     Expr::Local { id, .. }
-                        if name == "length" && self.slot_of.get(id) == Some(&SlotTy::DynBytes) =>
+                        if name == "length"
+                            && self.slot_of.get(id) == Some(&LocalSlot::DynBytes) =>
                     {
                         let lp = self.slot_len_ptr(*id)?;
                         let n = self.fresh();
@@ -910,10 +911,10 @@ impl<'a> Emitter<'a> {
                     .copied()
                     .ok_or_else(|| diag("host_udp: typeof unknown local"))?;
                 let s = match ty {
-                    SlotTy::Handle | SlotTy::Number => "number",
-                    SlotTy::Bool => "boolean",
-                    SlotTy::String => "string",
-                    SlotTy::DynBytes => "object",
+                    LocalSlot::Handle | LocalSlot::Number => "number",
+                    LocalSlot::Bool => "boolean",
+                    LocalSlot::String => "string",
+                    LocalSlot::DynBytes => "object",
                 };
                 Ok(self.emit_cstr_ptr(s))
             }
