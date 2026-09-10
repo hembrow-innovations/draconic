@@ -128,7 +128,7 @@ impl Checker {
                     from
                 } else {
                     let to = self.resolve_type_ann(ann)?;
-                    if !self.is_assignable(from, to) && !Self::is_dual_world_boundary(from, to) {
+                    if !self.is_assignable(from, to) && !from.is_dual_world_boundary(to) {
                         let from_s =
                             format_type_full(from, &self.shapes, &self.unions, &self.intersections);
                         let to_s =
@@ -263,8 +263,8 @@ impl Checker {
                                     // for compound; plain store for simple). Annotated + native stay
                                     // strict (with number-literal contextual typing for natives).
                                     let annotated = self.symbol_annotated[sym.0 as usize];
-                                    let native = matches!(left_ty, Type::Native(_) | Type::Ptr(_))
-                                        || matches!(result_ty, Type::Native(_) | Type::Ptr(_));
+                                    let native =
+                                        left_ty.is_native_world() || result_ty.is_native_world();
                                     if annotated || native {
                                         self.require_assignable_expr(result_ty, left_ty, value)?;
                                     } else {
@@ -547,19 +547,17 @@ impl Checker {
                         }
                     }
                 }
+                // Native/ptr have no JS [[Call]].
+                if callee_ty.is_native_world() {
+                    return Err(Diagnostic::new(
+                        format!("type `{callee_ty}` is not callable"),
+                        *span,
+                    )
+                    .with_code(codes::NOT_CALLABLE)
+                    .with_help("only functions (and values with a call signature) can be called"));
+                }
                 let result_ty = match callee_ty {
                     Type::GenericFn(gid) => self.instantiate_generic_call(gid, &arg_tys, *span)?,
-                    // Native/ptr have no JS [[Call]].
-                    Type::Native(_) | Type::Ptr(_) => {
-                        return Err(Diagnostic::new(
-                            format!("type `{callee_ty}` is not callable"),
-                            *span,
-                        )
-                        .with_code(codes::NOT_CALLABLE)
-                        .with_help(
-                            "only functions (and values with a call signature) can be called",
-                        ));
-                    }
                     // E19.13 / E19.59: JS values may lack [[Call]]; TypeError is runtime.
                     _ => Type::Any,
                 };
@@ -578,7 +576,7 @@ impl Checker {
                 }
                 // Native/ptr have no JS [[Construct]]. E19.59: boolean/number/string/null
                 // (and other JS values) — TypeError is runtime, not compile reject.
-                if matches!(callee_ty, Type::Native(_) | Type::Ptr(_)) {
+                if callee_ty.is_native_world() {
                     return Err(Diagnostic::new(
                         format!("type `{callee_ty}` is not constructable"),
                         *span,

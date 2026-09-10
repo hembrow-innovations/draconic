@@ -27,7 +27,7 @@ impl Checker {
         if self.is_assignable(from, to) {
             return Ok(());
         }
-        if Self::is_number_literal_expr(from_expr) && Self::number_literal_ok_for_native(to) {
+        if Self::is_number_literal_expr(from_expr) && Type::Number.is_dual_world_boundary(to) {
             return Ok(());
         }
         if let (Expr::ObjectExpression { properties, .. }, Type::Shape(to_id)) = (from_expr, to) {
@@ -177,7 +177,7 @@ impl Checker {
         if self.is_assignable(got, want) {
             return true;
         }
-        if Self::is_number_literal_expr(val) && Self::number_literal_ok_for_native(want) {
+        if Self::is_number_literal_expr(val) && Type::Number.is_dual_world_boundary(want) {
             return true;
         }
         if matches!(val, Expr::Boolean { .. }) && matches!(want, Type::Native(NativeType::Bool)) {

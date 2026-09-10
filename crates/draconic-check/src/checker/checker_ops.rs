@@ -276,7 +276,7 @@ impl Checker {
                             span,
                         ))
                     }
-                } else if self.is_js_to_number_operand(arg) {
+                } else if arg.is_js_value() {
                     // E19.04: ToNumber / ToInt32 on JS values (string, boolean, object, …).
                     Ok(Type::Number)
                 } else {
@@ -336,7 +336,7 @@ impl Checker {
                     Ok(Type::BigInt)
                 } else if left == Type::String || right == Type::String {
                     // Including BigInt + string → ToString concat (ECMA-262).
-                    if self.is_js_add_side(left) && self.is_js_add_side(right) {
+                    if left.is_js_value() && right.is_js_value() {
                         Ok(Type::String)
                     } else {
                         Err(Diagnostic::new(
@@ -348,9 +348,7 @@ impl Checker {
                     }
                 } else if left == Type::BigInt || right == Type::BigInt {
                     // E19.07: mixed bigint×number/object/any — TypeError (or ToPrimitive) at runtime.
-                    if self.is_js_bigint_mixed_operand(left)
-                        && self.is_js_bigint_mixed_operand(right)
-                    {
+                    if left.is_js_value() && right.is_js_value() {
                         Ok(Type::Any)
                     } else {
                         Err(Diagnostic::new(
@@ -370,7 +368,7 @@ impl Checker {
                     right,
                     Type::Object | Type::Shape(_) | Type::Function | Type::Any
                 ) {
-                    if self.is_add_operand(left) && self.is_add_operand(right) {
+                    if left.is_js_value() && right.is_js_value() {
                         Ok(Type::Any)
                     } else {
                         Err(Diagnostic::new(
@@ -410,9 +408,7 @@ impl Checker {
                         && !matches!(op, BinaryOp::UShr)
                     {
                         Ok(Type::BigInt)
-                    } else if self.is_js_bigint_mixed_operand(left)
-                        && self.is_js_bigint_mixed_operand(right)
-                    {
+                    } else if left.is_js_value() && right.is_js_value() {
                         Ok(Type::Any)
                     } else {
                         Err(Diagnostic::new(
@@ -435,8 +431,7 @@ impl Checker {
                     } else {
                         Ok(Type::Native(n))
                     }
-                } else if self.is_js_to_number_operand(left) && self.is_js_to_number_operand(right)
-                {
+                } else if left.is_js_value() && right.is_js_value() {
                     // E19.04: ToNumber both sides (string/boolean/null/object/…).
                     Ok(Type::Number)
                 } else {
@@ -454,9 +449,7 @@ impl Checker {
                     .is_some()
                 {
                     Ok(Type::Boolean)
-                } else if self.is_js_relational_operand(left)
-                    && self.is_js_relational_operand(right)
-                {
+                } else if left.is_js_value() && right.is_js_value() {
                     // E19.04: ToPrimitive; mixed primitives/objects/BigInt+Number ok.
                     Ok(Type::Boolean)
                 } else {
@@ -490,34 +483,13 @@ impl Checker {
         }
     }
 
-    /// JS values that numeric operators coerce via ToNumber (not BigInt, not native/ptr).
-    pub(crate) fn is_js_to_number_operand(&self, ty: Type) -> bool {
-        matches!(
-            ty,
-            Type::Number
-                | Type::String
-                | Type::Boolean
-                | Type::Null
-                | Type::Object
-                | Type::Shape(_)
-                | Type::Function
-                | Type::GenericFn(_)
-                | Type::Union(_)
-                | Type::Intersection(_)
-                | Type::TypeParam(_)
-                | Type::Any
-        )
-    }
-
     /// E19.04 / E19.13: `++`/`--` apply ToNumber (objects via valueOf/toString); BigInt stays BigInt.
     pub(crate) fn check_update_operand(
         &self,
         left_ty: Type,
         span: Span,
     ) -> Result<Type, Diagnostic> {
-        let ok = left_ty == Type::BigInt
-            || matches!(left_ty, Type::Native(n) if n.is_int())
-            || self.is_js_to_number_operand(left_ty);
+        let ok = left_ty.is_js_value() || matches!(left_ty, Type::Native(n) if n.is_int());
         if !ok {
             return Err(Diagnostic::new(
                 format!("update operator cannot be applied to type `{left_ty}`"),
@@ -533,21 +505,6 @@ impl Checker {
         })
     }
 
-    /// E19.07: BigInt or JS value that may mix with BigInt at runtime (TypeError / ToPrimitive).
-    pub(crate) fn is_js_bigint_mixed_operand(&self, ty: Type) -> bool {
-        ty == Type::BigInt || self.is_js_to_number_operand(ty)
-    }
-
-    /// Sides legal for binary `+` string/numeric paths (JS values + BigInt; not native/ptr).
-    pub(crate) fn is_js_add_side(&self, ty: Type) -> bool {
-        self.is_js_bigint_mixed_operand(ty)
-    }
-
-    /// Relational comparison operands after ToPrimitive (includes BigInt same-type path separately).
-    pub(crate) fn is_js_relational_operand(&self, ty: Type) -> bool {
-        self.is_js_to_number_operand(ty) || ty == Type::BigInt
-    }
-
     /// Same native numeric type on both sides, or native + number-literal (contextual).
     pub(crate) fn native_arith_result(
         &self,
@@ -559,12 +516,14 @@ impl Checker {
         match (left, right) {
             (Type::Native(a), Type::Native(b)) if a == b && !a.is_bool() => Some(a),
             (Type::Native(a), Type::Number)
-                if !a.is_bool() && Self::is_number_literal_expr(right_expr) =>
+                if left.is_dual_world_boundary(right)
+                    && Self::is_number_literal_expr(right_expr) =>
             {
                 Some(a)
             }
             (Type::Number, Type::Native(b))
-                if !b.is_bool() && Self::is_number_literal_expr(left_expr) =>
+                if left.is_dual_world_boundary(right)
+                    && Self::is_number_literal_expr(left_expr) =>
             {
                 Some(b)
             }
@@ -575,10 +534,6 @@ impl Checker {
     /// Primitives ToNumber accepts for binary `+` when neither side is string/BigInt/object.
     pub(crate) fn is_primitive_numeric_coercible(&self, ty: Type) -> bool {
         matches!(ty, Type::Number | Type::Boolean | Type::Null)
-    }
-
-    pub(crate) fn is_add_operand(&self, ty: Type) -> bool {
-        !matches!(ty, Type::Native(_) | Type::Ptr(_))
     }
 }
 

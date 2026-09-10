@@ -566,13 +566,4 @@ impl Checker {
         let n: u64 = raw.parse().ok()?;
         Some(n.to_string())
     }
-
-    pub(crate) fn number_literal_ok_for_native(to: Type) -> bool {
-        matches!(to, Type::Native(n) if !n.is_bool())
-    }
-
-    /// Explicit dual-worlds boundary (`as`): JS `number` ↔ unboxed native numeric (T06).
-    pub(crate) fn is_dual_world_boundary(from: Type, to: Type) -> bool {
-        from.is_dual_world_boundary(to)
-    }
 }

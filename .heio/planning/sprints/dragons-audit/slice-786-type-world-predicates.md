@@ -7,7 +7,7 @@ sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-11T12:00:00Z"
+updated_at: "2026-09-11T14:30:00Z"
 ---
 
 # Dual-world tests live on Type
@@ -36,10 +36,10 @@ None.
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-check/src/types.rs").read_text(); print("on-type" if "fn is_js_value" in t and "fn is_native_world" in t else "missing")'
   EXPECT: on-type
   EVIDENCE: on-type (task-796)
-- [ ] O2: check crate tests green
+- [x] O2: check crate tests green
   CHECK: cargo test -p draconic-check --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 283 passed (task-797)
 
 ## Pool
 

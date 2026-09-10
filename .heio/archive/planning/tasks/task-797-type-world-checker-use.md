@@ -2,14 +2,14 @@
 id: "task-797-type-world-checker-use"
 title: "Checker walks call Type world predicates"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-796-type-world-methods"]
 sprint: "dragons-audit"
 slice: "slice-786-type-world-predicates"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T14:30:00Z"
 ---
 
 # Checker walks call Type world predicates
@@ -59,9 +59,9 @@ Call Type methods. Check tests green. No extra checker file.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-check
-- [ ] no new checker_*.rs
-- [ ] check_expr still one match
+- [x] cargo test -p draconic-check
+- [x] no new checker_*.rs
+- [x] check_expr still one match
 
 **Out of scope:**
 - hiding Type from IR
@@ -70,3 +70,10 @@ Call Type methods. Check tests green. No extra checker file.
 
 **Explain this part:**
 If an arm is not dual-world, leave it. Do not drive-by refactor the whole 983-line match.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-check --offline; check_expr one match; no new checker_*.rs
+- **result**: win
+- **gap**: none
