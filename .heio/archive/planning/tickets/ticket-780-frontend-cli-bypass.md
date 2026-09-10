@@ -2,12 +2,12 @@
 id: "ticket-780-frontend-cli-bypass"
 title: "CLI and test262 re-wire stages around Frontend"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T18:30:00Z"
 ---
 
 # CLI and test262 re-wire stages around Frontend
@@ -18,7 +18,7 @@ Dragons audit 2026-09-10. Frontend owns Script vs Module, then check, then lower
 
 ## Fit
 
-Promoted to [[slice-787-frontend-cli-seam]].
+Promoted to [[slice-787-frontend-cli-seam]]. Slice is `met`. Closed.
 
 ## Notes
 

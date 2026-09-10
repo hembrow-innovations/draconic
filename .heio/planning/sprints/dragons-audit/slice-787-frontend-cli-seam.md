@@ -2,12 +2,12 @@
 id: "slice-787-frontend-cli-seam"
 title: "CLI and test262 use Frontend"
 kind: slice
-status: frozen
+status: met
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T18:30:00Z"
 ---
 
 # CLI and test262 use Frontend
@@ -32,14 +32,14 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: parse command uses Frontend
+- [x] O1: parse command uses Frontend
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-cli/src/cmd/cmd_parse.rs").read_text(); print("frontend" if "draconic_frontend" in t and "parse_and_dump" not in t else "rewire")'
   EXPECT: frontend
-  EVIDENCE: pending
-- [ ] O2: cli tests green
+  EVIDENCE: frontend (task-798)
+- [x] O2: cli tests green
   CHECK: cargo test -p draconic-cli --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. (task-798 task-799; re-run after all three)
 
 ## Pool
 
