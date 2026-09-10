@@ -2,14 +2,14 @@
 id: "task-788-for-head-destructure"
 title: "Compile for-of assignment array patterns"
 kind: task
-status: claimed
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-781-for-head-destructure"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:45:00Z"
 ---
 # Compile for-of assignment array patterns
 
@@ -60,9 +60,9 @@ The fixture's js.check exits 0. Slice O1 holds.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 for_head_destructure_runs ok
-- [ ] no ROADMAP.md edit
-- [ ] no new LLVM adapter
+- [x] slice O1 for_head_destructure_runs ok
+- [x] no ROADMAP.md edit
+- [x] no new LLVM adapter
 
 **Out of scope:**
 - native target

@@ -2,12 +2,12 @@
 id: "ticket-774-for-head-destructure"
 title: "for-of assignment array pattern fails compile"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:45:00Z"
 ---
 
 # for-of assignment array pattern fails compile
@@ -18,7 +18,7 @@ updated_at: "2026-09-10T05:30:00Z"
 
 ## Fit
 
-Promoted to [[slice-781-for-head-destructure]].
+Promoted to [[slice-781-for-head-destructure]]. Slice is `met`. Closed.
 
 ## Notes
 

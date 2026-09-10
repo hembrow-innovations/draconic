@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — closed ticket-774 beaten by met slice-781; archived task-788; dragons-audit stays active
+- **task-788-for-head-destructure** — for-of assignment array patterns typecheck on js
 - **housekeeping** — closed 12 workspace-oracle tickets beaten by met slice-216; parked ticket-202 remainder; emptied platform and opt-in-bench slice lists; 3 tickets remain (202 parked, 203 parked, 773 open); both sprints stay active
 - **housekeeping** — closed rust-dev-audit sprint (13 met slices) and 11 tickets; archived 1 abandoned opt-in-bench slice; 15 tickets remain; opt-in-bench and platform sprints stay active
 - **task-743-cli-split-extract** — split cli extract.rs JSON/instance seams and tests/extract.rs under file budget
