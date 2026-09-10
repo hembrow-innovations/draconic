@@ -2,14 +2,14 @@
 id: "task-795-js-polyfill-adapter"
 title: "JS emit calls host_js_polyfill"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-785-js-host-polyfill"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:00:00Z"
 ---
 
 # JS emit calls host_js_polyfill
@@ -62,9 +62,9 @@ host_js_polyfill(name). backend-js tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 adapter
-- [ ] cargo test -p draconic-backend-js
-- [ ] no host_js_polyfill_bodies
+- [x] slice O1 adapter
+- [x] cargo test -p draconic-backend-js
+- [x] no host_js_polyfill_bodies
 
 **Out of scope:**
 - LLVM host adapters
@@ -73,3 +73,10 @@ host_js_polyfill(name). backend-js tests green.
 
 **Explain this part:**
 String contains on function source is the bug. Name lookup is the interface.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: O1 python adapter check; cargo test -p draconic-backend-js --offline
+- **result**: win (O1 adapter; test result: ok. 65 passed)
+- **gap**: none. `host_js_polyfill_bodies` gone. Bodies come from `host_js_polyfill(name)`. `availability.js` is not re-read. native.rs still hard-errors leftover native-only IR.

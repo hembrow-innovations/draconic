@@ -97,59 +97,23 @@ fn module_uses_ident(module: &Module, name: &str) -> bool {
     module.body.iter().any(|s| stmt_uses_ident_name(s, name))
 }
 
-fn host_js_polyfill_bodies() -> [&'static str; 24] {
-    [
-        draconic_runtime::process_args_js_polyfill(),
-        draconic_runtime::process_env_js_polyfill(),
-        draconic_runtime::process_exit_js_polyfill(),
-        draconic_runtime::process_pid_js_polyfill(),
-        draconic_runtime::cwd_chdir_js_polyfill(),
-        draconic_runtime::hostname_os_js_polyfill(),
-        draconic_runtime::temp_home_js_polyfill(),
-        draconic_runtime::process_run_js_polyfill(),
-        draconic_runtime::process_spawn_js_polyfill(),
-        draconic_runtime::spawn_worker_js_polyfill(),
-        draconic_runtime::channel_js_polyfill(),
-        draconic_runtime::cancel_token_js_polyfill(),
-        draconic_runtime::now_ms_js_polyfill(),
-        draconic_runtime::monotonic_ms_js_polyfill(),
-        draconic_runtime::set_timeout_js_polyfill(),
-        draconic_runtime::set_interval_js_polyfill(),
-        draconic_runtime::stdout_write_js_polyfill(),
-        draconic_runtime::stderr_write_js_polyfill(),
-        draconic_runtime::stdin_read_js_polyfill(),
-        draconic_runtime::path_js_polyfill(),
-        draconic_runtime::fs_read_js_polyfill(),
-        draconic_runtime::http_js_polyfill(),
-        draconic_runtime::dns_js_polyfill(),
-        draconic_runtime::tcp_js_polyfill(),
-    ]
-}
-
-fn polyfill_exports_host_name(src: &str, name: &str) -> bool {
-    src.contains(&format!("function {name}(")) || src.contains(&format!("globalThis.{name} ="))
-}
-
 /// Inject JS host polyfills for catalog names used as free identifiers.
 fn prepend_host_polyfills(module: &Module, out: &mut String) {
-    let used: Vec<&str> = draconic_check::host_apis()
-        .iter()
-        .filter(|e| e.availability.js && module_uses_ident(module, e.name))
-        .map(|e| e.name)
-        .collect();
-    if used.is_empty() {
-        return;
-    }
-    for src in host_js_polyfill_bodies() {
-        if used
-            .iter()
-            .copied()
-            .any(|name| polyfill_exports_host_name(src, name))
-        {
-            out.push_str(src);
-            if !out.ends_with('\n') {
-                out.push('\n');
-            }
+    let mut injected: Vec<&'static str> = Vec::new();
+    for entry in draconic_check::host_apis() {
+        if !module_uses_ident(module, entry.name) {
+            continue;
+        }
+        let Some(src) = draconic_runtime::host_js_polyfill(entry.name) else {
+            continue;
+        };
+        if injected.iter().any(|seen| std::ptr::eq(*seen, src)) {
+            continue;
+        }
+        injected.push(src);
+        out.push_str(src);
+        if !out.ends_with('\n') {
+            out.push('\n');
         }
     }
 }
