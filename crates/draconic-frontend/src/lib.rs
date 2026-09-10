@@ -46,6 +46,16 @@ pub fn compile_path_for_target(entry: &Path, target: CompileTarget) -> Result<Mo
     Ok(lower(&checked))
 }
 
+/// Always link `entry` as a Module graph, then check and lower.
+///
+/// [`compile_path`] links only when the entry AST has static import/export.
+/// Dynamic-only entries that load `import defer` / `import.defer` still need
+/// flatten — hosts that cannot parse that syntax (Node) must not see it.
+pub fn compile_path_linked(entry: &Path) -> Result<Module, Diagnostic> {
+    let checked = check_path_linked(entry)?;
+    Ok(lower(&checked))
+}
+
 /// Parse `source` Script-first, then Module. No filesystem link.
 ///
 /// Fmt and single-buffer tools use this instead of copying the retry. Both
@@ -83,6 +93,11 @@ pub fn check_path_for_target(
     target: CompileTarget,
 ) -> Result<CheckedProgram, Diagnostic> {
     check_loaded(load_program(entry)?, Some(target))
+}
+
+/// Always `link_entry` on `entry`, then check as Module, without lowering.
+pub fn check_path_linked(entry: &Path) -> Result<CheckedProgram, Diagnostic> {
+    check_loaded((link_entry(entry)?, true), None)
 }
 
 fn check_loaded(
@@ -230,10 +245,8 @@ mod tests {
     }
 
     fn write_temp_drac(label: &str, source: &str) -> (std::path::PathBuf, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!(
-            "draconic-frontend-{label}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("draconic-frontend-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("main.drac");
@@ -269,6 +282,30 @@ mod tests {
             compile_err.code,
             Some(draconic_diagnostics::codes::HOST_API_UNSUPPORTED)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_path_skips_link_on_dynamic_import_defer_only() {
+        let (dir, path) = write_temp_drac(
+            "defer-dyn-script",
+            "import.defer(\"./dep.drac\").then(function (ns) { let v = ns.x; });\n",
+        );
+        std::fs::write(dir.join("dep.drac"), "export let x = 1;\n").unwrap();
+        compile_path(&path).expect("script-goal compile without flatten");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compile_path_linked_flattens_import_defer_without_static_import() {
+        let (dir, path) = write_temp_drac(
+            "defer-force-link",
+            "import.defer(\"./dep.drac\").then(function (ns) { let v = ns.x; });\n",
+        );
+        std::fs::write(dir.join("dep.drac"), "export let x = 1;\n").unwrap();
+        let module = compile_path_linked(&path).expect("force-link import.defer");
+        assert!(!module.body.is_empty() || !module.locals.is_empty());
+        check_path_linked(&path).expect("force-link check");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

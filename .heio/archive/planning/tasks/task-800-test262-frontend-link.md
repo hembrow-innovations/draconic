@@ -2,14 +2,14 @@
 id: "task-800-test262-frontend-link"
 title: "test262 force-link goes through Frontend"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-787-frontend-cli-seam"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T00:30:00Z"
 ---
 
 # test262 force-link goes through Frontend
@@ -59,9 +59,9 @@ Frontend function. test262 tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-test262
-- [ ] no link_entry+check_module+lower in test262 src
-- [ ] allowlist unchanged
+- [x] cargo test -p draconic-test262
+- [x] no link_entry+check_module+lower in test262 src
+- [x] allowlist unchanged
 
 **Out of scope:**
 - CLI parse/extract

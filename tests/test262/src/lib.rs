@@ -11,10 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use draconic_backend_js::emit_js;
-use draconic_check::check_module;
-use draconic_frontend::{compile_path, compile_source, compile_source_module};
-use draconic_ir::lower;
-use draconic_linker::link_entry;
+use draconic_frontend::{compile_path, compile_path_linked, compile_source, compile_source_module};
 use rayon::prelude::*;
 
 /// Outcome bucket for one allowlisted path.
@@ -1752,14 +1749,11 @@ pub fn compile_test_to_js_at(test_body: &str, test_path: Option<&Path>) -> Resul
         };
         fs::write(&tmp, &source).map_err(|e| format!("compile: write temp entry: {e}"))?;
         // E19.84.08: `compile_path` only links on static import/export. Dynamic-only
-        // entries that load `import defer` fixtures must force `link_entry`.
+        // entries that load `import defer` fixtures must force-link through Frontend.
         let force_link = source_needs_import_defer_link(scan_body, test_path)
             && !source_has_static_module_syntax(scan_body);
         let result = if force_link {
-            link_entry(&tmp)
-                .and_then(check_module)
-                .map(|checked| lower(&checked))
-                .map_err(|d| format!("compile: {d}"))
+            compile_path_linked(&tmp).map_err(|d| format!("compile: {d}"))
         } else {
             compile_path(&tmp).map_err(|d| format!("compile: {d}"))
         };
