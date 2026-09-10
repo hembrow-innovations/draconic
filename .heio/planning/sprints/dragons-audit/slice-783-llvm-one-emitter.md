@@ -2,12 +2,12 @@
 id: "slice-783-llvm-one-emitter"
 title: "LLVM one Emitter and SlotTy"
 kind: slice
-status: active
+status: met
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-11T20:30:00Z"
+updated_at: "2026-09-11T21:00:00Z"
 ---
 
 # LLVM one Emitter and SlotTy
@@ -35,11 +35,11 @@ None.
 - [x] O1: one escape helper
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-llvm/src"); hits=[str(p.relative_to(root)) for p in root.rglob("*.rs") if p.name!="emitter.rs" and "fn escape_llvm_string" in p.read_text()]; print("one-escape" if not hits else "dup:"+ ",".join(hits))'
   EXPECT: one-escape
-  EVIDENCE: one-escape (task-790)
+  EVIDENCE: one-escape (slice re-run after task-790 and task-791)
 - [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: test result: ok. 315 passed (task-791)
+  EVIDENCE: test result: ok. 315 passed (slice re-run after task-791)
 
 ## Pool
 

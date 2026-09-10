@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met slice-783; archived task-790 and task-791; ticket-801 closed; dragons-audit stays active
 - **task-791-emitter-slotty-migrate** — scalar llvm adapters use crate SlotTy and Emitter; mixed extras renamed LocalSlot; enum SlotTy count 1
 - **task-790-emitter-escape** — one crate-private `escape_llvm_string` in llvm `emitter.rs`; 37 adapter copies deleted
 - **ticket-801-llvm-escape-variants** — closed; six source texts were behavior-identical to `escape_llvm_bytes`
