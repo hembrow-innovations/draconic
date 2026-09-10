@@ -46,8 +46,9 @@ Each `rs` file should have a soft limit of 1,000 lines.
 
 - Markdown: never tables — use `- **{text}**: {text}`
 - Do not invent work when ROADMAP has no `todo` and the user did not name a task
-- Always keep the `target` directory below 10GB
+- Always keep the rusts `target/` directory below 10GB
 - Do not edit `.hivemind/hivemind.yaml`
+- AFter each slice, task or ticket work/change do housekeeping on `.heio/` and commit
 - File size target ≤1000 LOC, hard limit 1250 (prove fails over 1200)
 - Scratch `draconic build` without `-o` writes `{stem}.out.js` (js) or `{stem}.out` (native); those names are gitignored. Use `-o` only for an artifact you intend to keep. Do not emit `{stem}.js` or a nameless binary next to Conformance fixtures.
 
