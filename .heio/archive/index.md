@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **task-792-fold-host-catalog-emit** — LLVM host callee names classify through `lookup_host_api` in one `host_catalog` module; leftover emit bodies are ticket-802
+- **ticket-802-llvm-host-emit-bodies** — open; walk_host_* still emit full @main per domain
 - **housekeeping** — met slice-783; archived task-790 and task-791; ticket-801 closed; dragons-audit stays active
 - **task-791-emitter-slotty-migrate** — scalar llvm adapters use crate SlotTy and Emitter; mixed extras renamed LocalSlot; enum SlotTy count 1
 - **task-790-emitter-escape** — one crate-private `escape_llvm_string` in llvm `emitter.rs`; 37 adapter copies deleted

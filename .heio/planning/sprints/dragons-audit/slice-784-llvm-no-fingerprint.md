@@ -2,14 +2,13 @@
 id: "slice-784-llvm-no-fingerprint"
 title: "LLVM one IR walker no fingerprints"
 kind: slice
-status: frozen
+status: active
 sprint: "dragons-audit"
-blocked_by: ["slice-783-llvm-one-emitter"]
+blocked_by: [ "slice-783-llvm-one-emitter" ]
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T21:30:00Z"
 ---
-
 # LLVM one IR walker no fingerprints
 
 ## Why
@@ -54,4 +53,4 @@ Native emit still claims modules by fingerprint. Unsupported IR is a miss in `tr
 
 ## See also
 
-[[ticket-776-llvm-fingerprint-adapters]], [[ticket-775-annex-b-native-false-green]], [[slice-782-annex-b-native-honesty]], ADR-0002, crates/draconic-backend-llvm/src/es_expr.rs
+[[ticket-776-llvm-fingerprint-adapters]], [[ticket-775-annex-b-native-false-green]], [[ticket-802-llvm-host-emit-bodies]], [[slice-782-annex-b-native-honesty]], ADR-0002, crates/draconic-backend-llvm/src/es_expr.rs

@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use crate::host_catalog::is_named_callee;
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Pattern, Stmt};
@@ -82,10 +83,6 @@ struct ClassifyCtx {
     string_fns: HashMap<LocalId, (LocalId, Expr)>,
     fn_names: HashMap<String, LocalId>,
     local_name: HashMap<LocalId, String>,
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

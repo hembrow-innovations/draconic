@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -64,10 +65,6 @@ struct ClassifyCtx {
     slot_of: HashMap<LocalId, LocalSlot>,
     print_locals: Vec<(LocalId, LocalSlot)>,
     has_http: bool,
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

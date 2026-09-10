@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use crate::emitter::{escape_llvm_string, Emitter as IrEmitter, SlotTy};
+use crate::host_catalog::is_named_callee;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Expr, Local, LocalId, Module, Stmt};
@@ -140,10 +141,6 @@ fn classify_expr(expr: &Expr, ctx: &mut ClassifyCtx<'_>) -> Option<SlotTy> {
         Expr::Number { .. } => Some(SlotTy::Number),
         _ => None,
     }
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn local_name(module: &Module, id: LocalId) -> Option<&str> {

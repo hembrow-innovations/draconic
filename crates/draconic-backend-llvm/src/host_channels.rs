@@ -12,6 +12,8 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 
 use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
+use crate::host_catalog::is_named_callee as is_named_ident;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -78,14 +80,6 @@ fn static_prop_key(expr: &Expr) -> Option<String> {
         Expr::String { value, .. } => Some(value.to_string_lossy()),
         _ => None,
     }
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
-}
-
-fn is_named_ident(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

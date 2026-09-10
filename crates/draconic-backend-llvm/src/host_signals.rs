@@ -25,6 +25,7 @@ use draconic_runtime::abi::{
     HOST_SIGNAL_RESTORE, HOST_SIGNAL_WATCH, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
 use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 
 /// Portable codes matching `DRACONIC_HOST_SIG_*` in draconic_rt_host.h.
 const SIG_INT: i32 = 2;
@@ -165,10 +166,6 @@ fn check_stmt(stmt: &Stmt, uses: &mut bool) -> Result<(), String> {
 
 fn is_signal_api_name(name: &str) -> bool {
     name == "onSignal" || name == "raiseSignal" || name == "ignoreSignal" || name == "restoreSignal"
-}
-
-fn is_named_callee(callee: &Expr, name: &str) -> bool {
-    matches!(callee, Expr::IdentName { name: n, .. } if n == name)
 }
 
 fn check_expr(expr: &Expr, uses: &mut bool) -> Result<(), String> {

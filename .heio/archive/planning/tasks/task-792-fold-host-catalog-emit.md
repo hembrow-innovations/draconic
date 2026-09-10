@@ -2,16 +2,15 @@
 id: "task-792-fold-host-catalog-emit"
 title: "One catalog-driven LLVM host emit"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-791-emitter-slotty-migrate"]
+blocked_by: [ "task-791-emitter-slotty-migrate" ]
 sprint: "dragons-audit"
 slice: "slice-784-llvm-no-fingerprint"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T22:40:00Z"
 ---
-
 # One catalog-driven LLVM host emit
 
 ## Blocked by
@@ -62,9 +61,18 @@ Catalog-driven host names. Native host fixtures that already pass stay green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new walk_host_* 
-- [ ] host Conformance that was green stays green
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new walk_host_* 
+- [x] host Conformance that was green stays green
+
+Classification is shared in `host_catalog.rs` via `lookup_host_api`. Emit bodies stay per-domain; leftover is [[ticket-802-llvm-host-emit-bodies]].
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-backend-llvm --offline
+- **result**: win (318 passed)
+- **gap**: none. Host fs/process/stdio/path/tcp Conformance still ok.
 
 **Out of scope:**
 - deleting try_folded_walks (that is [[task-793-delete-try-folded-walks]])

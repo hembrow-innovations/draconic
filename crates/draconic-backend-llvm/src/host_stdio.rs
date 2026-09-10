@@ -105,15 +105,7 @@ fn string_lit(expr: &Expr) -> Option<String> {
 }
 
 fn is_named_callee(expr: &Expr, want: &str, module: &Module) -> bool {
-    match expr {
-        Expr::IdentName { name, .. } => name == want,
-        Expr::Local { id, .. } => module
-            .locals
-            .iter()
-            .find(|l| l.id == *id)
-            .is_some_and(|l| l.name == want),
-        _ => false,
-    }
+    crate::host_catalog::is_named_callee_in(expr, want, Some(module))
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

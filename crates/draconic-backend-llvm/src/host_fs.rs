@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use crate::host_catalog::is_named_callee;
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -120,17 +121,6 @@ struct ClassifyCtx {
     needs_handle_seek: bool,
     needs_close_file: bool,
     has_fs: bool,
-}
-
-fn catalog_callee(expr: &Expr) -> Option<&'static draconic_check::HostApiEntry> {
-    match expr {
-        Expr::IdentName { name, .. } => draconic_check::lookup_host_api(name),
-        _ => None,
-    }
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    catalog_callee(expr).is_some_and(|entry| entry.name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

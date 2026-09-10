@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) use crate::host_catalog::is_named_callee;
+
 pub(super) fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut user_ids = HashSet::new();
@@ -106,10 +108,6 @@ pub(super) fn is_async_api_name(name: &str) -> bool {
         name,
         "tcpAcceptAsync" | "tcpConnectAsync" | "tcpReadAsync" | "tcpWriteAsync"
     )
-}
-
-pub(super) fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn is_async_api_callee(callee: &Expr) -> bool {

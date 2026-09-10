@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use crate::host_catalog::is_named_callee;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
@@ -62,10 +63,6 @@ struct ClassifyCtx {
     slot_of: HashMap<LocalId, LocalSlot>,
     has_tcp: bool,
     has_ws_client: bool,
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

@@ -49,6 +49,7 @@ mod es_values;
 mod es_var_for;
 mod host_atomics;
 mod host_cancel;
+mod host_catalog;
 mod host_channels;
 mod host_dns;
 mod host_docs;

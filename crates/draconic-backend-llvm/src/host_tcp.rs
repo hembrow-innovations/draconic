@@ -21,6 +21,7 @@
 
 use std::collections::HashMap;
 
+use crate::host_catalog::is_named_callee;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -82,10 +83,6 @@ fn string_lit(expr: &Expr) -> Option<String> {
         Expr::String { value, .. } => Some(value.to_string_lossy().to_string()),
         _ => None,
     }
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn arg_expr(arg: &Arg) -> Option<&Expr> {

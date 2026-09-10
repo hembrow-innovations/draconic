@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) use crate::host_catalog::is_named_callee;
+
 pub(super) fn try_classify(module: &Module) -> Result<ModuleInfo, String> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut user_ids = HashSet::new();
@@ -249,10 +251,6 @@ fn arg_expr(arg: &Arg) -> Result<&Expr, String> {
         Arg::Expr(e) => Ok(e),
         Arg::Spread(_) => Err("spread args unsupported".into()),
     }
-}
-
-pub(super) fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 pub(super) fn is_clock_callee(expr: &Expr) -> bool {

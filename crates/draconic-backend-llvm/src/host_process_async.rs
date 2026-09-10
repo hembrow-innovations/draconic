@@ -21,6 +21,7 @@ use draconic_runtime::abi::{
     HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
 use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 
 mod classify;
 
@@ -61,10 +62,6 @@ enum SlotKind {
 struct ModuleInfo {
     uses_async: bool,
     user_locals: Vec<(LocalId, SlotKind)>,
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn collect_assigned_locals(body: &[Stmt], out: &mut HashSet<LocalId>) {

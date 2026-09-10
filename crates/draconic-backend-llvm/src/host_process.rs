@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, Expr, Local, LocalId, Module, Stmt};
@@ -74,10 +75,6 @@ struct ClassifyCtx {
     has_env: bool,
     has_exit: bool,
     has_pid: bool,
-}
-
-fn is_named_callee(expr: &Expr, want: &str) -> bool {
-    matches!(expr, Expr::IdentName { name, .. } if name == want)
 }
 
 fn ident_name(expr: &Expr) -> Option<&str> {
