@@ -2,12 +2,12 @@
 id: "slice-783-llvm-one-emitter"
 title: "LLVM one Emitter and SlotTy"
 kind: slice
-status: frozen
+status: active
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T05:20:00Z"
 ---
 
 # LLVM one Emitter and SlotTy
@@ -48,4 +48,4 @@ None.
 
 ## See also
 
-[[ticket-777-llvm-file-budget-shards]], [[slice-784-llvm-no-fingerprint]], crates/draconic-backend-llvm/src/emitter.rs
+[[ticket-777-llvm-file-budget-shards]], [[ticket-801-llvm-escape-variants]], [[slice-784-llvm-no-fingerprint]], crates/draconic-backend-llvm/src/emitter.rs
