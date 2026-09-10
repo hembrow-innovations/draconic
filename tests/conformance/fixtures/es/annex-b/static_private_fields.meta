@@ -1,6 +1,4 @@
 id: es/annex-b/static_private_fields
-targets: js,native
+targets: js
 js.exit: 0
-native.exit: 0
-native.stdout: 2\nundefined\n10\nundefined\nundefined\n3\n3\n7\n101\n100\n
 js.check: if (a !== 2) process.exit(1); if (b !== "undefined") process.exit(2); if (c !== 10) process.exit(3); if (d !== "undefined") process.exit(4); if (e !== "undefined") process.exit(5); if (f !== 3) process.exit(6); if (g !== 3) process.exit(7); if (h !== 7) process.exit(8); if (i !== 101) process.exit(9); if (j !== 100) process.exit(10);

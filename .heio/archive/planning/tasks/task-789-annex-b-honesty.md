@@ -2,14 +2,14 @@
 id: "task-789-annex-b-honesty"
 title: "Park annex-b native until the walker exists"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-782-annex-b-native-honesty"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:45:00Z"
 ---
 
 # Park annex-b native until the walker exists
@@ -59,10 +59,10 @@ annex_b suite green. Those rows not done. Fixtures js-only.
 - ROADMAP.md status cells
 
 **Acceptance criteria:**
-- [ ] slice O1 annex_b ok
-- [ ] slice O2 honest
-- [ ] no new walk_* adapter
-- [ ] no LLVM emit changes
+- [x] slice O1 annex_b ok
+- [x] slice O2 honest
+- [x] no new walk_* adapter
+- [x] no LLVM emit changes
 
 **Out of scope:**
 - implementing native lowering
@@ -71,3 +71,10 @@ annex_b suite green. Those rows not done. Fixtures js-only.
 
 **Explain this part:**
 A new fingerprint adapter is a regression. Park native. The walker slice restores it.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-conformance --test annex_b --offline; python ROADMAP honest check for N08.16.35/37/38
+- **result**: win
+- **gap**: none

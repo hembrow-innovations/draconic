@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-789-annex-b-honesty** — parked annex-b native on async_methods, private_methods, static_private_fields; N08.16.35/37/38 are todo
 - **housekeeping** — closed ticket-774 beaten by met slice-781; archived task-788; dragons-audit stays active
 - **task-788-for-head-destructure** — for-of assignment array patterns typecheck on js
 - **housekeeping** — closed 12 workspace-oracle tickets beaten by met slice-216; parked ticket-202 remainder; emptied platform and opt-in-bench slice lists; 3 tickets remain (202 parked, 203 parked, 773 open); both sprints stay active
