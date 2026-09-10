@@ -345,10 +345,6 @@ mod tests {
             !crate::es_expr::is_es_expr_module(&m),
             "function IR must miss is_es_expr_module so the walker lowers it"
         );
-        assert!(
-            !crate::es_objects::is_es_objects_module(&m),
-            "plain function decl/call must not be stolen by objects"
-        );
         let ir = emit_llvm_ir(&m).expect("walker emit");
         assert!(
             ir.contains("define double @"),
@@ -377,14 +373,6 @@ mod tests {
         assert!(
             !crate::es_expr::is_es_expr_module(&m),
             "class IR must miss is_es_expr_module so the walker lowers it"
-        );
-        assert!(
-            !crate::es_objects::is_es_objects_module(&m),
-            "class-builder IR must not be stolen by objects"
-        );
-        assert!(
-            !crate::es_builtins::is_es_builtins_module(&m),
-            "class-builder IR must not be fingerprint-folded by builtins"
         );
         let ir = emit_llvm_ir(&m).expect("walker emit");
         assert!(

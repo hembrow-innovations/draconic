@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-793-delete-try-folded-walks** — deleted LLVM `try_folded_walks`; emit_es_expr_walk walks IR then emit or Diagnostic
 - **task-792-fold-host-catalog-emit** — LLVM host callee names classify through `lookup_host_api` in one `host_catalog` module; leftover emit bodies are ticket-802
 - **ticket-802-llvm-host-emit-bodies** — open; walk_host_* still emit full @main per domain
 - **housekeeping** — met slice-783; archived task-790 and task-791; ticket-801 closed; dragons-audit stays active

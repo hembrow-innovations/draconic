@@ -41,6 +41,7 @@ use classify::*;
 mod emit;
 mod emit_number;
 mod emit_values;
+mod walk;
 
 /// True when this module is a supported ES expression / control-flow subset
 /// (E01.* / E02.01–E02.09 / E07.01–E07.05 / E08.01–E08.06 / N08.01.* / N08.02.01–N08.02.09 /
@@ -71,84 +72,8 @@ pub(crate) fn emit_es_expr(module: &Module) -> Result<String, Diagnostic> {
     emit_es_expr_with(module, &info)
 }
 
-pub(crate) fn walk_es_expr(module: &Module) -> Option<Result<String, Diagnostic>> {
-    if !is_es_expr_module(module) {
-        return None;
-    }
-    Some(emit_es_expr(module))
-}
-
 pub(crate) fn emit_es_expr_walk(module: &Module) -> Result<String, Diagnostic> {
-    if let Some(result) = try_folded_walks(module) {
-        return result;
-    }
-    let info = classify_body(module).ok_or_else(|| diag("unsupported IR node"))?;
-    emit_es_expr_with(module, &info)
-}
-
-fn try_folded_walks(module: &Module) -> Option<Result<String, Diagnostic>> {
-    crate::host_process::walk_host_process(module)
-        .or_else(|| crate::host_os::walk_host_os(module))
-        .or_else(|| crate::host_process_async::walk_host_process_async(module))
-        .or_else(|| crate::host_subprocess::walk_host_subprocess(module))
-        .or_else(|| crate::host_signals::walk_host_signals(module))
-        .or_else(|| crate::host_stdio::walk_host_stdio(module))
-        .or_else(|| crate::host_path::walk_host_path(module))
-        .or_else(|| crate::host_docs::walk_host_docs(module))
-        .or_else(|| crate::host_tcp_async::walk_host_tcp_async(module))
-        .or_else(|| crate::host_udp::walk_host_udp(module))
-        .or_else(|| crate::host_dns::walk_host_dns(module))
-        .or_else(|| crate::host_ws_e2e::walk_host_ws_e2e(module))
-        .or_else(|| crate::host_http2::walk_host_http2(module))
-        .or_else(|| crate::host_http_server::walk_host_http_server(module))
-        .or_else(|| crate::host_ws::walk_host_ws(module))
-        .or_else(|| crate::host_http::walk_host_http(module))
-        .or_else(|| crate::host_tcp::walk_host_tcp(module))
-        .or_else(|| crate::host_time::walk_host_time(module))
-        .or_else(|| crate::host_timers::walk_host_timers(module))
-        .or_else(|| crate::host_atomics::walk_host_atomics(module))
-        .or_else(|| crate::host_worker_channels::walk_host_worker_channels(module))
-        .or_else(|| crate::host_once::walk_host_once(module))
-        .or_else(|| crate::host_cancel::walk_host_cancel(module))
-        .or_else(|| crate::host_workers::walk_host_workers(module))
-        .or_else(|| crate::host_channels::walk_host_channels(module))
-        .or_else(|| crate::es_promise::walk_es_promise(module))
-        .or_else(|| crate::es_eval::walk_es_eval(module))
-        .or_else(|| crate::es_private_in::walk_es_private_in(module))
-        .or_else(|| crate::es_proxies::walk_es_proxies(module))
-        .or_else(|| crate::es_testing::walk_es_testing(module))
-        .or_else(|| crate::es_logging::walk_es_logging(module))
-        .or_else(|| crate::es_mime::walk_es_mime(module))
-        .or_else(|| crate::es_collections::walk_es_collections(module))
-        .or_else(|| crate::es_encoding::walk_es_encoding(module))
-        .or_else(|| crate::es_new_target::walk_es_new_target(module))
-        .or_else(|| crate::es_private_accessors::walk_es_private_accessors(module))
-        .or_else(|| crate::es_instanceof::walk_es_instanceof(module))
-        .or_else(|| crate::es_generators::walk_es_generators(module))
-        .or_else(|| crate::es_modules::walk_es_modules(module))
-        .or_else(|| crate::es_exceptions::walk_es_exceptions(module))
-        .or_else(|| crate::es_legacy::walk_es_legacy(module))
-        .or_else(|| crate::es_optional_chain::walk_es_optional_chain(module))
-        .or_else(|| crate::es_static_blocks::walk_es_static_blocks(module))
-        .or_else(|| crate::es_nullish::walk_es_nullish(module))
-        .or_else(|| crate::es_to_primitive::walk_es_to_primitive(module))
-        .or_else(|| crate::es_coercion::walk_es_coercion(module))
-        .or_else(|| crate::es_values::walk_es_values(module))
-        .or_else(|| crate::es_call_spread::walk_es_call_spread(module))
-        .or_else(|| crate::es_tagged_template::walk_es_tagged_template(module))
-        .or_else(|| crate::es_param_dstr::walk_es_param_dstr(module))
-        .or_else(|| crate::es_var_for::walk_es_var_for(module))
-        .or_else(|| crate::es_class_expr_name::walk_es_class_expr_name(module))
-        .or_else(|| crate::es_static_private_methods::walk_es_static_private_methods(module))
-        .or_else(|| crate::es_object_destructure::walk_es_object_destructure(module))
-        .or_else(|| crate::es_destructure_defaults::walk_es_destructure_defaults(module))
-        .or_else(|| crate::es_builtins::walk_es_builtins(module))
-        .or_else(|| crate::es_objects::walk_es_objects(module))
-        .or_else(|| crate::es_arrays::walk_es_arrays(module))
-        .or_else(|| walk_es_expr(module))
-        .or_else(|| crate::host_fs::walk_host_fs(module))
-        .or_else(|| crate::es_classes::walk_es_classes(module))
-        .or_else(|| crate::es_functions::walk_es_functions(module))
+    walk::emit_walk(module)
 }
 
 fn emit_es_expr_with(module: &Module, info: &ModuleInfo) -> Result<String, Diagnostic> {

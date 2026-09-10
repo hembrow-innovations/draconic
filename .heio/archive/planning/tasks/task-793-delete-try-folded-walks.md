@@ -2,16 +2,15 @@
 id: "task-793-delete-try-folded-walks"
 title: "Delete try_folded_walks"
 kind: task
-status: ready
+status: completed
 mode: afk
-blocked_by: ["task-792-fold-host-catalog-emit"]
+blocked_by: [ "task-792-fold-host-catalog-emit" ]
 sprint: "dragons-audit"
 slice: "slice-784-llvm-no-fingerprint"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T23:45:00Z"
 ---
-
 # Delete try_folded_walks
 
 ## Blocked by
@@ -61,10 +60,10 @@ No try_folded_walks. Walker or Diagnostic. llvm tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 no-fold
-- [ ] cargo test -p draconic-backend-llvm
-- [ ] no new walk_* adapter
-- [ ] no hello-stub success for unsupported IR
+- [x] slice O1 no-fold
+- [x] cargo test -p draconic-backend-llvm
+- [x] no new walk_* adapter
+- [x] no hello-stub success for unsupported IR
 
 **Out of scope:**
 - restoring annex-b native (that is [[task-794-annex-b-native-through-walker]])
@@ -73,3 +72,10 @@ No try_folded_walks. Walker or Diagnostic. llvm tests green.
 
 **Explain this part:**
 If a subset cannot fold, hard-error and ticket. Do not leave a shorter or_else chain and mark this done.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: python3 no-fold check on es_expr.rs; cargo test -p draconic-backend-llvm --offline
+- **result**: win (O1 no-fold; 318 passed)
+- **gap**: none. Walker matches stmts/exprs then emit or Diagnostic. Steal-order tests gone. Remaining risk: kind select still uses adapter is_* after the walk; annex-b restore is task-794.

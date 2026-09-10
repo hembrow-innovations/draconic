@@ -7,6 +7,13 @@ pub(crate) fn catalog_callee(expr: &Expr) -> Option<&'static HostApiEntry> {
     catalog_callee_in(expr, None)
 }
 
+pub(crate) fn catalog_callee_in_module<'a>(
+    expr: &'a Expr,
+    module: &'a Module,
+) -> Option<&'static HostApiEntry> {
+    catalog_callee_in(expr, Some(module))
+}
+
 pub(crate) fn is_named_callee(expr: &Expr, want: &str) -> bool {
     match catalog_callee(expr) {
         Some(entry) => entry.name == want,
