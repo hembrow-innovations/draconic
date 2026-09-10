@@ -4,11 +4,10 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
-use draconic_backend_js::emit_js;
+use draconic_backend_js::emit_js_repl;
 use draconic_diagnostics::Diagnostic;
 use draconic_embed::{eval_source, EmbedValue};
 use draconic_frontend::{compile_source, parse_source};
-use draconic_ir::Stmt;
 
 use crate::work_dir::run_work_dir;
 
@@ -231,44 +230,6 @@ fn repl_eval_js(session: &str, chunk: &str) -> Result<ReplEval, String> {
         printed,
         new_session: full,
     })
-}
-
-/// Emit JS for REPL: if last top-level stmt is an expression, assign/print its value.
-fn emit_js_repl(module: &draconic_ir::Module) -> Result<(String, bool), Diagnostic> {
-    let mut module = module.clone();
-    let has_last_expr = matches!(module.body.last(), Some(Stmt::Expr { .. }));
-    if has_last_expr {
-        let expr_stmt = module.body.pop().expect("last expr");
-        let Stmt::Expr { expr } = expr_stmt else {
-            unreachable!();
-        };
-        if !module.body_spans.is_empty() {
-            module.body_spans.pop();
-        }
-        let prefix = emit_js(&module)?;
-        let expr_only = draconic_ir::Module {
-            locals: module.locals.clone(),
-            body: vec![Stmt::Expr { expr }],
-            body_spans: vec![draconic_diagnostics::Span::dummy()],
-            shapes: module.shapes.clone(),
-            has_extern_ffi: module.has_extern_ffi,
-        };
-        let expr_js = emit_js(&expr_only)?;
-        let expr_js = expr_js.trim().trim_end_matches(';').trim();
-        let mut out = String::new();
-        out.push_str(&prefix);
-        if !prefix.is_empty() && !prefix.ends_with('\n') {
-            out.push('\n');
-        }
-        // Inspect so strings/objects print like a REPL (not raw console.log quotes only).
-        out.push_str("const __draconic_util = require(\"util\");\n");
-        out.push_str("console.log(__draconic_util.inspect((\n");
-        out.push_str(expr_js);
-        out.push_str("\n), { depth: null, colors: false, compact: true }));\n");
-        Ok((out, true))
-    } else {
-        Ok((emit_js(&module)?, false))
-    }
 }
 
 fn repl_eval_embed(chunk: &str) -> Result<Option<String>, String> {

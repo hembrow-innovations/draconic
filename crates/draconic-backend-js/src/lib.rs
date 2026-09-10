@@ -14,7 +14,7 @@ pub use source_map::{
 use std::collections::HashMap;
 
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{LocalId, Module};
+use draconic_ir::{LocalId, Module, Stmt};
 use source_map::SourceMapBuilder;
 
 /// JS emit result with optional Source Map v3 (U03).
@@ -45,6 +45,44 @@ pub fn emit_js_with_map(
     opts: &SourceMapOptions<'_>,
 ) -> Result<EmittedJs, Diagnostic> {
     emit_js_full(module, Some(opts))
+}
+
+/// Emit ECMAScript for a REPL session. When the last top-level statement is an
+/// expression, wrap it with Node `util.inspect` so the host can print the value.
+/// The `bool` is `true` when that wrap was applied.
+pub fn emit_js_repl(module: &Module) -> Result<(String, bool), Diagnostic> {
+    let mut module = module.clone();
+    let has_last_expr = matches!(module.body.last(), Some(Stmt::Expr { .. }));
+    if !has_last_expr {
+        return Ok((emit_js(&module)?, false));
+    }
+    let expr_stmt = module.body.pop().expect("last expr");
+    let Stmt::Expr { expr } = expr_stmt else {
+        unreachable!();
+    };
+    if !module.body_spans.is_empty() {
+        module.body_spans.pop();
+    }
+    let prefix = emit_js(&module)?;
+    let expr_only = Module {
+        locals: module.locals.clone(),
+        body: vec![Stmt::Expr { expr }],
+        body_spans: vec![Span::dummy()],
+        shapes: module.shapes.clone(),
+        has_extern_ffi: module.has_extern_ffi,
+    };
+    let expr_js = emit_js(&expr_only)?;
+    let expr_js = expr_js.trim().trim_end_matches(';').trim();
+    let mut out = String::new();
+    out.push_str(&prefix);
+    if !prefix.is_empty() && !prefix.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str("const __draconic_util = require(\"util\");\n");
+    out.push_str("console.log(__draconic_util.inspect((\n");
+    out.push_str(expr_js);
+    out.push_str("\n), { depth: null, colors: false, compact: true }));\n");
+    Ok((out, true))
 }
 
 fn emit_js_full(
@@ -667,5 +705,37 @@ class C extends B {
             two.contains("[,,]") || two.contains("[, ,]") || two.contains("[, , ]"),
             "{two}"
         );
+    }
+
+    #[test]
+    fn emit_js_repl_inspects_last_expression() {
+        let module = compile_source("1 + 2").expect("compile");
+        let (js, has_last) = emit_js_repl(&module).expect("emit_js_repl");
+        assert!(has_last);
+        assert!(
+            js.contains("require(\"util\")") && js.contains("inspect("),
+            "{js}"
+        );
+        assert!(js.contains("(1) + (2)"), "{js}");
+        assert!(js.contains("depth: null"), "{js}");
+    }
+
+    #[test]
+    fn emit_js_repl_skips_inspect_without_last_expr() {
+        let module = compile_source("let x = 1;").expect("compile");
+        let (js, has_last) = emit_js_repl(&module).expect("emit_js_repl");
+        assert!(!has_last);
+        assert!(!js.contains("util"), "{js}");
+        assert_eq!(js, emit_js(&module).expect("emit_js"));
+    }
+
+    #[test]
+    fn emit_js_repl_keeps_prefix_then_inspects_expr() {
+        let module = compile_source("let x = 10; x + 1").expect("compile");
+        let (js, has_last) = emit_js_repl(&module).expect("emit_js_repl");
+        assert!(has_last);
+        assert!(js.contains("let x = 10;"), "{js}");
+        assert!(js.contains("inspect("), "{js}");
+        assert!(js.contains("(x) + (1)") || js.contains("x + 1"), "{js}");
     }
 }

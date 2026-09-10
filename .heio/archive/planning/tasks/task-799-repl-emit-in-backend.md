@@ -2,14 +2,14 @@
 id: "task-799-repl-emit-in-backend"
 title: "REPL last-expression print lives in JS backend"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-787-frontend-cli-seam"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T18:00:00Z"
 ---
 
 # REPL last-expression print lives in JS backend
@@ -60,9 +60,9 @@ Backend emit helper. repl tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] cargo test -p draconic-cli --test repl
-- [ ] cargo test -p draconic-backend-js
-- [ ] cmd_repl does not splice util.inspect
+- [x] cargo test -p draconic-cli --test repl
+- [x] cargo test -p draconic-backend-js
+- [x] cmd_repl does not splice util.inspect
 
 **Out of scope:**
 - native REPL

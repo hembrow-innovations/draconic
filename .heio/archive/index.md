@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-799-repl-emit-in-backend** — JS backend `emit_js_repl` wraps last expr with inspect; CLI REPL no longer splices it
 - **housekeeping** — met slice-786; archived ticket-779; dragons-audit stays active
 - **task-797-type-world-checker-use** — checker walks call Type world predicates; local ToNumber wrappers deleted
 - **task-796-type-world-methods** — Type exposes is_js_value, is_native_world, and is_dual_world_boundary; checker wraps the pair helper
