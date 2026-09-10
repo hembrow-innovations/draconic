@@ -119,6 +119,10 @@ pub(crate) fn escape_llvm_bytes(bytes: &[u8]) -> String {
     out
 }
 
+pub(crate) fn escape_llvm_string(s: &str) -> String {
+    escape_llvm_bytes(s.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use draconic_ir::Module;
@@ -194,5 +198,13 @@ mod tests {
     fn escape_llvm_bytes_quotes_and_nuls() {
         assert_eq!(escape_llvm_bytes(b"a\"b"), "a\\22b");
         assert_eq!(escape_llvm_bytes(&[0]), "\\00");
+    }
+
+    #[test]
+    fn escape_llvm_string_matches_bytes() {
+        assert_eq!(escape_llvm_string("a\"b"), escape_llvm_bytes(b"a\"b"));
+        assert_eq!(escape_llvm_string("\0"), "\\00");
+        assert_eq!(escape_llvm_string("\\"), "\\\\");
+        assert_eq!(escape_llvm_string("~"), "~");
     }
 }

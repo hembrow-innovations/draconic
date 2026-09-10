@@ -17,6 +17,7 @@ use draconic_ir::{
     ObjectProp, ObjectPropKey, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, GC_INIT, PRINT_STR};
+use crate::emitter::escape_llvm_string;
 
 /// Class constructor name observation: data `.name` string, or function when a
 /// static `name` method overwrites the NamedEvaluation data property.
@@ -557,19 +558,6 @@ fn emit_print_str(
     )
     .ok();
     writeln!(body, "  {}", PRINT_STR.call(&format!("ptr {t}"))).ok();
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

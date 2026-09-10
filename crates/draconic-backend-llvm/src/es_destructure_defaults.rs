@@ -18,6 +18,7 @@ use draconic_runtime::abi::{
     llvm_declares, ALLOC_OBJECT, ARRAY_GET, ARRAY_LEN, ARRAY_NEW, ARRAY_SET, GC_INIT, OBJECT_GET,
     OBJECT_SET, PRINT_F64,
 };
+use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_es_destructure_defaults_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -929,19 +930,6 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

@@ -20,6 +20,7 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_PROCESS_ASYNC_DECLARES, HOST_PROCESS_CLOSE, HOST_PROCESS_SPAWN,
     HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
+use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -823,19 +824,6 @@ impl<'a> Emitter<'a> {
 
         Ok((fn_name, data_operand))
     }
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(msg: impl Into<String>) -> Diagnostic {

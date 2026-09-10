@@ -18,7 +18,6 @@ use draconic_runtime::abi::{
 };
 mod emit;
 
-
 /// Function indices encoded as `inttoptr i64 (idx + FN_TAG)`.
 const FN_TAG: i64 = 1000;
 
@@ -662,7 +661,6 @@ struct Emitter<'a> {
     object_methods: HashMap<LocalId, Vec<(String, usize)>>,
 }
 
-
 fn is_length_member(expr: &Expr) -> bool {
     matches!(
         expr,
@@ -697,19 +695,6 @@ fn parse_nonneg_int(raw: &str) -> Result<u64, Diagnostic> {
     } else {
         Err(diag(format!("es_tt: non-int number {raw}")))
     }
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

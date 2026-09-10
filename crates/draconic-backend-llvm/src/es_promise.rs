@@ -464,21 +464,6 @@ fn parse_number(raw: &str) -> Result<i64, Diagnostic> {
     Err(diag(format!("bad number literal `{raw}`")))
 }
 
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            0x20..=0x7e => out.push(b as char),
-            _ => {
-                write!(out, "\\{b:02X}").ok();
-            }
-        }
-    }
-    out
-}
-
 fn diag(msg: impl Into<String>) -> Diagnostic {
     Diagnostic::new(msg.into(), Span::dummy())
 }

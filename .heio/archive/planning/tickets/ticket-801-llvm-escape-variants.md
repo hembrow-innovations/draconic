@@ -2,19 +2,19 @@
 id: "ticket-801-llvm-escape-variants"
 title: "LLVM escape_llvm_string copies differ"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 created_at: "2026-09-10T19:16:04Z"
-updated_at: "2026-09-10T19:16:04Z"
+updated_at: "2026-09-11T19:30:00Z"
 ---
 
 # LLVM escape_llvm_string copies differ
 
 ## Signal
 
-[[task-790-emitter-escape]] stopped. Unifying `escape_llvm_string` requires picking one body. Six source variants exist across 37 adapter copies. The task forbids picking a random variant.
+Closed. Six source texts still differ, but every byte 0–255 matches existing `escape_llvm_bytes` in `emitter.rs`. [[task-790-emitter-escape]] wrapped that helper as the one `escape_llvm_string`. No language-behavior change.
 
 ## Fit
 

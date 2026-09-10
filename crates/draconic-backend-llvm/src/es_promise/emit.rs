@@ -1,6 +1,7 @@
 use std::fmt::Write as _;
 
 use super::*;
+use crate::emitter::escape_llvm_string;
 
 impl<'a> super::Emitter<'a> {
     pub(super) fn new(module: &'a Module, info: ModuleInfo) -> Self {

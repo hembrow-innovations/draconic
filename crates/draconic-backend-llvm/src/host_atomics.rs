@@ -21,6 +21,7 @@ use draconic_runtime::abi::{
     HOST_SHARED_MAKE, HOST_SHARED_NOTIFY, HOST_SHARED_STORE, HOST_SHARED_WAIT, HOST_WORKER_JOIN,
     HOST_WORKER_SPAWN, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_atomics_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -256,19 +257,6 @@ fn arg_expr(arg: &Arg) -> Option<&Expr> {
 
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'"' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 struct Emitter<'a> {

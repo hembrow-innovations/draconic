@@ -20,7 +20,6 @@ use draconic_runtime::abi::{
 };
 mod emit;
 
-
 const MAX_ARGS: usize = 8;
 
 pub(crate) fn is_es_call_spread_module(module: &Module) -> bool {
@@ -907,26 +906,12 @@ struct Emitter<'a> {
     in_string_fn: bool,
 }
 
-
 fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
     let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
     let f: f64 = cleaned
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

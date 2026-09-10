@@ -20,6 +20,7 @@ use draconic_runtime::abi::{
     HOST_STDOUT_WRITE, HOST_UDP_BIND, HOST_UDP_LOCAL_PORT, HOST_UDP_RECVFROM, HOST_UDP_SENDTO,
     PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_udp_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -269,19 +270,6 @@ fn arg_expr(arg: &Arg) -> Option<&Expr> {
 
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'"' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 struct Emitter<'a> {

@@ -13,6 +13,7 @@ use draconic_ir::{Expr, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_MONOTONIC_MS, HOST_NOW_MS, PRINT_BOOL, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 pub(crate) fn is_host_time_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -188,19 +189,6 @@ fn string_lit(expr: &Expr) -> Option<String> {
 
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'"' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 struct Emitter<'a> {

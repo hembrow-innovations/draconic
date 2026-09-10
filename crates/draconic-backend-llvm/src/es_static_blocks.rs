@@ -16,11 +16,11 @@ use draconic_ir::{
     Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
+use crate::emitter::escape_llvm_string;
 mod eval;
 mod call;
 
 use eval::{as_callable, eval_body, ParamBind};
-
 
 pub(crate) fn is_es_static_blocks_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -255,7 +255,6 @@ fn module_has_static_block_shape(module: &Module) -> bool {
     module.body.iter().any(stmt_has)
 }
 
-
 fn emit_prints(info: &ModuleInfo) -> String {
     let mut out = String::new();
     let mut body = String::new();
@@ -327,21 +326,6 @@ fn format_f64(n: f64) -> String {
         // Match other emitters: decimal that parses as the same f64.
         format!("{n:?}")
     }
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => {
-                write!(out, "\\{c:02X}").ok();
-            }
-        }
-    }
-    out
 }
 
 fn diag(msg: &str) -> Diagnostic {

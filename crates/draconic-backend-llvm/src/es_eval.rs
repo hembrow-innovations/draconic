@@ -10,6 +10,7 @@ use draconic_ir::{Expr, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ES_EVAL_DECLARES, GC_INIT, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 /// True when this module is the supported eval/Function subset (E16 / N07.02–N07.04).
 pub(crate) fn is_es_eval_module(module: &Module) -> bool {
@@ -226,19 +227,6 @@ fn emit_print_str(
     )
     .ok();
     writeln!(body, "  {}", PRINT_STR.call(&format!("ptr {t}"))).ok();
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

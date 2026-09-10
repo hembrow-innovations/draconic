@@ -22,6 +22,7 @@ use draconic_runtime::abi::{
     HOST_PROCESS_PPID, HOST_PROCESS_SET_ARGV, HOST_PROCESS_SET_EXIT_CODE, HOST_PROCESS_USER_ARG,
     HOST_PROCESS_USER_ARGC, PRINT_BOOL, PRINT_F64, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -793,19 +794,6 @@ impl<'a> Emitter<'a> {
             _ => Err(diag("host_process: typeof unsupported arg")),
         }
     }
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'\\' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(msg: &str) -> Diagnostic {

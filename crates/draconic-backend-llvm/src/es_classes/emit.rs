@@ -9,9 +9,10 @@ use draconic_runtime::abi::{
 };
 
 use super::{
-    diag, escape_llvm_string, format_number_const, number_global_name, string_global_name,
+    diag, format_number_const, number_global_name, string_global_name,
     FieldVal, FnInfo, MethodRet, ModuleInfo, SlotTy, MAX_METHOD_ARGS, UNDEF_BITS,
 };
+use crate::emitter::escape_llvm_string;
 
 impl<'a> super::Emitter<'a> {
     pub(super) fn new(module: &'a Module, info: &'a ModuleInfo) -> Self {

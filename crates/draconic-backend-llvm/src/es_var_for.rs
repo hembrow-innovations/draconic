@@ -7,7 +7,6 @@
 //! `var` slots are script-scoped allocas (shared primary by name).
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 
 use draconic_ast::{AssignOp, BinaryOp, BindingKind};
 use draconic_diagnostics::{Diagnostic, Span};
@@ -20,7 +19,6 @@ use draconic_runtime::abi::{
     CSTR_FROM_U64, GC_INIT, OBJECT_SET, PRINT_F64, PRINT_STR,
 };
 mod emit;
-
 
 pub(crate) fn is_es_var_for_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -653,34 +651,12 @@ struct Emitter<'a> {
     str_globals: HashMap<String, String>,
 }
 
-
 fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
     let cleaned: String = raw.chars().filter(|c| *c != '_').collect();
     let f: f64 = cleaned
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            0x07 => out.push_str("\\07"),
-            0x08 => out.push_str("\\08"),
-            0x09 => out.push_str("\\09"),
-            0x0a => out.push_str("\\0A"),
-            0x0c => out.push_str("\\0C"),
-            0x0d => out.push_str("\\0D"),
-            0x20..=0x7e => out.push(b as char),
-            _ => {
-                let _ = write!(out, "\\{b:02X}");
-            }
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

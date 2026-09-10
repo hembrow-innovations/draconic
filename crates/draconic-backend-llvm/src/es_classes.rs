@@ -117,7 +117,6 @@ struct ModuleInfo {
     const_number: HashMap<LocalId, String>,
 }
 
-
 fn classify(module: &Module) -> Option<ModuleInfo> {
     let by_id: HashMap<LocalId, &Local> = module.locals.iter().map(|l| (l.id, l)).collect();
     let mut functions = Vec::new();
@@ -325,7 +324,6 @@ fn lookup_static_field<'a>(
         .map(|(_, v)| v)
 }
 
-
 pub(super) fn is_object_set_prototype_of(callee: &Expr) -> bool {
     let Expr::Member {
         object, property, ..
@@ -474,7 +472,6 @@ fn find_method_function_in_stmt(stmt: &Stmt) -> Option<&Expr> {
     }
 }
 
-
 struct Emitter<'a> {
     module: &'a Module,
     info: &'a ModuleInfo,
@@ -509,19 +506,6 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

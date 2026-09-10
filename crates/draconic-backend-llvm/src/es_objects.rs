@@ -33,7 +33,6 @@ use draconic_runtime::abi::{
 };
 mod emit;
 
-
 /// Max fixed args for method/ctor calling convention (fixtures use ≤2).
 const MAX_METHOD_ARGS: usize = 4;
 
@@ -705,7 +704,6 @@ struct Emitter<'a> {
     str_n: usize,
 }
 
-
 fn object_value_is_object(expr: &Expr) -> bool {
     match expr {
         Expr::Object { .. } | Expr::New { .. } => true,
@@ -721,19 +719,6 @@ fn format_number_const(raw: &str) -> Result<String, Diagnostic> {
         .parse()
         .map_err(|_| diag(format!("invalid number literal {raw}")))?;
     Ok(format!("{f:.17e}"))
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 fn diag(message: impl Into<String>) -> Diagnostic {

@@ -2,6 +2,7 @@ use std::fmt::Write as _;
 
 use super::classify::{is_clock_callee, is_named_callee, is_timer_api_name};
 use super::*;
+use crate::emitter::escape_llvm_string;
 
 impl<'a> super::Emitter<'a> {
     pub(super) fn new(module: &'a Module, info: ModuleInfo) -> Self {

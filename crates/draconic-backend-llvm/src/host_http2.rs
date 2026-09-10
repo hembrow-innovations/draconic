@@ -19,6 +19,7 @@ use draconic_runtime::abi::{
     HOST_TCP_ACCEPT, HOST_TCP_CONNECT, HOST_TCP_LISTEN, HOST_TCP_LOCAL_PORT, HOST_TCP_READ,
     HOST_TCP_WRITE, PRINT_I64,
 };
+use crate::emitter::escape_llvm_string;
 
 mod classify;
 
@@ -84,19 +85,6 @@ fn string_lit(expr: &Expr) -> Option<String> {
 
 fn diag(msg: &str) -> Diagnostic {
     Diagnostic::new(msg, Span::dummy())
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) && c != b'"' => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 struct Emitter<'a> {

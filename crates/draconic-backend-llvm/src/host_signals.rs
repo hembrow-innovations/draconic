@@ -24,6 +24,7 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_SIGNAL_DECLARES, HOST_SIGNAL_IGNORE, HOST_SIGNAL_RAISE,
     HOST_SIGNAL_RESTORE, HOST_SIGNAL_WATCH, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
+use crate::emitter::escape_llvm_string;
 
 /// Portable codes matching `DRACONIC_HOST_SIG_*` in draconic_rt_host.h.
 const SIG_INT: i32 = 2;
@@ -312,19 +313,6 @@ fn string_lit_arg(arg: &Arg) -> Option<String> {
 
 fn diag(msg: impl Into<String>) -> Diagnostic {
     Diagnostic::new(msg.into(), Span::dummy())
-}
-
-fn escape_llvm_string(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'\\' => out.push_str("\\\\"),
-            b'"' => out.push_str("\\22"),
-            c if (0x20..0x7f).contains(&c) => out.push(c as char),
-            c => out.push_str(&format!("\\{c:02X}")),
-        }
-    }
-    out
 }
 
 struct Emitter<'a> {
