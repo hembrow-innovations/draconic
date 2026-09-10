@@ -573,18 +573,6 @@ impl Checker {
 
     /// Explicit dual-worlds boundary (`as`): JS `number` ↔ unboxed native numeric (T06).
     pub(crate) fn is_dual_world_boundary(from: Type, to: Type) -> bool {
-        matches!(
-            (from, to),
-            (
-                Type::Number,
-                Type::Native(n)
-            ) if !n.is_bool()
-        ) || matches!(
-            (from, to),
-            (
-                Type::Native(n),
-                Type::Number
-            ) if !n.is_bool()
-        )
+        from.is_dual_world_boundary(to)
     }
 }

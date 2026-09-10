@@ -110,6 +110,29 @@ pub enum Type {
     Any,
 }
 
+impl Type {
+    /// Heap-managed JS value world: everything except unboxed native and pointers.
+    pub fn is_js_value(self) -> bool {
+        !self.is_native_world()
+    }
+
+    /// Unboxed native world: `Native` scalars and `Ptr`.
+    pub fn is_native_world(self) -> bool {
+        matches!(self, Type::Native(_) | Type::Ptr(_))
+    }
+
+    /// Explicit dual-worlds `as` hop: JS `number` ↔ unboxed native numeric (not `bool`).
+    pub fn is_dual_world_boundary(self, to: Type) -> bool {
+        matches!(
+            (self, to),
+            (Type::Number, Type::Native(n)) if !n.is_bool()
+        ) || matches!(
+            (self, to),
+            (Type::Native(n), Type::Number) if !n.is_bool()
+        )
+    }
+}
+
 /// Generic function signature stored for call-site instantiation (T04).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericFnSig {
@@ -217,11 +240,40 @@ pub(crate) fn format_type_full(
 
 #[cfg(test)]
 mod tests {
-    use super::Type;
+    use super::{NativeType, Type};
     use crate::{check, CheckedProgram};
     use draconic_ast::{Arg, BinaryOp, Expr, Program, Stmt};
     use draconic_diagnostics::Span;
     use draconic_parser::parse;
+
+    #[test]
+    fn number_is_js_value_not_native_world() {
+        assert!(Type::Number.is_js_value());
+        assert!(!Type::Number.is_native_world());
+    }
+
+    #[test]
+    fn i32_is_native_world_not_js_value() {
+        let i32 = Type::Native(NativeType::I32);
+        assert!(i32.is_native_world());
+        assert!(!i32.is_js_value());
+    }
+
+    #[test]
+    fn ptr_is_native_world_not_js_value() {
+        let ptr = Type::Ptr(NativeType::I32);
+        assert!(ptr.is_native_world());
+        assert!(!ptr.is_js_value());
+    }
+
+    #[test]
+    fn number_and_i32_are_dual_world_boundary() {
+        let i32 = Type::Native(NativeType::I32);
+        assert!(Type::Number.is_dual_world_boundary(i32));
+        assert!(i32.is_dual_world_boundary(Type::Number));
+        assert!(!Type::Number.is_dual_world_boundary(Type::Ptr(NativeType::I32)));
+        assert!(!i32.is_dual_world_boundary(Type::Ptr(NativeType::I32)));
+    }
 
     #[test]
     fn check_infers_literal_and_let_types() {

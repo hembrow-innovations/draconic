@@ -2,12 +2,12 @@
 id: "slice-786-type-world-predicates"
 title: "Dual-world tests live on Type"
 kind: slice
-status: frozen
+status: active
 sprint: "dragons-audit"
 blocked_by: []
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:00:00Z"
 ---
 
 # Dual-world tests live on Type
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: Type owns world tests
+- [x] O1: Type owns world tests
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-check/src/types.rs").read_text(); print("on-type" if "fn is_js_value" in t and "fn is_native_world" in t else "missing")'
   EXPECT: on-type
-  EVIDENCE: pending
+  EVIDENCE: on-type (task-796)
 - [ ] O2: check crate tests green
   CHECK: cargo test -p draconic-check --offline
   EXPECT: test result: ok.

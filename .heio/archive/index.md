@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-796-type-world-methods** — Type exposes is_js_value, is_native_world, and is_dual_world_boundary; checker wraps the pair helper
 - **housekeeping** — met slice-785; archived task-795; dragons-audit stays active
 - **task-795-js-polyfill-adapter** — JS emit injects host polyfills via `host_js_polyfill`; duplicate 24-body array gone
 - **task-793-delete-try-folded-walks** — deleted LLVM `try_folded_walks`; emit_es_expr_walk walks IR then emit or Diagnostic

@@ -2,14 +2,14 @@
 id: "task-796-type-world-methods"
 title: "Add Type world predicates"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "dragons-audit"
 slice: "slice-786-type-world-predicates"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T12:30:00Z"
 ---
 
 # Add Type world predicates
@@ -59,9 +59,9 @@ Methods on Type. Check tests green.
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O1 on-type
-- [ ] cargo test -p draconic-check
-- [ ] Type still on IR exprs
+- [x] slice O1 on-type
+- [x] cargo test -p draconic-check
+- [x] Type still on IR exprs
 
 **Out of scope:**
 - rewriting check_expr match (that is [[task-797-type-world-checker-use]])
@@ -70,3 +70,10 @@ Methods on Type. Check tests green.
 
 **Explain this part:**
 Expand then migrate. This sitting only adds the methods and tests them.
+
+## Gauntlet
+
+- **round**: 1
+- **command**: O1 python on-type check; cargo test -p draconic-check --offline
+- **result**: win
+- **gap**: none
