@@ -5,7 +5,7 @@ kind: "sprint"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-  updated_at: "2026-09-11T23:45:00Z"
+  updated_at: "2026-09-11T08:11:06Z"
 ---
 
 # platform
@@ -16,7 +16,6 @@ Location: remaining platform-capability and leftover conformance after the langu
 
 ## Slices in
 
-- [[slice-803-native-console-log]]
 - [[slice-805-llvm-host-emit-bodies]]
 - Remainder tickets [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked. Met slices live in archive.
 

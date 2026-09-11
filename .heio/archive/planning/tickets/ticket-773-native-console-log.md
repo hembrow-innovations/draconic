@@ -2,12 +2,12 @@
 id: "ticket-773-native-console-log"
 title: "Native LLVM has no console.log lowering"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 tags: []
 blocked_by: []
 created_at: "2026-09-08T19:49:50Z"
-updated_at: "2026-09-11T23:30:00Z"
+updated_at: "2026-09-11T08:11:06Z"
 ---
 
 # Native LLVM has no console.log lowering
@@ -18,7 +18,7 @@ updated_at: "2026-09-11T23:30:00Z"
 
 ## Fit
 
-Promoted into [[slice-803-native-console-log]] in sprint [[platform]]. Executable: [[task-804-native-console-log]]. Do not execute from this ticket. Compiler work stays out of [[task-692-perf-fixture-programs]] (fixtures-only). Not [[location-219-host-io]]. Do not absorb [[ticket-802-llvm-host-emit-bodies]]. Abandoned [[slice-691-opt-in-cli-timings]] is not revived; opt-in-bench stays active with task-692 and task-693 still ready.
+Promoted into [[slice-803-native-console-log]] in sprint [[platform]]. Executable: [[task-804-native-console-log]] (`completed`). Slice is `met`. Closed.
 
 ## Notes
 

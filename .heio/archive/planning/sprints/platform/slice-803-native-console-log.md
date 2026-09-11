@@ -2,12 +2,12 @@
 id: "slice-803-native-console-log"
 title: "Native console.log lowering"
 kind: slice
-status: active
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-11T23:30:00Z"
-updated_at: "2026-09-11T18:10:00Z"
+updated_at: "2026-09-11T08:11:06Z"
 ---
 
 # Native console.log lowering
@@ -41,17 +41,17 @@ None.
 - [x] O1: native `globalThis.console.log` prints
   CHECK: d=$(mktemp -d) && printf '%s\n' 'let console = globalThis.console;' 'console.log("console-ok");' > "$d/p.drac" && cargo run -p draconic-cli --quiet -- build --target native "$d/p.drac" -o "$d/p" && "$d/p"
   EXPECT: console-ok
-  EVIDENCE: exit 0 stdout `console-ok` (task-804)
+  EVIDENCE: exit 0 stdout `console-ok` (slice re-run after task-804)
 
 - [x] O2: a function plus `console.log` still prints on native (unblocks compile_heavy shape)
   CHECK: d=$(mktemp -d) && printf '%s\n' 'function f() { return 1; }' 'let x = f();' 'let console = globalThis.console;' 'console.log("fn-ok");' > "$d/p.drac" && cargo run -p draconic-cli --quiet -- build --target native "$d/p.drac" -o "$d/p" && "$d/p"
   EXPECT: fn-ok
-  EVIDENCE: exit 0 stdout contains `fn-ok` (task-804)
+  EVIDENCE: exit 0 stdout contains `fn-ok` (slice re-run after task-804)
 
 - [x] O3: a tight loop plus `console.log` still prints on native (unblocks run_heavy shape)
   CHECK: d=$(mktemp -d) && printf '%s\n' 'let i = 0;' 'while (i < 100) { i = i + 1; }' 'let console = globalThis.console;' 'console.log("loop-ok");' > "$d/p.drac" && cargo run -p draconic-cli --quiet -- build --target native "$d/p.drac" -o "$d/p" && "$d/p"
   EXPECT: loop-ok
-  EVIDENCE: exit 0 stdout contains `loop-ok` (task-804)
+  EVIDENCE: exit 0 stdout contains `loop-ok` (slice re-run after task-804)
 
 ## Pool
 

@@ -5,7 +5,7 @@ kind: sprint
 status: "active"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-  updated_at: "2026-09-11T23:45:00Z"
+  updated_at: "2026-09-11T08:11:06Z"
 ---
 
 # opt-in CLI timings
@@ -16,7 +16,7 @@ Location: none. Tooling cut so you can time compile and run of two committed pro
 
 ## Slices in
 
-- none. [[slice-691-opt-in-cli-timings]] is abandoned in archive. Compiler unblock is [[slice-803-native-console-log]] / [[task-804-native-console-log]]. [[task-692-perf-fixture-programs]] and [[task-693-bench-script-and-docs]] stay ready.
+- none. [[slice-691-opt-in-cli-timings]] is abandoned in archive. Compiler unblock [[slice-803-native-console-log]] / [[task-804-native-console-log]] is `met`. [[task-692-perf-fixture-programs]] and [[task-693-bench-script-and-docs]] stay ready.
 
 ## Slices out
 
