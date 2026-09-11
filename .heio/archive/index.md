@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — filed [[ticket-807-llvm-walker-native-date-stdlib]] and [[ticket-808-frontend-check-source-script-only]] from dragons-audit; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **housekeeping** — met slice-805; archived ticket-802; 2 tickets remain parked; platform and opt-in-bench stay active
 - **task-806-llvm-host-emit-bodies** — deleted 26 dead LLVM `walk_host_*` fingerprint adapters; host calls stay catalog-driven on the one walker (slice-805)
 - **housekeeping** — met slice-803; archived ticket-773; ticket-802 stays open; 2 tickets remain parked; platform and opt-in-bench stay active
