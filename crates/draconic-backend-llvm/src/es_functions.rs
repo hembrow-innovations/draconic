@@ -37,9 +37,9 @@ use crate::emitter::{escape_llvm_bytes, Emitter as IrEmitter, SlotTy};
 
 mod classify;
 mod collect;
-mod ok;
 mod emit;
 mod emit_expr;
+mod ok;
 
 use classify::classify;
 

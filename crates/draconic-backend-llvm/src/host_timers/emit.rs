@@ -493,7 +493,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn emit_timer_set(&mut self, args: &[Arg], repeating: bool) -> Result<String, Diagnostic> {
+    pub(super) fn emit_timer_set(
+        &mut self,
+        args: &[Arg],
+        repeating: bool,
+    ) -> Result<String, Diagnostic> {
         let fn_expr = match &args[0] {
             Arg::Expr(e) => e,
             _ => return Err(diag("timer set bad arg")),
@@ -538,7 +542,10 @@ impl<'a> super::Emitter<'a> {
         Ok("0".into())
     }
 
-    pub(super) fn emit_timer_callback(&mut self, body: &[Stmt]) -> Result<(String, String), Diagnostic> {
+    pub(super) fn emit_timer_callback(
+        &mut self,
+        body: &[Stmt],
+    ) -> Result<(String, String), Diagnostic> {
         let fn_name = self.fresh_fn("timer");
         let mut used = HashSet::new();
         collect_used_locals(body, &mut used);

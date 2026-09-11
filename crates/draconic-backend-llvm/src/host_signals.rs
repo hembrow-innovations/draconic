@@ -17,6 +17,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{Arg, AssignTarget, Expr, IrType as Type, Local, LocalId, Module, Stmt};
@@ -24,8 +26,6 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_SIGNAL_DECLARES, HOST_SIGNAL_IGNORE, HOST_SIGNAL_RAISE,
     HOST_SIGNAL_RESTORE, HOST_SIGNAL_WATCH, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
-use crate::host_catalog::is_named_callee;
 
 /// Portable codes matching `DRACONIC_HOST_SIG_*` in draconic_rt_host.h.
 const SIG_INT: i32 = 2;

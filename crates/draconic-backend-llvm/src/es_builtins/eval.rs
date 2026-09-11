@@ -8,7 +8,11 @@ use draconic_ir::{
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn eval_body(&self, body: &[Stmt], env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+    pub(crate) fn eval_body(
+        &self,
+        body: &[Stmt],
+        env: &mut HashMap<LocalId, JsVal>,
+    ) -> Result<Flow, ()> {
         for stmt in body {
             match self.eval_stmt(stmt, env)? {
                 Flow::Normal => {}
@@ -18,7 +22,11 @@ impl super::Interp {
         Ok(Flow::Normal)
     }
 
-    pub(crate) fn eval_stmt(&self, stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Result<Flow, ()> {
+    pub(crate) fn eval_stmt(
+        &self,
+        stmt: &Stmt,
+        env: &mut HashMap<LocalId, JsVal>,
+    ) -> Result<Flow, ()> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
                 let v = match init {
@@ -94,7 +102,8 @@ impl super::Interp {
     }
 
     /// `Ok(Ok(v))` = value; `Ok(Err(flow))` = abrupt throw; `Err(())` = unsupported.
-    pub(crate) fn eval_expr(&self, 
+    pub(crate) fn eval_expr(
+        &self,
         expr: &Expr,
         env: &mut HashMap<LocalId, JsVal>,
     ) -> Result<Result<JsVal, Flow>, ()> {
@@ -512,7 +521,8 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn eval_key(&self, 
+    pub(crate) fn eval_key(
+        &self,
         expr: &Expr,
         env: &mut HashMap<LocalId, JsVal>,
     ) -> Result<Result<String, Flow>, ()> {

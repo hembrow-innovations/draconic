@@ -658,4 +658,3 @@ pub(super) fn to_boolean(v: &JsVal) -> bool {
         JsVal::Obj(_) | JsVal::Fn(_) | JsVal::WeakMap(_) | JsVal::Builtin(_) => true,
     }
 }
-

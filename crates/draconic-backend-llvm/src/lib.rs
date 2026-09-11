@@ -83,14 +83,14 @@ pub use cross_compile::{
     host_cross_compile_pair, CrossCompilePair,
 };
 pub use debug_info::SourceDebug;
+pub(crate) use native_link::find_clang;
+#[cfg(test)]
+pub(crate) use native_link::work_dir;
 pub use native_link::{
     build_c_dynamic_lib, build_c_static_lib, build_native_binary,
     build_native_binary_with_dynamic_libs, build_native_binary_with_lto,
     build_native_binary_with_static_libs, dynamic_lib_file_name,
 };
-pub(crate) use native_link::find_clang;
-#[cfg(test)]
-pub(crate) use native_link::work_dir;
 pub use wasm32_wasi::{compile_object_for_wasm32_wasi, link_wasm32_wasi, WASM32_WASI_TRIPLE};
 
 use draconic_diagnostics::{Diagnostic, Span};

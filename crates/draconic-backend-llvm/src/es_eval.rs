@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::BinaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_embed::{fold_eval_program, is_eval_fold_module, Observation};
@@ -10,7 +11,6 @@ use draconic_ir::{Expr, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, ES_EVAL_DECLARES, GC_INIT, PRINT_BOOL, PRINT_I64, PRINT_STR,
 };
-use crate::emitter::escape_llvm_string;
 
 /// True when this module is the supported eval/Function subset (E16 / N07.02–N07.04).
 pub(crate) fn is_es_eval_module(module: &Module) -> bool {

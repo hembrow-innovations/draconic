@@ -5,7 +5,8 @@ use draconic_ir::LocalId;
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn member_get(&self, 
+    pub(crate) fn member_get(
+        &self,
         obj: &JsVal,
         key: &str,
         env: &mut HashMap<LocalId, JsVal>,
@@ -258,7 +259,8 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn member_set(&self, 
+    pub(crate) fn member_set(
+        &self,
         obj: &mut JsVal,
         key: &str,
         val: JsVal,

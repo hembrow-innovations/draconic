@@ -35,8 +35,8 @@ use draconic_ir::{
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_BOOL, PRINT_F64, PRINT_STR};
 
-mod eval;
 mod class;
+mod eval;
 mod exec;
 
 use eval::eval_body;

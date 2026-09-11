@@ -445,7 +445,12 @@ impl<'a> super::Emitter<'a> {
     }
 
     /// Dual-worlds / width change: convert unboxed scalar `v` from `from` to `to`.
-    pub(super) fn coerce_scalar(&mut self, v: &str, from: Scalar, to: Scalar) -> Result<String, Diagnostic> {
+    pub(super) fn coerce_scalar(
+        &mut self,
+        v: &str,
+        from: Scalar,
+        to: Scalar,
+    ) -> Result<String, Diagnostic> {
         if from == to {
             return Ok(v.to_string());
         }

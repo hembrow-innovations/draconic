@@ -33,7 +33,6 @@ mod eval;
 
 use eval::eval_body;
 
-
 pub(crate) fn is_es_encoding_module(module: &Module) -> bool {
     classify(module).is_some()
 }
@@ -365,7 +364,6 @@ fn expr_ok(expr: &Expr) -> bool {
         _ => false,
     }
 }
-
 
 fn js_string_to_utf8(s: &JsString) -> String {
     s.to_string_lossy()

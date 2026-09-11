@@ -3,7 +3,11 @@ use std::fmt::Write as _;
 use super::*;
 
 impl<'a> super::Emitter<'a> {
-    pub(super) fn emit_expr(&mut self, expr: &Expr, expect: Option<Scalar>) -> Result<String, Diagnostic> {
+    pub(super) fn emit_expr(
+        &mut self,
+        expr: &Expr,
+        expect: Option<Scalar>,
+    ) -> Result<String, Diagnostic> {
         let v = self.emit_expr_uncast(expr, expect)?;
         let Some(want) = expect else {
             return Ok(v);

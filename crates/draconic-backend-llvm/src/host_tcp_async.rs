@@ -82,4 +82,3 @@ struct Emitter<'a> {
     reaction_params: HashMap<LocalId, String>,
     reaction_captures: Vec<LocalId>,
 }
-

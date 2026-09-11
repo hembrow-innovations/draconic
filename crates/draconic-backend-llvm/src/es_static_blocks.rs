@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::{AssignOp, BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -16,9 +17,8 @@ use draconic_ir::{
     Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, PRINT_F64, PRINT_STR};
-use crate::emitter::escape_llvm_string;
-mod eval;
 mod call;
+mod eval;
 
 use eval::{as_callable, eval_body, ParamBind};
 

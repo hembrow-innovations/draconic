@@ -5,7 +5,11 @@ use super::*;
 impl<'a> super::Emitter<'a> {
     /// Emit an async function/arrow: returns a Promise (N06.10–N06.11).
     /// Supports simple ident params (no rest/default); body may use `await` / `return` / `throw`.
-    pub(super) fn emit_async_fn(&mut self, params: &[Param], body: &[Stmt]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_async_fn(
+        &mut self,
+        params: &[Param],
+        body: &[Stmt],
+    ) -> Result<String, Diagnostic> {
         let mut param_ids = Vec::with_capacity(params.len());
         for p in params {
             if p.rest || p.default.is_some() {

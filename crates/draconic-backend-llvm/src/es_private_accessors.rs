@@ -15,6 +15,7 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
+mod call;
 mod eval;
 
 pub(crate) fn is_es_private_accessors_module(module: &Module) -> bool {
@@ -45,14 +46,24 @@ enum JsVal {
     Builtin(&'static str),
     UserFn {
         id: u64,
-        params: Vec<LocalId>,
+        params: Vec<Param>,
         body: Vec<Stmt>,
+        is_async: bool,
         props: Rc<RefCell<Vec<(String, Slot)>>>,
     },
     Object {
         id: u64,
         props: Rc<RefCell<Vec<(String, Slot)>>>,
         proto: Rc<RefCell<JsVal>>,
+    },
+    Proxy {
+        id: u64,
+        target: Rc<RefCell<JsVal>>,
+        handler: Rc<RefCell<JsVal>>,
+    },
+    Promise {
+        id: u64,
+        result: Rc<Result<JsVal, JsVal>>,
     },
     WeakMap(Rc<RefCell<Vec<(u64, JsVal)>>>),
     WeakSet(Rc<RefCell<Vec<u64>>>),
@@ -103,20 +114,38 @@ impl Ids {
         }
     }
 
-    fn new_fn(&self, params: Vec<LocalId>, body: Vec<Stmt>) -> JsVal {
+    fn new_fn(&self, params: Vec<Param>, body: Vec<Stmt>, is_async: bool) -> JsVal {
         let proto = self.new_obj(JsVal::Builtin("Object.prototype"));
         JsVal::UserFn {
             id: self.next_id(),
             params,
             body,
+            is_async,
             props: Rc::new(RefCell::new(vec![("prototype".into(), Slot::Data(proto))])),
+        }
+    }
+
+    fn fulfilled(&self, v: JsVal) -> JsVal {
+        JsVal::Promise {
+            id: self.next_id(),
+            result: Rc::new(Ok(v)),
+        }
+    }
+
+    fn rejected(&self, e: JsVal) -> JsVal {
+        JsVal::Promise {
+            id: self.next_id(),
+            result: Rc::new(Err(e)),
         }
     }
 }
 
 fn obj_id(v: &JsVal) -> Option<u64> {
     match v {
-        JsVal::Object { id, .. } | JsVal::UserFn { id, .. } => Some(*id),
+        JsVal::Object { id, .. }
+        | JsVal::UserFn { id, .. }
+        | JsVal::Proxy { id, .. }
+        | JsVal::Promise { id, .. } => Some(*id),
         _ => None,
     }
 }
@@ -126,6 +155,8 @@ fn is_objectish(v: &JsVal) -> bool {
         v,
         JsVal::Object { .. }
             | JsVal::UserFn { .. }
+            | JsVal::Proxy { .. }
+            | JsVal::Promise { .. }
             | JsVal::WeakMap(_)
             | JsVal::WeakSet(_)
             | JsVal::Builtin(_)
@@ -159,6 +190,7 @@ fn delete_key(props: &Rc<RefCell<Vec<(String, Slot)>>>, key: &str) {
 thread_local! {
     static CURRENT_THIS: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
     static CURRENT_NEW_TARGET: RefCell<JsVal> = const { RefCell::new(JsVal::Undef) };
+    static NAME_FRAMES: RefCell<Vec<HashMap<String, JsVal>>> = const { RefCell::new(Vec::new()) };
 }
 
 fn with_this<R>(t: JsVal, f: impl FnOnce() -> R) -> R {
@@ -187,20 +219,43 @@ fn current_new_target() -> JsVal {
     CURRENT_NEW_TARGET.with(|c| c.borrow().clone())
 }
 
+fn with_name_frame<R>(frame: HashMap<String, JsVal>, f: impl FnOnce() -> R) -> R {
+    NAME_FRAMES.with(|c| {
+        c.borrow_mut().push(frame);
+        let o = f();
+        c.borrow_mut().pop();
+        o
+    })
+}
+
+fn lookup_name(name: &str) -> Option<JsVal> {
+    NAME_FRAMES.with(|c| {
+        for frame in c.borrow().iter().rev() {
+            if let Some(v) = frame.get(name) {
+                return Some(v.clone());
+            }
+        }
+        None
+    })
+}
+
 fn builtin(name: &str) -> Option<JsVal> {
     match name {
         "undefined" => Some(JsVal::Undef),
-        "Object" | "Function" | "WeakMap" | "WeakSet" | "TypeError" | "Error" => {
-            Some(JsVal::Builtin(match name {
-                "Object" => "Object",
-                "Function" => "Function",
-                "WeakMap" => "WeakMap",
-                "WeakSet" => "WeakSet",
-                "TypeError" => "TypeError",
-                "Error" => "Error",
-                _ => unreachable!(),
-            }))
-        }
+        "Object" | "Function" | "WeakMap" | "WeakSet" | "TypeError" | "Error"
+        | "ReferenceError" | "Reflect" | "Proxy" | "Promise" => Some(JsVal::Builtin(match name {
+            "Object" => "Object",
+            "Function" => "Function",
+            "WeakMap" => "WeakMap",
+            "WeakSet" => "WeakSet",
+            "TypeError" => "TypeError",
+            "Error" => "Error",
+            "ReferenceError" => "ReferenceError",
+            "Reflect" => "Reflect",
+            "Proxy" => "Proxy",
+            "Promise" => "Promise",
+            _ => unreachable!(),
+        })),
         _ => None,
     }
 }
@@ -210,7 +265,82 @@ fn has_private_accessor_surface(module: &Module) -> bool {
         l.name.contains("__drac_pag_")
             || l.name.contains("__drac_pas_")
             || l.name.contains("__drac_pf_")
-    })
+            || l.name.contains("__drac_pm_")
+            || l.name.contains("__drac_pb_")
+    }) || body_has_async(&module.body)
+}
+
+fn body_has_async(body: &[Stmt]) -> bool {
+    body.iter().any(stmt_has_async)
+}
+
+fn stmt_has_async(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Function { is_async: true, .. } => true,
+        Stmt::Function { body, .. } => body_has_async(body),
+        Stmt::Declare { init: Some(e), .. } | Stmt::Expr { expr: e } | Stmt::Throw { value: e } => {
+            expr_has_async(e)
+        }
+        Stmt::Return { value: Some(e) } => expr_has_async(e),
+        Stmt::If {
+            test,
+            consequent,
+            alternate,
+        } => {
+            expr_has_async(test)
+                || stmt_has_async(consequent)
+                || alternate.as_ref().is_some_and(|a| stmt_has_async(a))
+        }
+        Stmt::Block { body } => body_has_async(body),
+        Stmt::Try {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            body_has_async(block)
+                || handler.as_ref().is_some_and(|h| body_has_async(h))
+                || finalizer.as_ref().is_some_and(|f| body_has_async(f))
+        }
+        _ => false,
+    }
+}
+
+fn expr_has_async(expr: &Expr) -> bool {
+    match expr {
+        Expr::Function { is_async: true, .. } => true,
+        Expr::Function { body, .. } => body_has_async(body),
+        Expr::Unary { arg, .. } => expr_has_async(arg),
+        Expr::Binary { left, right, .. } => expr_has_async(left) || expr_has_async(right),
+        Expr::Conditional {
+            test,
+            consequent,
+            alternate,
+            ..
+        } => expr_has_async(test) || expr_has_async(consequent) || expr_has_async(alternate),
+        Expr::Member {
+            object, property, ..
+        } => expr_has_async(object) || expr_has_async(property),
+        Expr::New { callee, args, .. } | Expr::Call { callee, args, .. } => {
+            expr_has_async(callee)
+                || args.iter().any(|a| match a {
+                    Arg::Expr(e) => expr_has_async(e),
+                    _ => false,
+                })
+        }
+        Expr::Assign { value, .. } => expr_has_async(value),
+        Expr::Array { elements, .. } => elements.iter().any(|el| match el {
+            ArrayElement::Expr(e) => expr_has_async(e),
+            _ => false,
+        }),
+        Expr::Object { properties, .. } => properties.iter().any(|p| match p {
+            ObjectProp::Property { value, .. } | ObjectProp::Accessor { value, .. } => {
+                expr_has_async(value)
+            }
+            _ => false,
+        }),
+        _ => false,
+    }
 }
 
 fn classify(module: &Module) -> Option<ModuleInfo> {
@@ -252,6 +382,8 @@ fn classify(module: &Module) -> Option<ModuleInfo> {
                 | Some(JsVal::Null)
                 | Some(JsVal::Object { .. })
                 | Some(JsVal::UserFn { .. })
+                | Some(JsVal::Proxy { .. })
+                | Some(JsVal::Promise { .. })
                 | Some(JsVal::Builtin(_))
                 | Some(JsVal::WeakMap(_))
                 | Some(JsVal::WeakSet(_))
@@ -278,13 +410,7 @@ fn stmt_ok(stmt: &Stmt) -> bool {
         }
         Stmt::Return { value: None } => true,
         Stmt::Return { value: Some(e) } => expr_ok(e),
-        Stmt::Function {
-            params,
-            body,
-            is_async: false,
-            is_generator: false,
-            ..
-        } => params_ok(params) && body_ok(body),
+        Stmt::Function { params, body, .. } => params_ok(params) && body_ok(body),
         Stmt::If {
             test,
             consequent,
@@ -310,9 +436,9 @@ fn stmt_ok(stmt: &Stmt) -> bool {
 }
 
 fn params_ok(params: &[Param]) -> bool {
-    params
-        .iter()
-        .all(|p| !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_)))
+    params.iter().all(|p| {
+        !p.rest && p.default.is_none() && matches!(p.pattern, Pattern::Local(_) | Pattern::Name(_))
+    })
 }
 
 fn expr_ok(expr: &Expr) -> bool {
@@ -323,16 +449,10 @@ fn expr_ok(expr: &Expr) -> bool {
         | Expr::Null { .. }
         | Expr::Local { .. }
         | Expr::This { .. }
+        | Expr::Super { .. }
         | Expr::NewTarget { .. }
         | Expr::IdentName { .. } => true,
-        Expr::Function {
-            name: None,
-            params,
-            body,
-            is_async: false,
-            is_generator: false,
-            ..
-        } => params_ok(params) && body_ok(body),
+        Expr::Function { params, body, .. } => params_ok(params) && body_ok(body),
         Expr::Unary {
             op:
                 UnaryOp::TypeOf
@@ -340,7 +460,10 @@ fn expr_ok(expr: &Expr) -> bool {
                 | UnaryOp::Plus
                 | UnaryOp::Not
                 | UnaryOp::Void
-                | UnaryOp::Delete,
+                | UnaryOp::Delete
+                | UnaryOp::Await
+                | UnaryOp::Yield
+                | UnaryOp::YieldStar,
             arg,
             ..
         } => expr_ok(arg),
@@ -412,17 +535,26 @@ fn expr_ok(expr: &Expr) -> bool {
             ObjectProp::Property {
                 key: ObjectPropKey::Static(_),
                 value,
+            }
+            | ObjectProp::Accessor {
+                key: ObjectPropKey::Static(_),
+                value,
+                ..
             } => expr_ok(value),
             ObjectProp::Property {
                 key: ObjectPropKey::Computed(k),
                 value,
+            }
+            | ObjectProp::Accessor {
+                key: ObjectPropKey::Computed(k),
+                value,
+                ..
             } => expr_ok(k) && expr_ok(value),
             _ => false,
         }),
         _ => false,
     }
 }
-
 
 struct Emitter {
     out: String,
@@ -532,5 +664,76 @@ mod tests {
         assert!(ir.contains("double 5") || ir.contains("double 5.0"), "{ir}");
         assert!(ir.contains("double 7") || ir.contains("double 7.0"), "{ir}");
         assert!(ir.contains("double 3") || ir.contains("double 3.0"), "{ir}");
+    }
+
+    #[test]
+    fn static_private_fields_classifies_and_prints() {
+        let src = include_str!(
+            "../../../tests/conformance/fixtures/es/annex-b/static_private_fields.drac"
+        );
+        let m = compile_source(src).expect("compile");
+        assert!(
+            is_es_private_accessors_module(&m),
+            "should classify static_private_fields"
+        );
+        let ir = crate::emit_llvm_ir(&m).expect("walk emit");
+        assert!(!ir.contains("draconic_rt_hello"), "no hello stub:\n{ir}");
+        assert!(ir.contains("undefined"), "{ir}");
+        assert!(ir.contains("double 2") || ir.contains("double 2.0"), "{ir}");
+        assert!(
+            ir.contains("double 10") || ir.contains("double 10.0"),
+            "{ir}"
+        );
+        assert!(ir.contains("double 3") || ir.contains("double 3.0"), "{ir}");
+        assert!(ir.contains("double 7") || ir.contains("double 7.0"), "{ir}");
+        assert!(
+            ir.contains("double 101") || ir.contains("double 101.0"),
+            "{ir}"
+        );
+        assert!(
+            ir.contains("double 100") || ir.contains("double 100.0"),
+            "{ir}"
+        );
+    }
+
+    #[test]
+    fn private_methods_classifies_and_prints() {
+        let src =
+            include_str!("../../../tests/conformance/fixtures/es/annex-b/private_methods.drac");
+        let m = compile_source(src).expect("compile");
+        assert!(
+            is_es_private_accessors_module(&m),
+            "should classify private_methods"
+        );
+        let ir = crate::emit_llvm_ir(&m).expect("walk emit");
+        assert!(!ir.contains("draconic_rt_hello"), "no hello stub:\n{ir}");
+        assert!(ir.contains("undefined"), "{ir}");
+        assert!(ir.contains("hi world"), "{ir}");
+        assert!(ir.contains("#m"), "{ir}");
+        assert!(ir.contains("#sag"), "{ir}");
+        assert!(
+            ir.contains("double 101") || ir.contains("double 101.0"),
+            "{ir}"
+        );
+    }
+
+    #[test]
+    fn async_methods_classifies_and_prints() {
+        let src = include_str!("../../../tests/conformance/fixtures/es/annex-b/async_methods.drac");
+        let m = compile_source(src).expect("compile");
+        assert!(
+            is_es_private_accessors_module(&m),
+            "should classify async_methods"
+        );
+        let ir = crate::emit_llvm_ir(&m).expect("walk emit");
+        assert!(!ir.contains("draconic_rt_hello"), "no hello stub:\n{ir}");
+        assert!(ir.contains("double 3") || ir.contains("double 3.0"), "{ir}");
+        assert!(
+            ir.contains("double 10") || ir.contains("double 10.0"),
+            "{ir}"
+        );
+        assert!(ir.contains("double 7") || ir.contains("double 7.0"), "{ir}");
+        assert!(ir.contains("double 8") || ir.contains("double 8.0"), "{ir}");
+        assert!(ir.contains("double 9") || ir.contains("double 9.0"), "{ir}");
     }
 }

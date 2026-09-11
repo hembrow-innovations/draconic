@@ -228,7 +228,12 @@ impl super::World {
         }
     }
 
-    pub(super) fn call(&mut self, func: &JsVal, this_arg: JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
+    pub(super) fn call(
+        &mut self,
+        func: &JsVal,
+        this_arg: JsVal,
+        args: &[JsVal],
+    ) -> Result<JsVal, ()> {
         // WeakMap/WeakSet methods encoded as magic strings
         if let JsVal::Str(s) = func {
             if let Some(method) = s.strip_prefix("__wm_") {
@@ -430,7 +435,12 @@ impl super::World {
         }
     }
 
-    pub(super) fn call_fn_idx(&mut self, fn_idx: usize, this_arg: JsVal, args: &[JsVal]) -> Result<JsVal, ()> {
+    pub(super) fn call_fn_idx(
+        &mut self,
+        fn_idx: usize,
+        this_arg: JsVal,
+        args: &[JsVal],
+    ) -> Result<JsVal, ()> {
         let is_arrow = self.fns.get(fn_idx).map(|f| f.is_arrow).unwrap_or(false);
         // Arrows inherit outer `new.target`; non-arrows clear it on ordinary call.
         let nt = if is_arrow {

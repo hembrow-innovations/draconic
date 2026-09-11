@@ -18,9 +18,8 @@ use draconic_ir::{
     ObjectPropKey, Param, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, ES_EXPR_DECLARES, PRINT_F64, PRINT_STR};
-mod eval;
 mod call;
-
+mod eval;
 
 pub(crate) fn is_es_private_in_module(module: &Module) -> bool {
     classify(module).is_some()
@@ -371,7 +370,6 @@ fn module_looks_like_private_in(module: &Module) -> bool {
     }
     (has_wm || has_ws) && has_define
 }
-
 
 fn with_this_new<R>(this: JsVal, new_target: JsVal, f: impl FnOnce() -> R) -> R {
     CURRENT_THIS.with(|t| {

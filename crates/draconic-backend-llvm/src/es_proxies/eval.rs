@@ -93,7 +93,11 @@ pub(super) fn simple_param_locals(params: &[Param]) -> Option<Vec<LocalId>> {
     Some(ids)
 }
 
-pub(super) fn register_fn(params: &[Param], body: &[Stmt], fns: &mut Vec<FnRec>) -> Result<JsVal, ()> {
+pub(super) fn register_fn(
+    params: &[Param],
+    body: &[Stmt],
+    fns: &mut Vec<FnRec>,
+) -> Result<JsVal, ()> {
     let param_ids = simple_param_locals(params).ok_or(())?;
     let idx = fns.len();
     fns.push(FnRec {
@@ -795,4 +799,3 @@ pub(super) fn to_number(v: &JsVal) -> Result<f64, ()> {
         _ => Err(()),
     }
 }
-

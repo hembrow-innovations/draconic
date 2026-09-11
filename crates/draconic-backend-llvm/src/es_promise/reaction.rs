@@ -3,7 +3,11 @@ use std::fmt::Write as _;
 use super::*;
 
 impl<'a> super::Emitter<'a> {
-    pub(super) fn emit_executor_fn(&mut self, params: &[Param], body: &[Stmt]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_executor_fn(
+        &mut self,
+        params: &[Param],
+        body: &[Stmt],
+    ) -> Result<String, Diagnostic> {
         let fn_name = self.fresh_fn("exec");
         let mut resolve_param = None;
         let mut reject_param = None;

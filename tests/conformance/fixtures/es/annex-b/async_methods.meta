@@ -1,4 +1,6 @@
 id: es/annex-b/async_methods
-targets: js
+targets: js,native
 js.exit: 0
 js.check: setTimeout(function () { if (objDone !== 3) process.exit(1); if (objThis !== 10) process.exit(2); if (classThis !== 7) process.exit(3); if (classDone !== 10) process.exit(4); if (staticDone !== 8) process.exit(5); if (throwDone !== 9) process.exit(6); }, 0);
+native.exit: 0
+native.stdout: 3\n10\n10\n7\n8\n9\n

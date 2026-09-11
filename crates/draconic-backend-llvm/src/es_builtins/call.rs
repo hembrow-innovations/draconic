@@ -10,7 +10,8 @@ use draconic_runtime::{
 use super::*;
 
 impl super::Interp {
-    pub(crate) fn eval_new(&self, 
+    pub(crate) fn eval_new(
+        &self,
         callee: &JsVal,
         args: &[JsVal],
         env: &mut HashMap<LocalId, JsVal>,
@@ -168,7 +169,8 @@ impl super::Interp {
         })
     }
 
-    pub(crate) fn call_user_fn(&self, 
+    pub(crate) fn call_user_fn(
+        &self,
         params: &[LocalId],
         body: &[Stmt],
         this: JsVal,
@@ -253,7 +255,8 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn eval_call(&self, 
+    pub(crate) fn eval_call(
+        &self,
         callee: &JsVal,
         args: &[JsVal],
         env: &mut HashMap<LocalId, JsVal>,
@@ -333,13 +336,16 @@ impl super::Interp {
             BuiltinId::ParseUrl => {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
                 let u = parse_url(&s).map_err(|_| ())?;
-                Ok(new_object(self, vec![
-                    ("scheme".into(), PropSlot::Data(JsVal::Str(u.scheme))),
-                    ("host".into(), PropSlot::Data(JsVal::Str(u.host))),
-                    ("path".into(), PropSlot::Data(JsVal::Str(u.path))),
-                    ("query".into(), PropSlot::Data(JsVal::Str(u.query))),
-                    ("hash".into(), PropSlot::Data(JsVal::Str(u.hash))),
-                ]))
+                Ok(new_object(
+                    self,
+                    vec![
+                        ("scheme".into(), PropSlot::Data(JsVal::Str(u.scheme))),
+                        ("host".into(), PropSlot::Data(JsVal::Str(u.host))),
+                        ("path".into(), PropSlot::Data(JsVal::Str(u.path))),
+                        ("query".into(), PropSlot::Data(JsVal::Str(u.query))),
+                        ("hash".into(), PropSlot::Data(JsVal::Str(u.hash))),
+                    ],
+                ))
             }
             BuiltinId::ParseQuery => {
                 let s = to_string_arg(args.first().unwrap_or(&JsVal::Undef))?;
@@ -389,10 +395,13 @@ impl super::Interp {
                     (flag_props, parsed.positionals)
                 };
                 let pos = JsVal::Array(positionals.into_iter().map(JsVal::Str).collect());
-                Ok(new_object(self, vec![
-                    ("flags".into(), PropSlot::Data(new_object(self, flag_props))),
-                    ("positionals".into(), PropSlot::Data(pos)),
-                ]))
+                Ok(new_object(
+                    self,
+                    vec![
+                        ("flags".into(), PropSlot::Data(new_object(self, flag_props))),
+                        ("positionals".into(), PropSlot::Data(pos)),
+                    ],
+                ))
             }
             BuiltinId::FlagHelp => {
                 let spec = self.flag_specs_from_js(args.first().ok_or(())?)?;
@@ -427,7 +436,8 @@ impl super::Interp {
         }
     }
 
-    pub(crate) fn eval_method_call(&self, 
+    pub(crate) fn eval_method_call(
+        &self,
         recv: &mut JsVal,
         key: &str,
         args: &[JsVal],

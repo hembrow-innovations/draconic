@@ -103,11 +103,21 @@ fn emit_host(module: &Module, seen: &Seen) -> Result<String, Diagnostic> {
     ]) {
         return crate::host_path::emit_host_path(module);
     }
-    if seen.host_has(&["tcpAcceptAsync", "tcpConnectAsync", "tcpReadAsync", "tcpWriteAsync"])
-    {
+    if seen.host_has(&[
+        "tcpAcceptAsync",
+        "tcpConnectAsync",
+        "tcpReadAsync",
+        "tcpWriteAsync",
+    ]) {
         return crate::host_tcp_async::emit_host_tcp_async(module);
     }
-    if seen.host_has(&["udpBind", "udpLocalPort", "udpSendTo", "udpRecvFrom", "closeUdp"]) {
+    if seen.host_has(&[
+        "udpBind",
+        "udpLocalPort",
+        "udpSendTo",
+        "udpRecvFrom",
+        "closeUdp",
+    ]) {
         return crate::host_udp::emit_host_udp(module);
     }
     if seen.host_has(&["dnsLookup"]) {
@@ -209,7 +219,8 @@ fn emit_host(module: &Module, seen: &Seen) -> Result<String, Diagnostic> {
     ]) {
         return crate::host_atomics::emit_host_atomics(module);
     }
-    if seen.host_has(&["spawnWorker"]) && seen.host_has(&["makeChannel", "channelSend", "channelRecv"])
+    if seen.host_has(&["spawnWorker"])
+        && seen.host_has(&["makeChannel", "channelSend", "channelRecv"])
     {
         return crate::host_worker_channels::emit_host_worker_channels(module);
     }
@@ -226,7 +237,12 @@ fn emit_host(module: &Module, seen: &Seen) -> Result<String, Diagnostic> {
     ]) {
         return crate::host_cancel::emit_host_cancel(module);
     }
-    if seen.host_has(&["spawnWorker", "joinWorker", "terminateWorker", "workerOsThread"]) {
+    if seen.host_has(&[
+        "spawnWorker",
+        "joinWorker",
+        "terminateWorker",
+        "workerOsThread",
+    ]) {
         return crate::host_workers::emit_host_workers(module);
     }
     if seen.host_has(&["makeChannel", "channelSend", "channelRecv"]) {
@@ -245,8 +261,9 @@ fn emit_host(module: &Module, seen: &Seen) -> Result<String, Diagnostic> {
     ]) {
         return crate::host_process::emit_host_process(module);
     }
-    if seen.host_has(&["cwd", "chdir", "hostname", "osType", "osArch", "tempDir", "homeDir"])
-    {
+    if seen.host_has(&[
+        "cwd", "chdir", "hostname", "osType", "osArch", "tempDir", "homeDir",
+    ]) {
         return crate::host_os::emit_host_os(module);
     }
     if seen.host_has(&["stdoutWrite", "stderrWrite"])
@@ -319,7 +336,9 @@ fn emit_es(module: &Module, seen: &Seen) -> Result<String, Diagnostic> {
         EsKind::StaticPrivateMethods => {
             crate::es_static_private_methods::emit_es_static_private_methods(module)
         }
-        EsKind::ObjectDestructure => crate::es_object_destructure::emit_es_object_destructure(module),
+        EsKind::ObjectDestructure => {
+            crate::es_object_destructure::emit_es_object_destructure(module)
+        }
         EsKind::DestructureDefaults => {
             crate::es_destructure_defaults::emit_es_destructure_defaults(module)
         }
@@ -380,9 +399,7 @@ fn es_kind(module: &Module, seen: &Seen) -> EsKind {
     {
         return EsKind::Promise;
     }
-    if (seen.ident("eval") || seen.ident("Function"))
-        && crate::es_eval::is_es_eval_module(module)
-    {
+    if (seen.ident("eval") || seen.ident("Function")) && crate::es_eval::is_es_eval_module(module) {
         return EsKind::Eval;
     }
     if crate::es_private_in::is_es_private_in_module(module) {
@@ -505,9 +522,14 @@ fn es_kind(module: &Module, seen: &Seen) -> EsKind {
     if crate::es_classes::walk_es_classes_applies(module) {
         return EsKind::Classes;
     }
-    if (seen.has_array || seen.has_arr_pattern) && crate::es_arrays::is_es_arrays_module(module)
-    {
+    if (seen.has_array || seen.has_arr_pattern) && crate::es_arrays::is_es_arrays_module(module) {
         return EsKind::Arrays;
+    }
+    if classify_body(module).is_none()
+        && (seen.ident("Object") || seen.ident("String"))
+        && crate::es_builtins::is_es_builtins_module(module)
+    {
+        return EsKind::Builtins;
     }
     if seen.has_function {
         return EsKind::Functions;
@@ -552,7 +574,12 @@ fn walk_stmt(stmt: &Stmt, module: &Module, seen: &mut Seen) {
                 walk_expr(expr, module, seen);
             }
         }
-        Stmt::DeclareArrayPattern { init, kind, elements, .. } => {
+        Stmt::DeclareArrayPattern {
+            init,
+            kind,
+            elements,
+            ..
+        } => {
             if *kind == BindingKind::Var {
                 seen.has_var = true;
             }
@@ -750,9 +777,7 @@ fn walk_expr(expr: &Expr, module: &Module, seen: &mut Seen) {
             }
         }
         Expr::TaggedTemplate {
-            tag,
-            expressions,
-            ..
+            tag, expressions, ..
         } => {
             seen.has_tagged = true;
             walk_expr(tag, module, seen);
@@ -760,14 +785,18 @@ fn walk_expr(expr: &Expr, module: &Module, seen: &mut Seen) {
                 walk_expr(e, module, seen);
             }
         }
-        Expr::ImportCall { source, options, .. } => {
+        Expr::ImportCall {
+            source, options, ..
+        } => {
             walk_expr(source, module, seen);
             if let Some(o) = options {
                 walk_expr(o, module, seen);
             }
         }
         Expr::Unary { arg, .. } => walk_expr(arg, module, seen),
-        Expr::Binary { left, op, right, .. } => {
+        Expr::Binary {
+            left, op, right, ..
+        } => {
             if matches!(*op, BinaryOp::Nullish) {
                 seen.has_nullish = true;
             }
@@ -889,7 +918,8 @@ fn note_date_now(callee: &Expr, args: &[Arg], module: &Module, seen: &mut Seen) 
     if value.to_string_lossy() != "now" {
         return;
     }
-    if crate::host_catalog::is_named_callee_in(object, "Date", Some(module)) || ident_is(object, module, "Date")
+    if crate::host_catalog::is_named_callee_in(object, "Date", Some(module))
+        || ident_is(object, module, "Date")
     {
         seen.has_date_now = true;
     }

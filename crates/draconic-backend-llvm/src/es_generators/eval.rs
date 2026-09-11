@@ -632,7 +632,10 @@ pub(super) fn call_thenable_cb(
     Ok(ret)
 }
 
-pub(super) fn restore_params(env: &mut HashMap<LocalId, JsVal>, saved: &HashMap<LocalId, Option<JsVal>>) {
+pub(super) fn restore_params(
+    env: &mut HashMap<LocalId, JsVal>,
+    saved: &HashMap<LocalId, Option<JsVal>>,
+) {
     for (pid, prev) in saved {
         match prev {
             Some(v) => {

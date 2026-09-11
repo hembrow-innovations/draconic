@@ -2,14 +2,14 @@
 id: "task-794-annex-b-native-through-walker"
 title: "Restore annex-b native through the walker"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-793-delete-try-folded-walks", "task-789-annex-b-honesty"]
 sprint: "dragons-audit"
 slice: "slice-784-llvm-no-fingerprint"
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T23:59:00Z"
 ---
 
 # Restore annex-b native through the walker
@@ -61,10 +61,14 @@ targets js,native. native.stdout as in the parked meta. Tests green. ROADMAP don
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] slice O2 annex_b ok
-- [ ] those three ROADMAP rows done
-- [ ] no walk_* fingerprint
-- [ ] no const OBS
+- [x] slice O2 annex_b ok
+- [x] those three ROADMAP rows done
+- [x] no walk_* fingerprint
+- [x] no const OBS
+
+## Gauntlet
+
+- **round 1**: `cargo test -p draconic-conformance --test annex_b --offline` — win. `test result: ok.` N08.16.35/37/38 native.stdout green. No new `walk_*`. No `is_es_async_methods_module`. No `const OBS`.
 
 **Out of scope:**
 - other annex-b remainder

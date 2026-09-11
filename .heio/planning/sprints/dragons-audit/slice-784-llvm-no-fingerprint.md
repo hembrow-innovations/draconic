@@ -7,7 +7,7 @@ sprint: "dragons-audit"
 blocked_by: [ "slice-783-llvm-one-emitter" ]
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-11T21:30:00Z"
+updated_at: "2026-09-11T23:59:00Z"
 ---
 # LLVM one IR walker no fingerprints
 
@@ -32,18 +32,18 @@ Native emit still claims modules by fingerprint. Unsupported IR is a miss in `tr
 
 ## Oracle checklist
 
-- [ ] O1: no try_folded_walks
+- [x] O1: no try_folded_walks
   CHECK: python3 -c 'from pathlib import Path; t=Path("crates/draconic-backend-llvm/src/es_expr.rs").read_text(); print("no-fold" if "fn try_folded_walks" not in t else "still-fold")'
   EXPECT: no-fold
-  EVIDENCE: pending
-- [ ] O2: annex_b including those three native fixtures green
+  EVIDENCE: no-fold (task-793; rechecked task-794)
+- [x] O2: annex_b including those three native fixtures green
   CHECK: cargo test -p draconic-conformance --test annex_b --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: llvm backend tests green
+  EVIDENCE: test result: ok. 104 passed (task-794)
+- [x] O3: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. 321 passed (task-794)
 
 ## Pool
 

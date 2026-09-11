@@ -166,7 +166,11 @@ impl<'a> super::Emitter<'a> {
         }
     }
 
-    pub(super) fn store_local(&mut self, id: LocalId, value_ptr_or_num: &str) -> Result<(), Diagnostic> {
+    pub(super) fn store_local(
+        &mut self,
+        id: LocalId,
+        value_ptr_or_num: &str,
+    ) -> Result<(), Diagnostic> {
         let Some(kind) = self.slot_kind(id) else {
             // Nested param / unknown — ignore stores to non-top-level when not in reaction.
             if let Some(ptr) = self.allocas.get(&id).cloned() {
@@ -528,7 +532,11 @@ impl<'a> super::Emitter<'a> {
         Ok(t)
     }
 
-    pub(super) fn emit_new_promise(&mut self, callee: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_new_promise(
+        &mut self,
+        callee: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = callee else {
             return Err(diag("new callee must be Promise"));
         };
@@ -759,7 +767,11 @@ impl<'a> super::Emitter<'a> {
         Ok(p)
     }
 
-    pub(super) fn emit_promise_all(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_promise_all(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.all requires Promise receiver"));
         };
@@ -783,7 +795,11 @@ impl<'a> super::Emitter<'a> {
         Ok(t)
     }
 
-    pub(super) fn emit_promise_race(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_promise_race(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.race requires Promise receiver"));
         };
@@ -835,7 +851,11 @@ impl<'a> super::Emitter<'a> {
         Ok(t)
     }
 
-    pub(super) fn emit_promise_any(&mut self, object: &Expr, args: &[Arg]) -> Result<String, Diagnostic> {
+    pub(super) fn emit_promise_any(
+        &mut self,
+        object: &Expr,
+        args: &[Arg],
+    ) -> Result<String, Diagnostic> {
         let Expr::Local { id, .. } = object else {
             return Err(diag("Promise.any requires Promise receiver"));
         };

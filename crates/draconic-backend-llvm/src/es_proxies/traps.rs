@@ -345,4 +345,3 @@ pub(super) fn proxy_or_object_delete(
         _ => Err(()),
     }
 }
-

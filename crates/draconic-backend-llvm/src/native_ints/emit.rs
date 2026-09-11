@@ -586,7 +586,11 @@ impl<'a> super::Emitter<'a> {
         ))
     }
 
-    pub(super) fn emit_print_scalar_value(&mut self, ty: Scalar, v: &str) -> Result<(), Diagnostic> {
+    pub(super) fn emit_print_scalar_value(
+        &mut self,
+        ty: Scalar,
+        v: &str,
+    ) -> Result<(), Diagnostic> {
         let n = ty.native();
         if n.is_bool() {
             let ext = self.fresh_tmp();

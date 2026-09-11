@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-794-annex-b-native-through-walker** — annex-b async_methods, private_methods, static_private_fields native through the LLVM walker; N08.16.35/37/38 done
 - **housekeeping** — met slice-787; archived ticket-780; dragons-audit stays active
 - **task-800-test262-frontend-link** — test262 force-link uses Frontend `compile_path_linked`; no private link/check/lower pipeline
 - **task-798-cli-parse-extract-frontend** — CLI parse and extract use Frontend `parse_source` (Script-then-Module); dump stays in ast

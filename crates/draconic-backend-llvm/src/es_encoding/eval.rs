@@ -63,7 +63,10 @@ pub(super) fn eval_stmt(stmt: &Stmt, env: &mut HashMap<LocalId, JsVal>) -> Resul
     }
 }
 
-pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<JsVal, Flow>, ()> {
+pub(super) fn eval_expr(
+    expr: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<Result<JsVal, Flow>, ()> {
     match expr {
         Expr::Number { raw, .. } => Ok(Ok(JsVal::Num(raw.parse().map_err(|_| ())?))),
         Expr::Boolean { value, .. } => Ok(Ok(JsVal::Bool(*value))),
@@ -292,7 +295,10 @@ pub(super) fn eval_expr(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Resul
     }
 }
 
-pub(super) fn eval_key(expr: &Expr, env: &mut HashMap<LocalId, JsVal>) -> Result<Result<String, Flow>, ()> {
+pub(super) fn eval_key(
+    expr: &Expr,
+    env: &mut HashMap<LocalId, JsVal>,
+) -> Result<Result<String, Flow>, ()> {
     match expr {
         Expr::String { value, .. } => Ok(Ok(js_string_to_utf8(value))),
         e => match eval_expr(e, env)? {
@@ -570,7 +576,11 @@ pub(super) fn eval_new(callee: &JsVal, args: &[JsVal]) -> Result<JsVal, Option<F
     }
 }
 
-pub(super) fn eval_method_call(recv: &JsVal, key: &str, args: &[JsVal]) -> Result<JsVal, Option<Flow>> {
+pub(super) fn eval_method_call(
+    recv: &JsVal,
+    key: &str,
+    args: &[JsVal],
+) -> Result<JsVal, Option<Flow>> {
     match recv {
         JsVal::TextEncoderInst if key == "encode" => {
             let s = match args.first() {

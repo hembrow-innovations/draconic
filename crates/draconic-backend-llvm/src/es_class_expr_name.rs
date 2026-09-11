@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
 use draconic_ast::UnaryOp;
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -17,7 +18,6 @@ use draconic_ir::{
     ObjectProp, ObjectPropKey, Pattern, Stmt,
 };
 use draconic_runtime::abi::{llvm_declares, GC_INIT, PRINT_STR};
-use crate::emitter::escape_llvm_string;
 
 /// Class constructor name observation: data `.name` string, or function when a
 /// static `name` method overwrites the NamedEvaluation data property.

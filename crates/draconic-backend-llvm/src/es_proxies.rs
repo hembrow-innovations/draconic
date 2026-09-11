@@ -34,7 +34,6 @@ mod traps;
 
 use eval::eval_body;
 
-
 pub(crate) fn is_es_proxies_module(module: &Module) -> bool {
     classify(module).is_some()
 }

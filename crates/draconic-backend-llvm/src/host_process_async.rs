@@ -11,6 +11,8 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use crate::emitter::escape_llvm_string;
+use crate::host_catalog::is_named_callee;
 use draconic_ast::{BinaryOp, UnaryOp};
 use draconic_diagnostics::{Diagnostic, Span};
 use draconic_ir::{
@@ -20,8 +22,6 @@ use draconic_runtime::abi::{
     llvm_declares, GC_INIT, HOST_PROCESS_ASYNC_DECLARES, HOST_PROCESS_CLOSE, HOST_PROCESS_SPAWN,
     HOST_PROCESS_WAIT_ASYNC, JOB_DRAIN, PRINT_BOOL, PRINT_I64, PRINT_STR, PROMISE_THEN,
 };
-use crate::emitter::escape_llvm_string;
-use crate::host_catalog::is_named_callee;
 
 mod classify;
 
