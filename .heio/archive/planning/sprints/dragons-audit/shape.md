@@ -2,12 +2,11 @@
 id: "dragons-audit"
 title: "Dragons audit follow-up"
 kind: sprint
-status: active
+status: closed
 tags: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T06:57:16Z"
 ---
-
 # Dragons audit follow-up
 
 ## Grouping

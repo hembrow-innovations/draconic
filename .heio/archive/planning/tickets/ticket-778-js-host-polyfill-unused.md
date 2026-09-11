@@ -2,14 +2,13 @@
 id: "ticket-778-js-host-polyfill-unused"
 title: "JS emit ignores host_js_polyfill"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T06:57:16Z"
 ---
-
 # JS emit ignores host_js_polyfill
 
 ## Signal
