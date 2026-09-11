@@ -2,12 +2,12 @@
 id: "ticket-776-llvm-fingerprint-adapters"
 title: "LLVM emit is still a fingerprint chain"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T06:45:26Z"
 ---
 
 # LLVM emit is still a fingerprint chain
@@ -18,7 +18,7 @@ Dragons audit 2026-09-10. `emit_llvm_ir_raw` dispatches native-ints, empty hello
 
 ## Fit
 
-Promoted to [[slice-784-llvm-no-fingerprint]], after [[slice-783-llvm-one-emitter]].
+Promoted to [[slice-784-llvm-no-fingerprint]], after [[slice-783-llvm-one-emitter]]. Slice is `met`. Closed.
 
 ## Notes
 

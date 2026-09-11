@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met slice-784; archived ticket-775 and ticket-776; ticket-802 stays open; dragons-audit stays active
 - **task-794-annex-b-native-through-walker** — annex-b async_methods, private_methods, static_private_fields native through the LLVM walker; N08.16.35/37/38 done
 - **housekeeping** — met slice-787; archived ticket-780; dragons-audit stays active
 - **task-800-test262-frontend-link** — test262 force-link uses Frontend `compile_path_linked`; no private link/check/lower pipeline

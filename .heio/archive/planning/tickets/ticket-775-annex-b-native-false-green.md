@@ -2,12 +2,12 @@
 id: "ticket-775-annex-b-native-false-green"
 title: "Annex B native fixtures fail while ROADMAP is done"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 tags: []
 blocked_by: []
 created_at: "2026-09-10T05:30:00Z"
-updated_at: "2026-09-10T05:30:00Z"
+updated_at: "2026-09-11T06:45:26Z"
 ---
 
 # Annex B native fixtures fail while ROADMAP is done
@@ -22,7 +22,7 @@ updated_at: "2026-09-10T05:30:00Z"
 
 ## Fit
 
-Honesty now: [[slice-782-annex-b-native-honesty]]. Real native lowering: [[slice-784-llvm-no-fingerprint]].
+Honesty: [[slice-782-annex-b-native-honesty]] (`met`). Native restore: [[slice-784-llvm-no-fingerprint]] (`met`). Closed.
 
 ## Notes
 
