@@ -27,13 +27,6 @@ pub(crate) fn emit_host_path(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
-pub(crate) fn walk_host_path(module: &Module) -> Option<Result<String, Diagnostic>> {
-    if !is_host_path_module(module) {
-        return None;
-    }
-    Some(emit_host_path(module))
-}
-
 struct ModuleInfo {
     slots: Vec<(LocalId, SlotTy)>,
     print_locals: Vec<(LocalId, SlotTy)>,

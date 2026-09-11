@@ -90,6 +90,44 @@ mod tests {
     }
 
     #[test]
+    fn leftover_walk_host_fingerprint_adapters_are_gone() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut hits = Vec::new();
+        collect_rs(&root, &mut hits);
+        let needle = concat!("fn ", "walk_host_");
+        let leftover: Vec<String> = hits
+            .into_iter()
+            .filter_map(|p| {
+                let text = std::fs::read_to_string(&p).ok()?;
+                if text.contains(needle) {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "fingerprint adapters still present: {}",
+            leftover.join(",")
+        );
+    }
+
+    fn collect_rs(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = std::fs::read_dir(dir).expect("read llvm src");
+        for entry in entries {
+            let path = entry.expect("dirent").path();
+            if path.is_dir() {
+                collect_rs(&path, out);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    #[test]
     fn compiled_host_call_resolves_through_catalog() {
         let m = compile_source(r#"let t = readFileText("hello.txt");"#).expect("compile");
         let mut found = false;

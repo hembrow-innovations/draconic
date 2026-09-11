@@ -30,13 +30,6 @@ pub(crate) fn emit_host_stdio(module: &Module) -> Result<String, Diagnostic> {
     Ok(em.finish())
 }
 
-pub(crate) fn walk_host_stdio(module: &Module) -> Option<Result<String, Diagnostic>> {
-    if !is_host_stdio_module(module) {
-        return None;
-    }
-    Some(emit_host_stdio(module))
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LocalSlot {
     /// `new Uint8Array(n)` fixed backing store.

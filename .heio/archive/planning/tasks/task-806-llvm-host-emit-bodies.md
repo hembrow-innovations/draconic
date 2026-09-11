@@ -2,14 +2,14 @@
 id: "task-806-llvm-host-emit-bodies"
 title: "LLVM host emit bodies"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-805-llvm-host-emit-bodies"
 tags: []
 created_at: "2026-09-11T23:30:00Z"
-updated_at: "2026-09-11T23:30:00Z"
+updated_at: "2026-09-11T13:30:00Z"
 ---
 
 # LLVM host emit bodies
@@ -60,11 +60,18 @@ Confirm whether those functions are dead leftovers or still dispatched. Once the
 - size-file-budget: no new file over 1000
 
 **Acceptance criteria:**
-- [ ] Slice O1 prints `no-host-fingerprint`
-- [ ] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
-- [ ] Existing native host fixtures that were green stay green (slice O3)
-- [ ] No new `walk_host_*`
-- [ ] No new host fingerprint adapter
+- [x] Slice O1 prints `no-host-fingerprint`
+- [x] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
+- [x] Existing native host fixtures that were green stay green (slice O3)
+- [x] No new `walk_host_*`
+- [x] No new host fingerprint adapter
+
+## Gauntlet
+
+- **round**: 1
+- **command**: O1 python walk_host/@main scan; cargo test -p draconic-backend-llvm --offline; cargo test -p draconic-conformance --test host_fs --test host_process --test host_stdio --test host_path --test host_tcp --offline
+- **result**: win
+- **gap**: none. 26 dead `walk_host_*` adapters deleted; catalog walker + `emit_host_*` remain. O1 `no-host-fingerprint`. O2 325 passed. O3 host_fs/process/stdio/path/tcp ok.
 
 **Out of scope:**
 - native `console.log` ([[ticket-773-native-console-log]])

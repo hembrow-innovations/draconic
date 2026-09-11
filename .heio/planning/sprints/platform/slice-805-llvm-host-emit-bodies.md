@@ -2,12 +2,12 @@
 id: "slice-805-llvm-host-emit-bodies"
 title: "LLVM host emit bodies"
 kind: slice
-status: frozen
+status: active
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-11T23:30:00Z"
-updated_at: "2026-09-11T23:30:00Z"
+updated_at: "2026-09-11T13:30:00Z"
 ---
 
 # LLVM host emit bodies
@@ -36,18 +36,18 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: walk_host fingerprint adapters gone or no full @main
+- [x] O1: walk_host fingerprint adapters gone or no full @main
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-llvm"); hits=[p.name for p in root.rglob("*.rs") if "fn walk_host_" in p.read_text() and "define i32 @main" in p.read_text()]; print("no-host-fingerprint" if not hits else "still:"+ ",".join(sorted(hits)))'
   EXPECT: no-host-fingerprint
-  EVIDENCE: pending
-- [ ] O2: llvm backend tests green
+  EVIDENCE: no-host-fingerprint (task-806 deleted 26 dead walk_host_* adapters)
+- [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: existing native host fixtures stay green
+  EVIDENCE: test result: ok. 325 passed
+- [x] O3: existing native host fixtures stay green
   CHECK: cargo test -p draconic-conformance --test host_fs --test host_process --test host_stdio --test host_path --test host_tcp --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: test result: ok. host_fs 30, host_path 16, host_process 40, host_stdio 16, host_tcp 10
 
 ## Pool
 

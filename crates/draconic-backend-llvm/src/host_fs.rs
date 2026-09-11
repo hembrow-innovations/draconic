@@ -41,13 +41,6 @@ pub(crate) fn is_host_fs_module(module: &Module) -> bool {
     classify(module).is_some()
 }
 
-pub(crate) fn walk_host_fs(module: &Module) -> Option<Result<String, Diagnostic>> {
-    if !is_host_fs_module(module) {
-        return None;
-    }
-    Some(emit_host_fs(module))
-}
-
 pub(crate) fn emit_host_fs(module: &Module) -> Result<String, Diagnostic> {
     let info = classify(module).ok_or_else(|| diag("internal: not a host_fs module"))?;
     let mut em = Emitter::new(module, &info);
