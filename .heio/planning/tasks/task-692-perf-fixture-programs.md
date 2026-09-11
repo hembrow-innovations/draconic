@@ -9,7 +9,7 @@ sprint: "opt-in-bench"
 slice: "slice-691-opt-in-cli-timings"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-09T12:05:00Z"
+updated_at: "2026-09-11T17:00:00Z"
 ---
 # Add tests/perf compile-heavy and run-heavy programs
 
@@ -84,9 +84,11 @@ Hyperfine will time build versus execute separately. These files must actually r
 
 ## Blocked
 
-O1 cannot hold with fixtures-only scope. Re-verified 2026-09-09 (temp programs under `/tmp`, always `-o`).
+O1 cannot hold with fixtures-only scope. Re-verified 2026-09-11 with `target/debug/draconic` (temp programs under `/tmp`, always `-o`). LLVM now walks through one `emit_es_expr_walk`, but print still cannot share a program with compile-heavy or run-heavy.
 
-- **JS**: `let console = globalThis.console; console.log("perf-ok");` builds and prints `perf-ok` (exit 0).
-- **Native**: the same print, and `examples/shebang/hello.drac`, still fail with `error: native target: unsupported IR (no LLVM lowering for this program; … empty hello) at 0..0`. LLVM adapters remain disjoint subsets. `console.log` is not in any of them.
-- **Dual stdout that actually writes**: `stdoutWrite("perf-ok\n")` still prints on native. Combining it with function decls or a `for` loop still hits the same unsupported-IR error, so it cannot host compile-heavy or run-heavy. Not used as a workaround.
-- **Unblock**: LLVM lowering for `globalThis.console.log` (or one adapter that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope. See [[ticket-773-native-console-log]] (still open).
+- **JS print**: `let console = globalThis.console; console.log("perf-ok");` and `stdoutWrite("perf-ok\n")` both print `perf-ok` (exit 0).
+- **Native `console.log`**: the same print, bare `console.log`, and `examples/shebang/hello.drac` still fail with `error: native target: unsupported IR (no LLVM lowering for this program; … empty hello) at 0..0`.
+- **Native functions**: `function f() { return 1; } let x = f();` works (prints `1`). One hundred small functions plus a numeric `let` also work. Adding a string local, `console.log`, or `stdoutWrite` to that program fails native.
+- **Native loops**: a `while` of integer arithmetic works and prints number locals. `let s = "perf-ok";` after the loop prints `perf-ok` on native only. Combining the loop with `console.log`, `stdoutWrite`, or a function decl fails native.
+- **Dual stdout**: `stdoutWrite("perf-ok\n")` still prints on both backends alone. It cannot host compile-heavy (functions) or run-heavy (a tight loop). JS never prints a trailing string local, so native observation of `"perf-ok"` is not a both-target print.
+- **Unblock**: LLVM lowering for `globalThis.console.log` (or one walk that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope. See [[ticket-773-native-console-log]] (still open).

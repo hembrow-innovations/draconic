@@ -7,7 +7,7 @@ ticket_type: bug
 tags: []
 blocked_by: []
 created_at: "2026-09-08T19:49:50Z"
-updated_at: "2026-09-08T19:49:50Z"
+updated_at: "2026-09-11T17:00:00Z"
 ---
 
 # Native LLVM has no console.log lowering
@@ -23,8 +23,8 @@ This project, not [[slice-691-opt-in-cli-timings]]. Slice drain stopped. Task st
 ## Notes
 
 - **JS**: console.log works.
-- **Native**: console.log is not in the LLVM adapters. Programs print observed `let` slots instead.
-- **Unblock for slice-691**: native lowering for `globalThis.console.log`, or one adapter that allows many functions plus a tight loop plus real stdout.
+- **Native**: console.log is not in the LLVM walk. Re-checked 2026-09-11 after `emit_es_expr_walk`: 100 function decls plus a numeric `let` run; a tight integer `while` runs; neither can share a program with `console.log` or `stdoutWrite`. Native prints observed number (and some string) `let` slots instead of writing stdout.
+- **Unblock for slice-691**: native lowering for `globalThis.console.log`, or one walk that allows many functions plus a tight loop plus real stdout.
 
 ## Parent
 
