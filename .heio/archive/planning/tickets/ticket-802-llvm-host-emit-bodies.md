@@ -2,11 +2,11 @@
 id: "ticket-802-llvm-host-emit-bodies"
 title: "LLVM host emit bodies still per-domain walk_host"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 created_at: "2026-09-11T22:30:00Z"
-updated_at: "2026-09-11T23:30:00Z"
+updated_at: "2026-09-11T09:20:00Z"
 ---
 
 # LLVM host emit bodies still per-domain walk_host
@@ -17,7 +17,7 @@ updated_at: "2026-09-11T23:30:00Z"
 
 ## Fit
 
-Promoted to [[slice-805-llvm-host-emit-bodies]] / [[task-806-llvm-host-emit-bodies]] in platform. Leftover after [[task-792-fold-host-catalog-emit]] classification-only stop. [[slice-784-llvm-no-fingerprint]] is already met.
+Promoted to [[slice-805-llvm-host-emit-bodies]] / [[task-806-llvm-host-emit-bodies]] in platform. Executable: [[task-806-llvm-host-emit-bodies]] (`completed`). Slice is `met`. Closed.
 
 ## Notes
 

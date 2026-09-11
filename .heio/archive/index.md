@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met slice-805; archived ticket-802; 2 tickets remain parked; platform and opt-in-bench stay active
 - **task-806-llvm-host-emit-bodies** — deleted 26 dead LLVM `walk_host_*` fingerprint adapters; host calls stay catalog-driven on the one walker (slice-805)
 - **housekeeping** — met slice-803; archived ticket-773; ticket-802 stays open; 2 tickets remain parked; platform and opt-in-bench stay active
 - **task-804-native-console-log** — native `globalThis.console.log` prints on LLVM, including next to a function and a tight loop; slice-803 O1–O3 evidence filled
