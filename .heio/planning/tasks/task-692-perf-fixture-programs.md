@@ -9,7 +9,7 @@ sprint: "opt-in-bench"
 slice: "slice-691-opt-in-cli-timings"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-11T17:00:00Z"
+updated_at: "2026-09-11T18:00:00Z"
 ---
 # Add tests/perf compile-heavy and run-heavy programs
 
@@ -84,7 +84,7 @@ Hyperfine will time build versus execute separately. These files must actually r
 
 ## Blocked
 
-O1 cannot hold with fixtures-only scope. Re-verified 2026-09-11 with `target/debug/draconic` (temp programs under `/tmp`, always `-o`). LLVM now walks through one `emit_es_expr_walk`, but print still cannot share a program with compile-heavy or run-heavy.
+O1 cannot hold with fixtures-only scope. Re-verified again after claim with `target/debug/draconic` (temp programs under `/tmp`, always `-o`). LLVM still walks through one `emit_es_expr_walk`, but print still cannot share a program with compile-heavy or run-heavy.
 
 - **JS print**: `let console = globalThis.console; console.log("perf-ok");` and `stdoutWrite("perf-ok\n")` both print `perf-ok` (exit 0).
 - **Native `console.log`**: the same print, bare `console.log`, and `examples/shebang/hello.drac` still fail with `error: native target: unsupported IR (no LLVM lowering for this program; … empty hello) at 0..0`.
