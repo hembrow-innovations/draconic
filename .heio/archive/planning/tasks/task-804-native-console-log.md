@@ -2,14 +2,14 @@
 id: "task-804-native-console-log"
 title: "Lower native console.log through LLVM"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-803-native-console-log"
 tags: []
 created_at: "2026-09-11T23:30:00Z"
-updated_at: "2026-09-11T23:30:00Z"
+updated_at: "2026-09-11T18:10:00Z"
 ---
 
 # Lower native console.log through LLVM
@@ -74,14 +74,18 @@ js prints `let console = globalThis.console; console.log(…)`. Native of the sa
 - Host catalog / Runtime ABI may already print strings for `stdoutWrite`. Reuse real stdout; do not add a new host API name for console.
 
 **Acceptance criteria:**
-- [ ] Slice O1 CHECK prints `console-ok` and exits 0
-- [ ] Slice O2 CHECK prints `fn-ok` and exits 0
-- [ ] Slice O3 CHECK prints `loop-ok` and exits 0
-- [ ] `cargo test -p draconic-backend-llvm` prints `test result: ok.`
-- [ ] Native build always uses `-o` into temp; no `{stem}.out.js` / `{stem}.out` beside fixtures or examples
-- [ ] js of the same `globalThis.console.log` print still works
-- [ ] Promise ids listed above still hold (or a new toolchain/language promise was asserted, not a host-io id)
-- [ ] Slice O1–O3 EVIDENCE is filled
+- [x] Slice O1 CHECK prints `console-ok` and exits 0
+- [x] Slice O2 CHECK prints `fn-ok` and exits 0
+- [x] Slice O3 CHECK prints `loop-ok` and exits 0
+- [x] `cargo test -p draconic-backend-llvm` prints `test result: ok.`
+- [x] Native build always uses `-o` into temp; no `{stem}.out.js` / `{stem}.out` beside fixtures or examples
+- [x] js of the same `globalThis.console.log` print still works
+- [x] Promise ids listed above still hold (or a new toolchain/language promise was asserted, not a host-io id)
+- [x] Slice O1–O3 EVIDENCE is filled
+
+## Gauntlet
+
+- **round 1**: slice O1–O3 CHECK plus `cargo test -p draconic-backend-llvm` — win. O1 stdout `console-ok` exit 0. O2 stdout contains `fn-ok` exit 0. O3 stdout contains `loop-ok` exit 0. Crate `test result: ok.` 324 passed. js of the same print still prints `console-ok`. Promise `toolchain.cli:build-targets` holds; no host-io id invented.
 
 **Out of scope:**
 - `tests/perf` fixtures ([[task-692-perf-fixture-programs]])

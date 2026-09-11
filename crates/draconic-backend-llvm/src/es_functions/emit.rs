@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use super::*;
@@ -359,6 +360,13 @@ impl<'a> super::Emitter<'a> {
     fn emit_top_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, kind } => {
+                let by_id: HashMap<_, _> = self.module.locals.iter().map(|l| (l.id, l)).collect();
+                if init
+                    .as_ref()
+                    .is_some_and(|e| crate::es_console::is_global_this_console(e, &by_id))
+                {
+                    return Ok(());
+                }
                 if self.state.info.fn_binding.contains_key(local) {
                     // Function binding — no number storage required for static calls.
                     return Ok(());
@@ -418,26 +426,32 @@ impl<'a> super::Emitter<'a> {
                 consequent,
                 alternate,
             } => self.emit_if_stmt(test, consequent, alternate, true),
-            Stmt::Expr { expr } => match expr {
-                Expr::Assign {
-                    target: AssignTarget::Local(id),
-                    op: AssignOp::Eq,
-                    value,
-                    ..
-                } => {
-                    let slot = self.resolve_var_slot(*id);
-                    let ptr = self
-                        .state
-                        .allocas
-                        .get(&slot)
-                        .cloned()
-                        .ok_or_else(|| diag("es_functions: top assign missing alloca"))?;
-                    let v = self.emit_number_expr(value)?;
-                    writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
-                    Ok(())
+            Stmt::Expr { expr } => {
+                let by_id: HashMap<_, _> = self.module.locals.iter().map(|l| (l.id, l)).collect();
+                if let Some(value) = crate::es_console::console_log_string_arg(expr, &by_id) {
+                    return self.emit_print_str(&value.to_string_lossy());
                 }
-                _ => Err(diag("es_functions: unsupported top-level expr stmt")),
-            },
+                match expr {
+                    Expr::Assign {
+                        target: AssignTarget::Local(id),
+                        op: AssignOp::Eq,
+                        value,
+                        ..
+                    } => {
+                        let slot = self.resolve_var_slot(*id);
+                        let ptr = self
+                            .state
+                            .allocas
+                            .get(&slot)
+                            .cloned()
+                            .ok_or_else(|| diag("es_functions: top assign missing alloca"))?;
+                        let v = self.emit_number_expr(value)?;
+                        writeln!(self.body, "  store double {v}, ptr {ptr}").ok();
+                        Ok(())
+                    }
+                    _ => Err(diag("es_functions: unsupported top-level expr stmt")),
+                }
+            }
             _ => Err(diag("es_functions: unsupported top-level stmt")),
         }
     }

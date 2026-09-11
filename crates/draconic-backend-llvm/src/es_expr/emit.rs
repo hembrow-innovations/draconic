@@ -4,10 +4,10 @@ use std::fmt::Write as _;
 use crate::emitter::{escape_llvm_bytes, SlotTy};
 use draconic_ast::UnaryOp;
 use draconic_diagnostics::Diagnostic;
-use draconic_ir::{Expr, IrType as Type, LocalId, Module, Stmt};
+use draconic_ir::{Expr, IrType as Type, Local, LocalId, Module, Stmt};
 use draconic_runtime::abi::{
     llvm_declares, CSTR_FROM_CODE_UNIT_N, CSTR_FROM_U64, CSTR_LEN, ES_EXPR_DECLARES, PRINT_BOOL,
-    PRINT_BYTES, PRINT_F64, PRINT_I64, UTF16_LEN,
+    PRINT_BYTES, PRINT_F64, PRINT_I64, PRINT_STR, UTF16_LEN,
 };
 
 use super::*;
@@ -147,6 +147,14 @@ impl<'a> Emitter<'a> {
     pub(super) fn emit_stmt(&mut self, stmt: &Stmt) -> Result<(), Diagnostic> {
         match stmt {
             Stmt::Declare { local, init, .. } => {
+                let by_id: HashMap<LocalId, &Local> =
+                    self.module.locals.iter().map(|l| (l.id, l)).collect();
+                if init
+                    .as_ref()
+                    .is_some_and(|e| crate::es_console::is_global_this_console(e, &by_id))
+                {
+                    return Ok(());
+                }
                 let (ptr, slot) = self
                     .state
                     .allocas
@@ -183,26 +191,40 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(())
             }
-            Stmt::Expr { expr } => match expr.ty() {
-                Type::Number => {
-                    let _ = self.emit_number_expr(expr)?;
-                    Ok(())
+            Stmt::Expr { expr } => {
+                let by_id: HashMap<LocalId, &Local> =
+                    self.module.locals.iter().map(|l| (l.id, l)).collect();
+                if let Some(value) = crate::es_console::console_log_string_arg(expr, &by_id) {
+                    let s = self.string_const_js(value)?;
+                    writeln!(
+                        self.body,
+                        "  {}",
+                        PRINT_STR.call(&format!("ptr {}", s.data))
+                    )
+                    .ok();
+                    return Ok(());
                 }
-                Type::BigInt => {
-                    let _ = self.emit_bigint_expr(expr)?;
-                    Ok(())
+                match expr.ty() {
+                    Type::Number => {
+                        let _ = self.emit_number_expr(expr)?;
+                        Ok(())
+                    }
+                    Type::BigInt => {
+                        let _ = self.emit_bigint_expr(expr)?;
+                        Ok(())
+                    }
+                    Type::Boolean => {
+                        let _ = self.emit_bool_expr(expr)?;
+                        Ok(())
+                    }
+                    Type::String => {
+                        let _ = self.emit_string_expr(expr)?;
+                        Ok(())
+                    }
+                    Type::Null => self.emit_undefined_expr(expr),
+                    _ => Err(diag("internal: unsupported expr stmt ty in es_expr module")),
                 }
-                Type::Boolean => {
-                    let _ = self.emit_bool_expr(expr)?;
-                    Ok(())
-                }
-                Type::String => {
-                    let _ = self.emit_string_expr(expr)?;
-                    Ok(())
-                }
-                Type::Null => self.emit_undefined_expr(expr),
-                _ => Err(diag("internal: unsupported expr stmt ty in es_expr module")),
-            },
+            }
             Stmt::Block { body } => {
                 for s in body {
                     if self.body_ends_with_terminator() {

@@ -516,6 +516,12 @@ fn es_kind(module: &Module, seen: &Seen) -> EsKind {
     {
         return EsKind::Builtins;
     }
+    if crate::es_console::module_has_console_log(module) {
+        if seen.has_function {
+            return EsKind::Functions;
+        }
+        return EsKind::Expr;
+    }
     if crate::es_objects::is_es_objects_module(module) {
         return EsKind::Objects;
     }

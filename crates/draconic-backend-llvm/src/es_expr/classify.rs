@@ -93,6 +93,12 @@ pub(super) fn classify_body(module: &Module) -> Option<ModuleInfo> {
     for stmt in &module.body {
         match stmt {
             Stmt::Declare { local, init, .. } => {
+                if init
+                    .as_ref()
+                    .is_some_and(|e| crate::es_console::is_global_this_console(e, &by_id))
+                {
+                    continue;
+                }
                 let slot = slot_for_declare(*local, init, &by_id)?;
                 if seen.insert(*local) {
                     user_locals.push((*local, slot));
@@ -195,19 +201,24 @@ pub(super) fn collect_for_init_allocs(
 /// `switch` discriminant and case tests are number subset only.
 pub(super) fn stmt_is_subset(stmt: &Stmt, by_id: &HashMap<LocalId, &Local>) -> bool {
     match stmt {
-        Stmt::Expr { expr } => match expr.ty() {
-            Type::Number => expr_is_number_subset(expr, by_id),
-            Type::BigInt => expr_is_bigint_subset(expr, by_id),
-            Type::Boolean => expr_is_boolean_subset(expr, by_id),
-            Type::String => expr_is_string_subset(expr, by_id),
-            Type::Null => expr_is_undefined_subset(expr, by_id),
-            // Assignment-form for-in/of left: bare local ref.
-            Type::Any => matches!(
-                expr,
-                Expr::Local { id, .. } if by_id.get(id).is_some_and(|l| l.ty == Type::Any)
-            ),
-            _ => false,
-        },
+        Stmt::Expr { expr } => {
+            if crate::es_console::console_log_string_arg(expr, by_id).is_some() {
+                return true;
+            }
+            match expr.ty() {
+                Type::Number => expr_is_number_subset(expr, by_id),
+                Type::BigInt => expr_is_bigint_subset(expr, by_id),
+                Type::Boolean => expr_is_boolean_subset(expr, by_id),
+                Type::String => expr_is_string_subset(expr, by_id),
+                Type::Null => expr_is_undefined_subset(expr, by_id),
+                // Assignment-form for-in/of left: bare local ref.
+                Type::Any => matches!(
+                    expr,
+                    Expr::Local { id, .. } if by_id.get(id).is_some_and(|l| l.ty == Type::Any)
+                ),
+                _ => false,
+            }
+        }
         Stmt::Block { body } => body.iter().all(|s| stmt_is_subset(s, by_id)),
         Stmt::If {
             test,

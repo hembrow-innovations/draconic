@@ -187,15 +187,23 @@ pub(super) fn fn_body_ok(
                     rest_locals,
                 )
         }
-        Stmt::Expr { expr } => match expr {
-            Expr::Assign {
-                target: AssignTarget::Local(_),
-                op: AssignOp::Eq,
-                value,
-                ..
-            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods),
-            _ => false,
-        },
+        Stmt::Expr { expr } => {
+            if crate::es_console::console_log_string_arg(expr, by_id).is_some() {
+                true
+            } else {
+                match expr {
+                    Expr::Assign {
+                        target: AssignTarget::Local(_),
+                        op: AssignOp::Eq,
+                        value,
+                        ..
+                    } => {
+                        number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods)
+                    }
+                    _ => false,
+                }
+            }
+        }
         Stmt::Labeled { body, .. } => fn_body_ok(
             std::slice::from_ref(body),
             by_id,

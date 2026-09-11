@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-804-native-console-log** — native `globalThis.console.log` prints on LLVM, including next to a function and a tight loop; slice-803 O1–O3 evidence filled
 - **housekeeping** — promoted ticket-773 and ticket-802 into frozen platform slices with AFK-ready tasks; remainder tickets 202 and 203 stay parked; 2 tickets remain parked; platform and opt-in-bench stay active
 - **task-804-native-console-log** — ready AFK; native `globalThis.console.log` lowering (slice-803)
 - **task-806-llvm-host-emit-bodies** — ready AFK; leftover `walk_host_*` emit on the one LLVM walker (slice-805)

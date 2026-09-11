@@ -12,6 +12,7 @@ mod es_class_expr_name;
 mod es_classes;
 mod es_coercion;
 mod es_collections;
+mod es_console;
 mod es_destructure_defaults;
 mod es_encoding;
 mod es_eval;

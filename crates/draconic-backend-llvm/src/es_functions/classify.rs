@@ -506,6 +506,12 @@ fn classify_top_stmt(
                 })
         }
         Stmt::Declare { local, init, kind } => {
+            if init
+                .as_ref()
+                .is_some_and(|e| crate::es_console::is_global_this_console(e, by_id))
+            {
+                return true;
+            }
             let Some(loc) = by_id.get(local) else {
                 return false;
             };
@@ -587,15 +593,20 @@ fn classify_top_stmt(
                 _ => false,
             }
         }
-        Stmt::Expr { expr } => match expr {
-            Expr::Assign {
-                target: AssignTarget::Local(_),
-                op: AssignOp::Eq,
-                value,
-                ..
-            } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods),
-            _ => false,
-        },
+        Stmt::Expr { expr } => {
+            if crate::es_console::console_log_string_arg(expr, by_id).is_some() {
+                return true;
+            }
+            match expr {
+                Expr::Assign {
+                    target: AssignTarget::Local(_),
+                    op: AssignOp::Eq,
+                    value,
+                    ..
+                } => number_expr_ok(value, by_id, fn_arities, functions, fn_binding, obj_methods),
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
