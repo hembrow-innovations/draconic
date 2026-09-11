@@ -9,7 +9,7 @@ sprint: "opt-in-bench"
 slice: "slice-691-opt-in-cli-timings"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-updated_at: "2026-09-11T18:00:00Z"
+  updated_at: "2026-09-11T23:45:00Z"
 ---
 # Add tests/perf compile-heavy and run-heavy programs
 
@@ -91,4 +91,4 @@ O1 cannot hold with fixtures-only scope. Re-verified again after claim with `tar
 - **Native functions**: `function f() { return 1; } let x = f();` works (prints `1`). One hundred small functions plus a numeric `let` also work. Adding a string local, `console.log`, or `stdoutWrite` to that program fails native.
 - **Native loops**: a `while` of integer arithmetic works and prints number locals. `let s = "perf-ok";` after the loop prints `perf-ok` on native only. Combining the loop with `console.log`, `stdoutWrite`, or a function decl fails native.
 - **Dual stdout**: `stdoutWrite("perf-ok\n")` still prints on both backends alone. It cannot host compile-heavy (functions) or run-heavy (a tight loop). JS never prints a trailing string local, so native observation of `"perf-ok"` is not a both-target print.
-- **Unblock**: LLVM lowering for `globalThis.console.log` (or one walk that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope. See [[ticket-773-native-console-log]] (still open).
+- **Unblock**: LLVM lowering for `globalThis.console.log` (or one walk that allows many functions plus a tight loop plus real stdout), then retry this task. Compiler changes are out of this unit's scope. See [[ticket-773-native-console-log]] (promoted; executable [[task-804-native-console-log]]).

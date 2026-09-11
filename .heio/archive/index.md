@@ -2,6 +2,9 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — promoted ticket-773 and ticket-802 into frozen platform slices with AFK-ready tasks; remainder tickets 202 and 203 stay parked; 2 tickets remain parked; platform and opt-in-bench stay active
+- **task-804-native-console-log** — ready AFK; native `globalThis.console.log` lowering (slice-803)
+- **task-806-llvm-host-emit-bodies** — ready AFK; leftover `walk_host_*` emit on the one LLVM walker (slice-805)
 - **housekeeping** — closed dragons-audit sprint (7 met slices) and 2 tickets; ticket-802 stays open; 4 tickets remain (202 parked, 203 parked, 773 open, 802 open); platform and opt-in-bench stay active
 - **housekeeping** — met slice-784; archived ticket-775 and ticket-776; ticket-802 stays open; dragons-audit stays active
 - **task-794-annex-b-native-through-walker** — annex-b async_methods, private_methods, static_private_fields native through the LLVM walker; N08.16.35/37/38 done
