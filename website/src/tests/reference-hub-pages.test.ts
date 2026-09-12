@@ -32,7 +32,7 @@ const referencePages = [
   {
     slug: "types",
     title: "types",
-    status: "not-yet",
+    status: "shipped",
     copy: "The Checker is not tsc: it does not compile existing TypeScript projects",
   },
   {
@@ -361,6 +361,21 @@ test("reference hub pages", () => {
   expect(types).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(types).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(types).toContain('<a href="/native-types">native types</a>');
+  const typesPage = loadMarkdownPage("types");
+  expect(typesPage.body).toContain("```drac");
+  expect(typesPage.body).toContain("function greet(name: string): string");
+  expect(typesPage.body).toContain("let count: i32");
+  expect(typesPage.body).toContain("as i32");
+  expect(typesPage.body).toContain("draconic check");
+  expect(typesPage.body).toContain("## JS values");
+  expect(typesPage.body).toContain("## Native types");
+  expect(typesPage.body).toContain("## Crossing");
+  expect(typesPage.body).toContain("It builds today");
+  expect(typesPage.body.match(/```drac/g)?.length).toBe(3);
+  expect(types).toContain("greet");
+  expect(types).toContain("count");
+  expect(types).toContain("<pre>");
+  expect(types).toContain("<code>");
   expect(dualWorldRules).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(dualWorldRules).toContain('<a href="/types">types</a>');
   expect(hostIo).toContain('<a href="/host-io">host I/O</a>');
