@@ -6,7 +6,7 @@ sitting_kind: wayfinder
 status: awaiting-answers
 tags: [wayfinder]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T06:28:41Z"
+updated_at: "2026-09-12T06:44:27Z"
 ---
 
 # Global object identifier
@@ -46,7 +46,7 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 
 ## Not yet specified
 
-- Whether free identifier `console` becomes a builtin.
+- Whether free identifier `console` becomes a builtin. Now [[ticket-855-free-console-builtin]].
 - Browser `window` / `self` host aliases.
 - How Test262 and native console lowering move off Program-visible `globalThis` (waits on [[ticket-854-globalthis-property]]).
 - What [[0004-full-ecma-262-and-embed]] and [[location-218-conformance]] say after the property decision.
