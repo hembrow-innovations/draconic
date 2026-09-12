@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-841-use-global-not-globalthis** — dropped; teaching bind obsolete (free console); identifier rewrite stays on wayfinder and ticket-854
+- **housekeeping** — dropped [[ticket-841-use-global-not-globalthis]]; HITL [[ticket-854-globalthis-property]] still open; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **ticket-855-free-console-builtin** — closed; free host `console.log` per target; `createLogger` stays separate
 - **ticket-846-teaching-console-bind** — dropped; free `console` means teaching does not bind from global
 - **ticket-844-program-visible-globalthis** — closed; Programs do not see `globalThis`; identifier is `global`

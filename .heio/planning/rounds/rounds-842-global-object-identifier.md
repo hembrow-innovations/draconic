@@ -6,7 +6,7 @@ sitting_kind: wayfinder
 status: awaiting-answers
 tags: [wayfinder]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T06:48:45Z"
+updated_at: "2026-09-12T06:54:19Z"
 ---
 
 # Global object identifier
@@ -68,3 +68,4 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 - Marking E17.02 or E18.44 done.
 - Node `global` as an extra host alias ([[ticket-845-node-global-alias]] dropped).
 - Teaching console bind from the global object ([[ticket-846-teaching-console-bind]] dropped).
+- Inbound teaching bind via `global` instead of `globalThis` ([[ticket-841-use-global-not-globalthis]] dropped).
