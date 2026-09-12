@@ -1,7 +1,7 @@
 ---
 title: Dual worlds
 section: learn
-status: not-yet
+status: shipped
 ---
 
 # Dual worlds
@@ -12,6 +12,26 @@ Two heaps of meaning:
 
 - JS values are heap-managed and follow JavaScript semantics: objects, arrays, strings, closures, cycles. The Runtime uses tracing GC so those semantics still hold in a native binary.
 - Native types are unboxed and outside the GC heap. Examples include `i32`, `i64`, and fixed structs. They are not ECMAScript primitives.
+
+A portable program may use both in one file. Crossing a JS `number` and a native numeric type is an explicit `as`. There is no silent coercion. Save this as `boundary.drac`. It builds today:
+
+```drac
+let console = globalThis.console;
+let jsCount: number = 41;
+let nativeCount: i32 = jsCount as i32;
+let next: number = (nativeCount as number) + 1;
+let label: string = "ready";
+console.log(label, next);
+```
+
+Parse it or run it. Default `draconic run` target is js. The JS backend polyfills portable native scalars as ordinary JavaScript values:
+
+```
+draconic parse boundary.drac
+draconic run boundary.drac
+```
+
+`string as i32` is a Checker error. Pointers (`*T`, `&x`) are native-only: valid on LLVM, a hard error on the JS backend, never silent wrong code.
 
 Why the boundary is explicit: the two worlds do not share representation. Crossing is a type-level and lowering-level fact, not an accident of the backend. Ownership-only and arena-only runtimes were rejected because they cannot host a full ECMA-262 superset without cutting semantics.
 

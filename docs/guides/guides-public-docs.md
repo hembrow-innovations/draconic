@@ -7,7 +7,7 @@ domain: draconic
 area: guides
 tags: [guide, public-docs, website]
 created_at: "2026-09-06"
-updated_at: "2026-09-06"
+updated_at: "2026-09-12"
 ---
 
 # Public Learn and Reference versus this vault
@@ -44,8 +44,8 @@ Reference path (from `website/reference.md`): CLI, types, Dual-world rules, host
 
 Status in `website/*.md` as of this note:
 
-- **shipped**: Learn, Reference, Install, from JavaScript, CLI
-- **not-yet**: from systems, Dual worlds, modules, native types, host I/O, packages, types, Dual-world rules, Reference host I/O, Reference packages
+- **shipped**: Learn, Reference, Install, from JavaScript, Dual worlds, CLI
+- **not-yet**: from systems, modules, native types, host I/O, packages, types, Dual-world rules, Reference host I/O, Reference packages
 
 Shipped pages may include copy-paste fences. Not-yet pages stay prose.
 

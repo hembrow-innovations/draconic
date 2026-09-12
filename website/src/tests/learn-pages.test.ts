@@ -32,7 +32,7 @@ const learnChapters = [
   {
     slug: "dual-worlds",
     title: "Dual worlds",
-    status: "not-yet",
+    status: "shipped",
     copy: "Dual worlds is the coexistence of JS values and native types in one Program",
   },
   {
@@ -171,6 +171,12 @@ test("learn pages", () => {
   expect(dualWorlds).toContain(
     '<a href="/dual-world-rules">Dual-world rules</a>',
   );
+  expect(loadMarkdownPage("dual-worlds").body).toContain("```drac");
+  expect(loadMarkdownPage("dual-worlds").body).toContain("as i32");
+  expect(loadMarkdownPage("dual-worlds").body).toContain("as number");
+  expect(dualWorlds).toContain("jsCount");
+  expect(dualWorlds).toContain("<pre>");
+  expect(dualWorlds).toContain("<code>");
 
   const extra = ["tutorial", "getting-started", "beginner", "vault"];
   for (const slug of extra) {
