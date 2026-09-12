@@ -8,7 +8,7 @@ tags: [needs-triage]
 blocked_by: []
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T05:31:40Z"
-updated_at: "2026-09-12T05:50:00Z"
+updated_at: "2026-09-12T06:28:41Z"
 ---
 
 # Use global instead of globalThis for console bind
@@ -42,4 +42,4 @@ Escalated. Replacing `globalThis` everywhere would rewrite [[location-218-confor
 
 **What we still need from you:**
 
-- Resolve frontier HITL [[ticket-844-program-visible-globalthis]]: does a Program still see `globalThis`?
+- [[ticket-844-program-visible-globalthis]] closed: Programs do not see `globalThis`; identifier is `global`. Next HITL: [[ticket-846-teaching-console-bind]] or [[ticket-854-globalthis-property]]. Do not execute from this ticket.

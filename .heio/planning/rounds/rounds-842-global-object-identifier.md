@@ -6,7 +6,7 @@ sitting_kind: wayfinder
 status: awaiting-answers
 tags: [wayfinder]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T05:50:00Z"
+updated_at: "2026-09-12T06:28:41Z"
 ---
 
 # Global object identifier
@@ -23,6 +23,16 @@ updated_at: "2026-09-12T05:50:00Z"
 1. Promote into work.
 2. Replace `globalThis` everywhere. That rewrites ROADMAP E15.01, `language.ecma:builtins`, and [[0004-full-ecma-262-and-embed]]. Escalated to this wayfinder sitting.
 
+## Round 2
+
+### Questions
+
+1. After research, does a Draconic Program still see `globalThis` as the ECMA-262 global object identifier?
+
+### Answers
+
+1. No. Programs do not see `globalThis`. The Program-visible identifier is `global`. Reopen [[0004-full-ecma-262-and-embed]] and rewrite E15.01 plus `language.ecma:builtins`.
+
 ## Confirm
 
 ## Objectives
@@ -32,15 +42,18 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 ## Decisions so far
 
 - [[ticket-843-ecma-host-global-names|What do ECMA-262 and hosts name the global object?]]. ECMA-262 is `globalThis`; Node `global` is legacy.
+- [[ticket-844-program-visible-globalthis|Does a Program still see globalThis?]]. No. Programs see `global`. Reopen ADR-0004 and rewrite E15.01 plus builtins.
 
 ## Not yet specified
 
 - Whether free identifier `console` becomes a builtin.
 - Browser `window` / `self` host aliases.
-- How Test262 and native console lowering would move if the identifier changes.
+- How Test262 and native console lowering move off Program-visible `globalThis` (waits on [[ticket-854-globalthis-property]]).
+- What [[0004-full-ecma-262-and-embed]] and [[location-218-conformance]] say after the property decision.
 
 ## Out of scope
 
 - Bit-identical Node or V8.
 - Writing slices or tasks from this round.
 - Marking E17.02 or E18.44 done.
+- Node `global` as an extra host alias ([[ticket-845-node-global-alias]] dropped).

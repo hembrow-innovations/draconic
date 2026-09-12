@@ -2,13 +2,13 @@
 id: "ticket-844-program-visible-globalthis"
 title: "Does a Program still see globalThis?"
 kind: ticket
-status: open
+status: closed
 ticket_type: planning
 tags: [wayfinder]
 blocked_by: ["ticket-843-ecma-host-global-names"]
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T05:45:00Z"
+updated_at: "2026-09-12T06:28:41Z"
 ---
 
 # Does a Program still see globalThis?
@@ -28,3 +28,5 @@ Would rewrite a location destination if the answer is drop. Leave the solution o
 ## Notes
 
 Inbound: [[ticket-841-use-global-not-globalthis]]. Blocked by [[ticket-843-ecma-host-global-names]].
+
+Answer: No. A Program does not see `globalThis`. The Program-visible identifier is `global` (round 1 replace-everywhere). Reopen [[0004-full-ecma-262-and-embed]] and rewrite E15.01 plus `language.ecma:builtins`. That rewrites [[location-218-conformance]].

@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-844-program-visible-globalthis** — closed; Programs do not see `globalThis`; identifier is `global`
+- **ticket-845-node-global-alias** — dropped; `global` is the language name, not a Node extra alias
 - **ticket-843-ecma-host-global-names** — closed; ECMA-262 names `globalThis`; Node `global` is legacy
 - **housekeeping** — wayfinder [[rounds-842-global-object-identifier]] charted from [[ticket-841-use-global-not-globalthis]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **housekeeping** — filed [[ticket-841-use-global-not-globalthis]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active

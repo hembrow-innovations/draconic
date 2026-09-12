@@ -2,13 +2,13 @@
 id: "ticket-845-node-global-alias"
 title: "Is Node global an extra alias?"
 kind: ticket
-status: open
+status: dropped
 ticket_type: planning
 tags: [wayfinder]
 blocked_by: ["ticket-844-program-visible-globalthis"]
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T05:45:00Z"
+updated_at: "2026-09-12T06:28:41Z"
 ---
 
 # Is Node global an extra alias?
@@ -26,3 +26,5 @@ Blocked by [[ticket-844-program-visible-globalthis]]. If that ticket keeps `glob
 ## Notes
 
 Do not decide teaching bind here. That is [[ticket-846-teaching-console-bind]].
+
+Dropped: [[ticket-844-program-visible-globalthis]] replaced Program-visible `globalThis` with `global`. Node `global` is not an extra host alias. Inverse property question is [[ticket-854-globalthis-property]].
