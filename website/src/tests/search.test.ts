@@ -166,6 +166,27 @@ test("search", () => {
     "Reference · packages",
   );
 
+  const cliRun = querySearchIndex(index, "run").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliRun?.headings).toContain("run");
+  expect(searchHitHref(cliRun!, "run")).toBe("/cli#run");
+  expect(searchHitLabel(cliRun!, "run")).toBe("Reference · CLI · run");
+
+  const cliFmt = querySearchIndex(index, "fmt").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliFmt?.headings).toContain("fmt");
+  expect(searchHitHref(cliFmt!, "fmt")).toBe("/cli#fmt");
+  expect(searchHitLabel(cliFmt!, "fmt")).toBe("Reference · CLI · fmt");
+
+  const cliRepl = querySearchIndex(index, "repl").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliRepl?.headings).toContain("repl");
+  expect(searchHitHref(cliRepl!, "repl")).toBe("/cli#repl");
+  expect(searchHitLabel(cliRepl!, "repl")).toBe("Reference · CLI · repl");
+
   const learnHits = querySearchIndex(index, "Dual worlds").filter(
     (hit) => hit.href === "/learn",
   );

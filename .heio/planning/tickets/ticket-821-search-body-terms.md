@@ -7,7 +7,7 @@ ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T10:45:00Z"
-updated_at: "2026-09-12T10:45:00Z"
+updated_at: "2026-09-12T12:50:00Z"
 ---
 
 # In-site search misses body terms visitors type
@@ -25,6 +25,7 @@ Unknown until triage. Current promise `public-site.search:titles-headings` is ti
 - Index: `website/src/lib/search/searchIndex.ts`
 - Chrome: `website/src/components/SiteSearch/SiteSearch.tsx`
 - Lock: `website/src/tests/search.test.ts`
+- CLI verbs parse, check, fmt, build, run, repl, test, version, and help are headings on `website/cli.md`. Search for run, fmt, and repl hits `/cli` with section hashes. Body-term indexing still needs a contract edit.
 
 ## Parent
 
