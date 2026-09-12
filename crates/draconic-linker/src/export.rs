@@ -238,7 +238,7 @@ impl Loader {
     }
 
     /// Entry named exports after flatten: public name → local (mangled if a dep).
-    /// Skips `default`. Does not include `export *` star names.
+    /// Includes `default` when the entry authors it. Does not include `export *` star names.
     pub(crate) fn entry_named_exports(
         &self,
         entry_id: usize,
@@ -253,9 +253,6 @@ impl Loader {
         publics.dedup();
         let mut pairs = Vec::new();
         for public in publics {
-            if public == "default" {
-                continue;
-            }
             let Some((def_id, local)) =
                 self.resolve_export(entry_id, &public, &mut HashSet::new())?
             else {

@@ -1,4 +1,4 @@
-//! `toolchain.cli:build-js-library-esm`: opt-in JS named ESM library emit.
+//! `toolchain.cli:build-js-library-esm` and `toolchain.cli:build-js-library-default`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,6 +48,17 @@ fn node_import_named(artifact: &Path, public: &str, expected: &str) -> (i32, Str
     let url = format!("file://{}", artifact.display());
     let script = format!(
         "import {{ {public} }} from '{url}'; if ({public} !== {expected:?}) process.exit(1); console.log('ok');"
+    );
+    run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script))
+}
+
+fn node_import_default(artifact: &Path, expected: &str) -> (i32, String, String) {
+    let url = format!("file://{}", artifact.display());
+    let script = format!(
+        "import v from '{url}'; if (v !== {expected:?}) process.exit(1); console.log('ok');"
     );
     run(Command::new("node")
         .arg("--input-type=module")
@@ -256,5 +267,194 @@ fn build_js_library_empty_exports_omits_export_braces() {
     assert_eq!(
         ncode, 0,
         "empty-export library artifact must still run as a script\nstdout={nout}\nstderr={nerr}\njs={js}"
+    );
+}
+
+#[test]
+fn build_js_library_default_export_imports() {
+    let dir = temp_dir();
+    let src = write_program(&dir, "lib.drac", "export default \"def\";\n");
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library default build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let (ncode, nout, nerr) = node_import_default(&out, "def");
+    assert_eq!(
+        ncode, 0,
+        "Node import default failed\nstdout={nout}\nstderr={nerr}"
+    );
+    assert!(nout.contains("ok"), "stdout={nout}");
+}
+
+#[test]
+fn build_js_library_default_and_named_imports() {
+    let dir = temp_dir();
+    let src = write_program(
+        &dir,
+        "lib.drac",
+        "export default \"def\";\nexport const named = \"n\";\n",
+    );
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library default+named build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let url = format!("file://{}", out.display());
+    let script = format!(
+        "import v, {{ named }} from '{url}'; if (v !== 'def' || named !== 'n') process.exit(1); console.log('ok');"
+    );
+    let (ncode, nout, nerr) = run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script));
+    assert_eq!(
+        ncode, 0,
+        "Node import default + named failed\nstdout={nout}\nstderr={nerr}"
+    );
+}
+
+#[test]
+fn build_js_library_anonymous_default_function_imports() {
+    let dir = temp_dir();
+    let src = write_program(
+        &dir,
+        "lib.drac",
+        "export default function() { return \"def\"; }\n",
+    );
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library anonymous default function build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let url = format!("file://{}", out.display());
+    let script = format!(
+        "import v from '{url}'; if (typeof v !== 'function' || v() !== 'def') process.exit(1); console.log('ok');"
+    );
+    let (ncode, nout, nerr) = run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script));
+    assert_eq!(
+        ncode, 0,
+        "Node import anonymous default function failed\nstdout={nout}\nstderr={nerr}"
+    );
+}
+
+#[test]
+fn build_js_library_anonymous_default_class_imports() {
+    let dir = temp_dir();
+    let src = write_program(
+        &dir,
+        "lib.drac",
+        "export default class { constructor() { this.n = 1; } }\n",
+    );
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library anonymous default class build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let url = format!("file://{}", out.display());
+    let script = format!(
+        "import v from '{url}'; if (new v().n !== 1) process.exit(1); console.log('ok');"
+    );
+    let (ncode, nout, nerr) = run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script));
+    assert_eq!(
+        ncode, 0,
+        "Node import anonymous default class failed\nstdout={nout}\nstderr={nerr}"
+    );
+}
+
+#[test]
+fn build_js_library_alias_as_default_imports() {
+    let dir = temp_dir();
+    let src = write_program(
+        &dir,
+        "lib.drac",
+        "const local = \"def\";\nexport { local as default };\n",
+    );
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library alias-as-default build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let (ncode, nout, nerr) = node_import_default(&out, "def");
+    assert_eq!(
+        ncode, 0,
+        "Node import {{ local as default }} failed\nstdout={nout}\nstderr={nerr}"
+    );
+}
+
+#[test]
+fn run_module_default_export_stays_script() {
+    let dir = temp_dir();
+    let src = write_program(
+        &dir,
+        "p.drac",
+        "export default \"def\";\nconsole.log(\"script-ok\");\n",
+    );
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("run")
+        .arg("--target")
+        .arg("js")
+        .arg(&src));
+    assert_eq!(code, 0, "run failed\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("script-ok"),
+        "stdout={stdout}\nstderr={stderr}"
     );
 }

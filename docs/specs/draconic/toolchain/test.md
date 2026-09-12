@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-12"
+updated_at: "2026-09-13"
 ---
 
 # Toolchain tests
@@ -17,7 +17,7 @@ Purpose: [[Toolchain purpose]]. Contract: [[Toolchain — Contract]].
 
 ## Coverage
 
-These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:build-scratch-name`, `toolchain.cli:build-js-library-esm`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
+These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:build-scratch-name`, `toolchain.cli:build-js-library-esm`, `toolchain.cli:build-js-library-default`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
 
 ## Tests
 
@@ -81,6 +81,21 @@ These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `tool
 - **crates/draconic-cli/tests/library.rs** — `build_js_library_empty_exports_omits_export_braces`
   - **How:** `--library` on a Script with an empty named-export table does not emit `export {}`.
   - **Why:** Empty `export {}` would SyntaxError a script host.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_default_export_imports`
+  - **How:** `build --target js --library` of `export default "def"`; Node `import v from` yields `"def"`.
+  - **Why:** Locks `toolchain.cli:build-js-library-default` at the Node default-import seam.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_default_and_named_imports`
+  - **How:** Default plus `export const named`; Node `import v, { named }` yields both.
+  - **Why:** Same promise; named exports from `toolchain.cli:build-js-library-esm` still hold on the same artifact.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_anonymous_default_function_imports` / `build_js_library_anonymous_default_class_imports`
+  - **How:** Anonymous `export default function` / `export default class`; Node default import is callable / constructable.
+  - **Why:** Same promise; the flattened local (`__default`) is the default export.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_alias_as_default_imports`
+  - **How:** `export { local as default }`; Node `import v from` yields the local value.
+  - **Why:** Same promise; `export { x as default }` survives flatten as public name `default`.
+- **crates/draconic-cli/tests/library.rs** — `run_module_default_export_stays_script`
+  - **How:** `draconic run --target js` of a Module with `export default` prints and exits 0.
+  - **Why:** Same promise; default run stays a script and keeps `toolchain.cli:run-execute`.
 - **crates/draconic-cli/tests/run.rs** — `run_target_js_executes_console_log` / `run_defaults_to_js` / `run_target_native_executes_scalar`
   - **How:** `run` executes js (default) and native Programs.
   - **Why:** Locks `toolchain.cli:run-execute` (U14).

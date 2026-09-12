@@ -2,14 +2,14 @@
 id: "task-917-js-library-default-export"
 title: "JS library default export"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "js-library-esm"
 slice: "slice-916-js-library-default-export"
 tags: [js, linker, distribution]
 created_at: "2026-09-12T18:20:00Z"
-updated_at: "2026-09-12T18:20:00Z"
+updated_at: "2026-09-13T12:00:00Z"
 ---
 
 # JS library default export
@@ -75,12 +75,12 @@ Prefer carrying `default` on the existing IR named-export table (`public_name` `
 - Node verification must `import` the file (`--input-type=module` or `.mjs`).
 
 **Acceptance criteria:**
-- [ ] Slice O1 CHECK prints `default-ok` and exits 0
-- [ ] Slice O2 CHECK prints `default-named-ok` and exits 0
-- [ ] Slice O3 CHECK prints `script-ok` and exits 0
-- [ ] `toolchain.cli:build-js-library-default` is on [[Toolchain — Contract]] with a `test:` pointer, and [[Toolchain tests]] names that test
-- [ ] `cargo test -p draconic-cli --offline` prints `test result: ok.`
-- [ ] Promise ids listed above still hold (or were deliberately edited)
+- [x] Slice O1 CHECK prints `default-ok` and exits 0
+- [x] Slice O2 CHECK prints `default-named-ok` and exits 0
+- [x] Slice O3 CHECK prints `script-ok` and exits 0
+- [x] `toolchain.cli:build-js-library-default` is on [[Toolchain — Contract]] with a `test:` pointer, and [[Toolchain tests]] names that test
+- [x] `cargo test -p draconic-cli --offline` prints `test result: ok.`
+- [x] Promise ids listed above still hold (or were deliberately edited)
 
 **Out of scope:**
 - `export *` ([[task-919-js-library-export-star]])

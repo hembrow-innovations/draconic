@@ -364,6 +364,19 @@ mod tests {
     }
 
     #[test]
+    fn entry_default_export_on_ir() {
+        let (dir, path) = write_temp_drac("default-export", "export default \"def\";\n");
+        let module = compile_path(&path).expect("compile default-export entry");
+        let local = named_export_local(&module, "default");
+        assert_eq!(local, "__default");
+        assert!(
+            module.locals.iter().any(|l| l.name == local),
+            "IR local `{local}` missing"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn reexport_entry_export_names_on_ir() {
         let dir = std::env::temp_dir().join(format!(
             "draconic-frontend-view-reexport-{}",
