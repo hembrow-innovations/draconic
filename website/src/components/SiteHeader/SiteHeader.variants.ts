@@ -43,12 +43,12 @@ export const siteHeaderGroupVariants = cva("flex flex-col gap-2");
  * Learn, Reference, and GitHub sit under the wordmark and wrap on a small viewport.
  */
 export const siteHeaderClusterVariants = cva(
-  "cluster flex flex-col flex-wrap gap-3",
+  "cluster flex flex-col flex-wrap items-start gap-3",
 );
 
 /**
  * In-app and GitHub items share the body type role.
  */
 export const siteHeaderLinkVariants = cva(
-  "inline-flex items-center min-h-11 font-body text-body text-muted no-underline hover:text-ink aria-[current=page]:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  "inline-flex items-center self-start min-h-11 font-body text-body text-muted no-underline hover:text-ink aria-[current=page]:text-accent-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 );

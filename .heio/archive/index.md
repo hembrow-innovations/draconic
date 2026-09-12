@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-879-github-mobile-hit** — completed; small-viewport GitHub stays a compact tap target instead of a stretched column (slice-875)
 - **slice-873-search-session-reset** — met; search query and results clear on navigation and Escape; leftover hits cannot keep aria-current; website-chrome-polish stays active
 - **task-874-search-session-reset** — completed; search query and results clear on navigation and Escape so leftover hits cannot keep aria-current (slice-873)
 - **slice-871-per-page-titles** — met; each public page document title names the open page; home may remain Draconic; website-chrome-polish stays active

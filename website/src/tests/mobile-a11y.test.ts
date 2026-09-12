@@ -82,6 +82,23 @@ test("mobile a11y", () => {
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
 
+  const clusterClasses =
+    variants.match(
+      /export const siteHeaderClusterVariants = cva\(\s*"([^"]+)"/,
+    )?.[1] ?? "";
+  expect(clusterClasses).toContain("flex-wrap");
+  expect(clusterClasses).toContain("items-start");
+  expect(clusterClasses).not.toContain("items-stretch");
+
+  const linkClasses =
+    variants.match(
+      /export const siteHeaderLinkVariants = cva\(\s*"([^"]+)"/,
+    )?.[1] ?? "";
+  expect(linkClasses).toContain("min-h-11");
+  expect(linkClasses).toContain("self-start");
+  expect(linkClasses).not.toContain("items-stretch");
+  expect(linkClasses).not.toContain("self-stretch");
+
   expect(css).toMatch(/@media\s*\(\s*max-width:\s*860px\s*\)/);
   expect(css).toContain("flex-direction: column");
   expect(css).toContain("position: relative");

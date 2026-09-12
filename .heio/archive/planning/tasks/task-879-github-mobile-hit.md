@@ -2,7 +2,7 @@
 id: "task-879-github-mobile-hit"
 title: "Keep mobile GitHub a compact control"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-866-github-above-fold
@@ -11,7 +11,7 @@ slice: "slice-875-github-mobile-hit"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T08:12:30Z"
 ---
 
 # Keep mobile GitHub a compact control
@@ -68,10 +68,14 @@ GitHub is a compact control on a small viewport, comparable to hub links and the
 - Existing hub `min-h-11` and wrap classes
 
 **Acceptance criteria:**
-- [ ] Tests fail if GitHub or its cluster stretch-aligns into a tall column
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] No hamburger and no drop of wrap
-- [ ] Promise ids listed above still hold
+- [x] Tests fail if GitHub or its cluster stretch-aligns into a tall column
+- [x] Named vitest file passes and typecheck exits 0
+- [x] No hamburger and no drop of wrap
+- [x] Promise ids listed above still hold
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run mobile-a11y` — win. Test Files 1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff keeps `public-site.a11y:keyboard-small`; wrap stays; no hamburger; cluster `items-start` and GitHub `self-start min-h-11`.
 
 **Out of scope:**
 - Desktop below-fold ([[task-866-github-above-fold]] owns placement); playground
