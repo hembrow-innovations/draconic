@@ -2,15 +2,14 @@
 id: "slice-911-js-library-named-esm"
 title: "Opt-in JS named library ESM"
 kind: slice
-status: frozen
+status: met
 sprint: "js-library-esm"
 blocked_by:
   - slice-909-entry-export-table
-tags: [js, linker, distribution]
+tags: [ js, linker, distribution ]
 created_at: "2026-09-12T11:05:00Z"
-updated_at: "2026-09-12T11:05:00Z"
+updated_at: "2026-09-12T22:45:00Z"
 ---
-
 # Opt-in JS named library ESM
 
 ## Why
@@ -37,18 +36,18 @@ updated_at: "2026-09-12T11:05:00Z"
 
 ## Oracle checklist
 
-- [ ] O1: Node imports a single-file named export
+- [x] O1: Node imports a single-file named export
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export const view = "view";' > "$d/lib.drac" && cargo run -p draconic-cli --quiet -- build --target js --library "$d/lib.drac" -o "$d/lib.mjs" && node --input-type=module -e "import { view } from 'file://$d/lib.mjs'; if (view !== 'view') process.exit(1); console.log('named-ok');"
   EXPECT: named-ok
-  EVIDENCE: pending
-- [ ] O2: Node imports a re-export under the public name
+  EVIDENCE: `named-ok`; exit 0
+- [x] O2: Node imports a re-export under the public name
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export const view = "view";' > "$d/dep.drac" && printf '%s\n' 'export { view } from "./dep.drac";' > "$d/lib.drac" && cargo run -p draconic-cli --quiet -- build --target js --library "$d/lib.drac" -o "$d/lib.mjs" && node --input-type=module -e "import { view } from 'file://$d/lib.mjs'; if (view !== 'view') process.exit(1); console.log('reexport-ok');"
   EXPECT: reexport-ok
-  EVIDENCE: pending
-- [ ] O3: default run of a Module with named exports stays a script
+  EVIDENCE: `reexport-ok`; exit 0
+- [x] O3: default run of a Module with named exports stays a script
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export const view = "view";' 'console.log("script-ok");' > "$d/p.drac" && cargo run -p draconic-cli --quiet -- run --target js "$d/p.drac"
   EXPECT: script-ok
-  EVIDENCE: pending
+  EVIDENCE: `script-ok`; exit 0
 
 ## Pool
 

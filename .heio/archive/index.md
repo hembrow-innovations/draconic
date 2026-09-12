@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-911-js-library-named-esm** — met; opt-in `build --target js --library` named ESM emit Node can import; default run stays a script; js-library-esm stays active
 - **task-912-js-library-named-esm** — completed; opt-in `build --target js --library` named ESM emit Node can import (slice-911)
 - **slice-909-entry-export-table** — met; entry named-export names survive flatten as IR metadata; default JS emit still has no export; js-library-esm stays active
 - **task-910-entry-export-table** — completed; entry named exports survive flatten as IR metadata; default JS emit still has no export (slice-909)
