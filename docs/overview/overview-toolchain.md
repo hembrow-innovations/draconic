@@ -84,7 +84,7 @@ Prefer `cargo test --workspace` and the `draconic` CLI. A Roadmap item is done o
 
 ### Public site versus this vault
 
-Public Learn and Reference sources live in `website/`. Presentation is a TanStack Start app ([[0013-public-site-tanstack-start]], [[guides-public-docs]]). The vault-versus-site split stays ([[0010-public-docs-draconic-ssg]]). This `docs/` vault is agent and toolchain knowledge. Do not treat the vault as the public site.
+Public Learn and Reference sources live in the sibling `draconic-web` repo. Presentation is a TanStack Start app ([[0013-public-site-tanstack-start]], [[guides-public-docs]]). The vault-versus-site split stays ([[0010-public-docs-draconic-ssg]]). This `docs/` vault is agent and toolchain knowledge. Do not treat the vault as the public site.
 
 ## Trade-offs
 

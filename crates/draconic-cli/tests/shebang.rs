@@ -18,6 +18,17 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
+fn public_site_root() -> PathBuf {
+    let from_env = std::env::var_os("DRACONIC_WEB").map(PathBuf::from);
+    let candidate = from_env.unwrap_or_else(|| repo_root().join("../draconic-web"));
+    candidate.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "public site lives in draconic-web (set DRACONIC_WEB); {}: {e}",
+            candidate.display()
+        )
+    })
+}
+
 fn shebang_example() -> PathBuf {
     repo_root()
         .join("examples/shebang/hello.drac")
@@ -41,15 +52,15 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 #[test]
 fn docs_name_env_draconic_shebang() {
     let readme = fs::read_to_string(repo_root().join("README.md")).expect("README.md");
-    let cli = fs::read_to_string(repo_root().join("website/content/cli.md"))
-        .expect("website/content/cli.md");
+    let cli = fs::read_to_string(public_site_root().join("content/cli.md"))
+        .expect("draconic-web content/cli.md");
     assert!(
         readme.contains(DOCUMENTED_SHEBANG),
         "README.md must name {DOCUMENTED_SHEBANG}"
     );
     assert!(
         cli.contains(DOCUMENTED_SHEBANG),
-        "website/content/cli.md must name {DOCUMENTED_SHEBANG}"
+        "draconic-web content/cli.md must name {DOCUMENTED_SHEBANG}"
     );
 }
 

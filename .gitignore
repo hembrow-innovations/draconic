@@ -9,7 +9,6 @@
 .env.*
 !.env.example
 /dist
-/website/*.html
 *.ll
 *.o
 *.a

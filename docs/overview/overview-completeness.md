@@ -72,7 +72,7 @@ Do not invent decisions. Wikilink existing files in `docs/adr/`:
 - **0007**: [[0007-test262-staged-roll-in]] — Test262 staged roll-in.
 - **0008**: [[0008-host-io-sockets-first-http]] — sockets-first host I/O, then thin HTTP.
 - **0009**: [[0009-go-style-git-packages]] — git-backed packages.
-- **0010**: [[0010-public-docs-draconic-ssg]] — public docs from `website/`, not this vault.
+- **0010**: [[0010-public-docs-draconic-ssg]] — public docs from the sibling `draconic-web` repo, not this vault.
 - **0011**: [[0011-catchable-exceptions-vs-abort]] — catchable exceptions versus process abort.
 - **0012**: [[0012-oracle-check-timeout]] — workspace CHECK timeout is ten minutes, not a hang detector.
 - **0013**: [[0013-public-site-tanstack-start]] — public site presentation is TanStack Start.

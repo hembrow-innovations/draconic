@@ -2,7 +2,7 @@
 id: "adr-13"
 title: "ADR-0013: Public site is a TanStack Start app"
 kind: adr
-description: "Public Learn and Reference is a TanStack Start app rooted at website/, not a Draconic Program HTML dump."
+description: "Public Learn and Reference is a TanStack Start app in the draconic-web repo, not a Draconic Program HTML dump."
 status: accepted
 domain: draconic
 area: decisions
@@ -19,7 +19,7 @@ The current public site is `website/` markdown fed through `website/generate.dra
 
 ## Decision
 
-Public Learn and Reference is a TanStack Start and TanStack Router app (pnpm, TypeScript only) rooted at `website/`. Markdown sources with `title`, `section`, and `status` stay the teaching source. GitHub Pages still hosts the built site. Keep shipped and not-yet. Copy-paste fences exist only on shipped pages and they must build. Playground and in-page runners stay later. Agent and toolchain notes stay in `docs/`.
+Public Learn and Reference is a TanStack Start and TanStack Router app (pnpm, TypeScript only) in the sibling `draconic-web` repo. Markdown sources with `title`, `section`, and `status` stay the teaching source. GitHub Pages still hosts the built site. Keep shipped and not-yet. Copy-paste fences exist only on shipped pages and they must build. Playground and in-page runners stay later. Agent and toolchain notes stay in `docs/`.
 
 This supersedes [[0010-public-docs-draconic-ssg]] on presentation only (Draconic Program SSG as the HTML renderer). It does not supersede the vault-versus-site split, the Learn and Reference IA, fence compile, or playground-later.
 
@@ -37,7 +37,7 @@ This supersedes [[0010-public-docs-draconic-ssg]] on presentation only (Draconic
 
 - **`website/generate.drac`**: Retired as the site renderer. `scripts/generate-website.sh` wraps the Start static build.
 - **Fence extraction tests**: Cases in `tests/integration/tests/website_pipeline.rs` stay until retargeted.
-- **App code**: Lives under `website/` nested `src/`.
+- **App code**: Lives in the `draconic-web` repo nested `src/`, not under this language tree.
 - **Colour**: No hardcoded hex in components; Tailwind v4 `@theme` tokens.
 
 ## Relationships

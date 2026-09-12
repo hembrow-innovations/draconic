@@ -15,7 +15,7 @@ updated_at: "2026-09-12T11:25:36Z"
 
 ## Signal
 
-Website chrome polish review 2026-09-12 after [[slice-871-per-page-titles]] and [[slice-890-meta-description]] were marked met. `website/src/tests/document-title.test.ts` never calls `pageShareHead` and can still pass if that helper emits a slogan or drops the page name. `website/src/tests/meta-description.test.ts` builds a correct head inside the test and greps that routes mention `pageShareHead`, so a wrong path or empty description in a route file still passes.
+Website chrome polish review 2026-09-12 after [[slice-871-per-page-titles]] and [[slice-890-meta-description]] were marked met. `draconic-web/src/tests/document-title.test.ts` never calls `pageShareHead` and can still pass if that helper emits a slogan or drops the page name. `draconic-web/src/tests/meta-description.test.ts` builds a correct head inside the test and greps that routes mention `pageShareHead`, so a wrong path or empty description in a route file still passes.
 
 ## Fit
 
@@ -43,16 +43,16 @@ Unknown until triage. Follow-up after met [[task-872-per-page-titles]] and [[tas
 **What we've established so far:**
 
 - Observation. Locked tests for `public-site.chrome:document-title` and `public-site.chrome:meta-description` do not read the live route head. Visitor chrome currently looks correct; the defect is the lock.
-- `website/src/tests/document-title.test.ts` never imports or calls `pageShareHead`. After share-meta work, `documentTitle()` does not match `title: loaderData ? \`${loaderData.title} · Draconic\``. It falls through to `source.includes("loaderData.title")` and returns the markdown title. A helper slogan or dropped page name still passes.
-- `website/src/tests/meta-description.test.ts` builds a correct `pageShareHead({ title, path, description })` inside the test, then greps that route sources mention `pageShareHead` and `pageDescriptionFromBody`. A wrong `path` or `description: ""` in a route file still passes.
-- Fifteen markdown routes (every `website/src/routes/*.tsx` except `__root.tsx` and `index.tsx`) duplicate `title: loaderData ? \`${loaderData.title} · Draconic\` : "Draconic"` with empty description when `loaderData` is missing. Home uses `pageShareHead` with a fixed pitch. `__root.tsx` still hardcodes title Draconic and has no share tags. Meta tests skip `__root.tsx`; neither file covers 404.
+- `draconic-web/src/tests/document-title.test.ts` never imports or calls `pageShareHead`. After share-meta work, `documentTitle()` does not match `title: loaderData ? \`${loaderData.title} · Draconic\``. It falls through to `source.includes("loaderData.title")` and returns the markdown title. A helper slogan or dropped page name still passes.
+- `draconic-web/src/tests/meta-description.test.ts` builds a correct `pageShareHead({ title, path, description })` inside the test, then greps that route sources mention `pageShareHead` and `pageDescriptionFromBody`. A wrong `path` or `description: ""` in a route file still passes.
+- Fifteen markdown routes (every `draconic-web/src/routes/*.tsx` except `__root.tsx` and `index.tsx`) duplicate `title: loaderData ? \`${loaderData.title} · Draconic\` : "Draconic"` with empty description when `loaderData` is missing. Home uses `pageShareHead` with a fixed pitch. `__root.tsx` still hardcodes title Draconic and has no share tags. Meta tests skip `__root.tsx`; neither file covers 404.
 - Tests forbid `twitter:`, `og:image`, and `theme-color` in route source. The contract promise does not. Slice-890 non-goals and the public-site test How line do. Website tests do not use testing-library. No test mounts `HeadContent` or calls `Route.head`.
 - Distinct from closed [[ticket-851-untitled-pages]] / [[ticket-861-missing-meta-description]] (missing chrome, now implemented), from [[ticket-903-duplicate-learn-reference-titles]] (colliding host I/O and packages titles), from [[ticket-904-404-status-untested]] (404 status and miss title), and from [[ticket-906-search-chrome-source-greps]] (search keyboard source greps). Parent slices [[slice-871-per-page-titles]] and [[slice-890-meta-description]] are met. Sprint shape lists this ticket as a freeze follow-up.
 
 **Verification result:** confirmed
 
-- Read `website/src/tests/document-title.test.ts`, `website/src/tests/meta-description.test.ts`, `website/src/lib/content/pageShare.ts`, `website/src/routes/from-javascript.tsx`, `website/src/routes/learn.tsx`, `website/src/routes/index.tsx`, and `website/src/routes/__root.tsx`.
-- Counted fifteen `loaderData ? \`${loaderData.title} · Draconic\`` heads. No live-head or testing-library tests under `website/`.
+- Read `draconic-web/src/tests/document-title.test.ts`, `draconic-web/src/tests/meta-description.test.ts`, `draconic-web/src/lib/content/pageShare.ts`, `draconic-web/src/routes/from-javascript.tsx`, `draconic-web/src/routes/learn.tsx`, `draconic-web/src/routes/index.tsx`, and `draconic-web/src/routes/__root.tsx`.
+- Counted fifteen `loaderData ? \`${loaderData.title} · Draconic\`` heads. No live-head or testing-library tests under `draconic-web/`.
 
 **Redundancy / prior rejection:**
 

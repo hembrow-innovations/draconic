@@ -15,7 +15,7 @@ updated_at: "2026-09-12T11:25:21Z"
 
 ## Signal
 
-Website chrome polish review 2026-09-12 after [[slice-882-search-keyboard-live]] and [[slice-873-search-session-reset]] were marked met. `public-site.search:keyboard-live` and `public-site.search:session` are locked by token greps in `website/src/tests/search.test.ts`. Vitest does not mount SiteSearch, press Arrow Down or Escape, or follow a hit. A no-op handler still passes.
+Website chrome polish review 2026-09-12 after [[slice-882-search-keyboard-live]] and [[slice-873-search-session-reset]] were marked met. `public-site.search:keyboard-live` and `public-site.search:session` are locked by token greps in `draconic-web/src/tests/search.test.ts`. Vitest does not mount SiteSearch, press Arrow Down or Escape, or follow a hit. A no-op handler still passes.
 
 ## Fit
 
@@ -23,7 +23,7 @@ Unknown until triage. Follow-up after met [[slice-882-search-keyboard-live]] / [
 
 ## Notes
 
-- `website/src/tests/search.test.ts` greps `ArrowDown`, `ArrowUp`, `Enter`, `aria-live`, `setQuery`, and Escape
+- `draconic-web/src/tests/search.test.ts` greps `ArrowDown`, `ArrowUp`, `Enter`, `aria-live`, `setQuery`, and Escape
 - `not.toContain("aria-current")` does not lock leftover TanStack Link hits stealing `aria-current="page"`; SiteSearch never wrote that attribute
 - Index queries (Dual worlds, body terms, vault-only phrases) actually run through `querySearchIndex`
 - Following a hit that is already the current pathname and hash may not fire the location effect, so the list can stay open
@@ -41,8 +41,8 @@ Unknown until triage. Follow-up after met [[slice-882-search-keyboard-live]] / [
 
 **What we've established so far:**
 
-- `public-site.search:keyboard-live` and `public-site.search:session` are locked by `website/src/tests/search.test.ts`. That file reads `SiteSearch.tsx` as text and `toContain`s `ArrowDown`, `ArrowUp`, `"Enter"`, `aria-live`, `onKeyDown`, `Escape`, `setQuery("")`, `useLocation`, and `navigate(`. It never imports or mounts `SiteSearch`, never fires a key, and never follows a hit.
-- A no-op `onKeyDown` that still mentions those tokens would pass. `website/package.json` has no testing-library. Neighboring website tests are also Vitest source contracts. The website skill names that style. These two promises are still behavioral, so the greps are a false green.
+- `public-site.search:keyboard-live` and `public-site.search:session` are locked by `draconic-web/src/tests/search.test.ts`. That file reads `SiteSearch.tsx` as text and `toContain`s `ArrowDown`, `ArrowUp`, `"Enter"`, `aria-live`, `onKeyDown`, `Escape`, `setQuery("")`, `useLocation`, and `navigate(`. It never imports or mounts `SiteSearch`, never fires a key, and never follows a hit.
+- A no-op `onKeyDown` that still mentions those tokens would pass. `draconic-web/package.json` has no testing-library. Neighboring website tests are also Vitest source contracts. The website skill names that style. These two promises are still behavioral, so the greps are a false green.
 - `not.toContain("aria-current")` only proves the component source never wrote that string. `SiteSearch` never sets it. Leftover TanStack `Link` hits can still take `aria-current="page"` at runtime. Clearing query on pathname or hash change is in the component; Enter on the current pathname and hash may not change those deps, so the list can stay open. That last path was read from source, not clicked live.
 - Index queries (Dual worlds, body terms, vault-only phrases) do run through `querySearchIndex`. That is `public-site.search:titles-headings`, not this lock. [[ticket-902-stale-vault-search-misses]] stays its own observation.
 - Distinct from closed [[ticket-857-search-keyboard-live]] and [[ticket-852-search-stays-open]]. Those were missing combobox and leftover hits. The handlers are in source now. This ticket is the dishonest lock after met [[slice-882-search-keyboard-live]] / [[task-883-search-keyboard-live]] and [[slice-873-search-session-reset]] / [[task-874-search-session-reset]].

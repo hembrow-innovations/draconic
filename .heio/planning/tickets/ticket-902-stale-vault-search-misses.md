@@ -15,7 +15,7 @@ updated_at: "2026-09-12T21:25:00Z"
 
 ## Signal
 
-[[task-895-search-body-terms]] listed tracing GC and Ownership-only as vault phrases that must still miss. Those strings now appear in teaching-page body (`website/content/dual-worlds.md` and related Learn pages). After teaching-body indexing they correctly hit. True vault-only phrases Public site purpose and Give someone writing a Program still miss.
+[[task-895-search-body-terms]] listed tracing GC and Ownership-only as vault phrases that must still miss. Those strings now appear in teaching-page body (`draconic-web/content/dual-worlds.md` and related Learn pages). After teaching-body indexing they correctly hit. True vault-only phrases Public site purpose and Give someone writing a Program still miss.
 
 ## Fit
 
@@ -23,7 +23,7 @@ Unknown until triage. Not a finder bug. Same class of stale example as the CLI-v
 
 ## Notes
 
-- Finder still indexes only routed `website/content/*.md`.
+- Finder still indexes only routed `draconic-web/content/*.md`.
 - Do not add a denylist for phrases that also appear in teaching copy.
 
 ## Parent
@@ -39,18 +39,18 @@ Unknown until triage. Not a finder bug. Same class of stale example as the CLI-v
 **What we've established so far:**
 
 - Observation only. Not a finder bug. Same class of stale example as the CLI-verb notes on archived [[ticket-821-search-body-terms]].
-- `tracing GC` and `Ownership-only` appear in teaching body on `website/content/dual-worlds.md`, `website/content/from-systems.md`, and `website/content/dual-world-rules.md`.
-- Finder still indexes only routed `website/content/*.md`. No denylist.
+- `tracing GC` and `Ownership-only` appear in teaching body on `draconic-web/content/dual-worlds.md`, `draconic-web/content/from-systems.md`, and `draconic-web/content/dual-world-rules.md`.
+- Finder still indexes only routed `draconic-web/content/*.md`. No denylist.
 - True vault-only phrases `Public site purpose` and `Give someone writing a Program` live in `docs/specs/draconic/public-site/purpose.md` and do not appear in teaching copy.
 
 **Verification result:** confirmed
 
 - `pnpm --dir website exec vitest run search` printed `Test Files  1 passed`.
-- `website/src/tests/search.test.ts` asserts `tracing GC` and `Ownership-only` hit `/dual-worlds`, and asserts the two vault-only phrases miss.
+- `draconic-web/src/tests/search.test.ts` asserts `tracing GC` and `Ownership-only` hit `/dual-worlds`, and asserts the two vault-only phrases miss.
 
 **Redundancy / prior rejection:**
 
-- Stale examples are already updated. Point at `website/src/tests/search.test.ts` (hit assertions for the teaching phrases; empty results for the vault-only phrases) and the How line on `docs/specs/draconic/public-site/test.md` (vault misses named as `Public site purpose` and `Give someone writing a Program` only).
+- Stale examples are already updated. Point at `draconic-web/src/tests/search.test.ts` (hit assertions for the teaching phrases; empty results for the vault-only phrases) and the How line on `docs/specs/draconic/public-site/test.md` (vault misses named as `Public site purpose` and `Give someone writing a Program` only).
 - Archived [[task-895-search-body-terms]] still lists the old vault-miss set in acceptance criteria; that is historical. Live locks already moved.
 - No matching `docs/` out-of-scope or we-will-not-build note for this observation.
 

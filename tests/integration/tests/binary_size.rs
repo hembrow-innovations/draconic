@@ -33,6 +33,17 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
+fn public_site_root() -> PathBuf {
+    let from_env = std::env::var_os("DRACONIC_WEB").map(PathBuf::from);
+    let candidate = from_env.unwrap_or_else(|| repo_root().join("../draconic-web"));
+    candidate.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "public site lives in draconic-web (set DRACONIC_WEB); {}: {e}",
+            candidate.display()
+        )
+    })
+}
+
 fn draconic_bin() -> PathBuf {
     let profile = if cfg!(debug_assertions) {
         "debug"
@@ -48,8 +59,8 @@ fn draconic_bin() -> PathBuf {
     bin
 }
 
-fn read(path: &str) -> String {
-    let full = repo_root().join(path);
+fn read_site(path: &str) -> String {
+    let full = public_site_root().join(path);
     assert!(full.is_file(), "missing {} (D05)", full.display());
     fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {}: {e}", full.display()))
 }
@@ -69,7 +80,7 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 /// Docs name both native size opts on the public CLI reference page.
 #[test]
 fn cli_docs_name_strip_and_lto_flags() {
-    let text = read("website/content/cli.md");
+    let text = read_site("content/cli.md");
     assert!(
         text.contains("--strip"),
         "CLI docs must name --strip:\n{text}"

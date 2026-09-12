@@ -31,4 +31,4 @@ Location [[location-589-public-site]]. Vertical cuts from the 2026-09-12 website
 
 ## Drain
 
-None until freeze. Met-slice tasks are archived. Public site is `website/` TanStack Start, not `ui-components-web`.
+None until freeze. Met-slice tasks are archived. Public site is `draconic-web` TanStack Start, not `ui-components-web`.

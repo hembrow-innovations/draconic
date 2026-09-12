@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — dropped nested `website/` checkout; public site is the sibling `draconic-web` repo; language tests resolve it via `../draconic-web` or `DRACONIC_WEB`
 - **housekeeping** — filed [[ticket-920-no-package-init]] through [[ticket-929-package-tests-false-green]] for package/library authoring gaps; skipped [[ticket-913-default-js-build-no-esm]], [[ticket-914-js-library-default-export]], [[ticket-915-js-library-export-star]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked
 - **housekeeping** — moved `website/` into `~/workbench/draconic-workbench/draconic-web` as its own git repo submodule; language repo keeps a submodule checkout at `website/`
 - **slice-916-js-library-default-export** — met; opt-in `build --target js --library` default export Node can `import d from`; named exports still import; default run stays a script; js-library-esm stays active

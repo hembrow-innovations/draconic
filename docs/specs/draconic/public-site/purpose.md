@@ -43,7 +43,7 @@ Give someone writing a Program a public language homepage, a Learn path, and wor
 ## Surfaces
 
 - **Public GitHub Pages site**: Where a visitor reads the language homepage, Learn, and Reference.
-- **Markdown sources in `website/content/`**: Teaching source with `title`, `section`, and `status`.
+- **Markdown sources in `draconic-web/content/`**: Teaching source with `title`, `section`, and `status`.
 
 ## Authority
 

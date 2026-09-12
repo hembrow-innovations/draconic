@@ -23,9 +23,9 @@ Unknown until triage. Follow-up after met [[slice-892-outline-current-section]] 
 
 ## Notes
 
-- `website/src/features/docs/OnThisPage/OnThisPage.tsx` current id is `location.hash`; `aria-current` is `"true"`, not `"page"`
+- `draconic-web/src/features/docs/OnThisPage/OnThisPage.tsx` current id is `location.hash`; `aria-current` is `"true"`, not `"page"`
 - Outline items are native `#` anchors, not router hash navigation, so `useLocation` may not update on in-page clicks
-- `website/src/tests/docs-shell.test.ts` greps `location.hash` and `"aria-current": "true"` and never renders an outline
+- `draconic-web/src/tests/docs-shell.test.ts` greps `location.hash` and `"aria-current": "true"` and never renders an outline
 - Coverage map claims `#zed-editor` cannot leave every outline link unmarked; the test only `toContain`s extracted ids
 - Reference related-link footer from [[slice-886-reference-related-footer]] is out of this signal
 
@@ -42,7 +42,7 @@ Unknown until triage. Follow-up after met [[slice-892-outline-current-section]] 
 **What we've established so far:**
 
 - `public-site.chrome:on-page-toc` requires the outline to mark the heading in view with `aria-current` that is not page. Purpose only requires the heading list. Slice-892 / task-893 added the in-view sentence, then marked met.
-- `OnThisPage` sets `currentId` from `location.hash` and spreads `aria-current: "true"` when `item.id === currentId`. Empty hash yields `""`, so a load with no fragment marks nothing. There is no scroll listener and no IntersectionObserver in `website/` or the rest of the repo.
+- `OnThisPage` sets `currentId` from `location.hash` and spreads `aria-current: "true"` when `item.id === currentId`. Empty hash yields `""`, so a load with no fragment marks nothing. There is no scroll listener and no IntersectionObserver in `draconic-web/` or the rest of the repo.
 - `aria-current="true"` (not `"page"`) matches the contract. That note is not a defect. Native `href={`#${item.id}`}` anchors are still a hash-only path; in-page clicks may not update `useLocation`.
 - `docs-shell.test.ts` never renders `OnThisPage`. Both tests grep `location.hash` and `"aria-current": "true"`. The page-outline case `toContain`s install id `zed-editor` on extracted ids only. `docs/specs/draconic/public-site/test.md` claims `#zed-editor` cannot leave every outline link unmarked; the test does not assert that.
 - Distinct from archived [[ticket-862-outline-current-section]] (outline never marked current). This is hash-as-proxy after that slice, plus a false-green lock of the proxy.

@@ -57,6 +57,17 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
+fn public_site_root() -> PathBuf {
+    let from_env = std::env::var_os("DRACONIC_WEB").map(PathBuf::from);
+    let candidate = from_env.unwrap_or_else(|| repo_root().join("../draconic-web"));
+    candidate.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "public site lives in draconic-web (set DRACONIC_WEB); {}: {e}",
+            candidate.display()
+        )
+    })
+}
+
 fn page(title: &str, section: &str, status: &str, body: &str) -> String {
     format!("---\ntitle: {title}\nsection: {section}\nstatus: {status}\n---\n\n# {title}\n\n{body}\n")
 }
@@ -263,7 +274,7 @@ fn assert_html_document(html: &str) {
 
 #[test]
 fn website_pipeline_learn_and_reference_nav_and_status() {
-    check_fences(&repo_root().join("website/content")).expect("repo fences");
+    check_fences(&public_site_root().join("content")).expect("repo fences");
 
     let (_, learn) = published_page("learn");
     assert_html_document(&learn);
@@ -475,7 +486,7 @@ fn assert_learn_chapter_nav(html: &str) {
 
 #[test]
 fn website_pipeline_learn_skeleton_is_walkable() {
-    check_fences(&repo_root().join("website/content")).expect("repo fences");
+    check_fences(&public_site_root().join("content")).expect("repo fences");
 
     let (_, learn) = published_page("learn");
     assert_nav(&learn);
@@ -512,7 +523,7 @@ fn assert_reference_page_nav(html: &str) {
 
 #[test]
 fn website_pipeline_reference_skeleton_is_walkable() {
-    check_fences(&repo_root().join("website/content")).expect("repo fences");
+    check_fences(&public_site_root().join("content")).expect("repo fences");
 
     let (_, reference) = published_page("reference");
     assert_nav(&reference);
@@ -552,32 +563,38 @@ fn generated_html_is_not_authoring_source() {
     let root = repo_root();
     let gitignore = fs::read_to_string(root.join(".gitignore")).expect("read .gitignore");
     assert!(
-        gitignore.contains("/website/*.html") || gitignore.contains("website/*.html"),
-        "generated website HTML must be gitignored:\n{gitignore}"
-    );
-    assert!(
         gitignore.contains("/dist"),
         "dist must be gitignored so it is not the authoring source:\n{gitignore}"
     );
+    assert!(
+        !root.join("website").exists(),
+        "public site must not remain nested under the language repo"
+    );
+    let site = public_site_root();
+    let site_gitignore = fs::read_to_string(site.join(".gitignore")).expect("read site .gitignore");
+    assert!(
+        site_gitignore.contains("dist") || site_gitignore.contains("*.html"),
+        "generated website HTML must be gitignored:\n{site_gitignore}"
+    );
     let tracked = Command::new("git")
-        .args(["ls-files", "website"])
-        .current_dir(&root)
+        .args(["ls-files", "."])
+        .current_dir(&site)
         .output()
-        .expect("git ls-files website");
+        .expect("git ls-files public site");
     assert!(
         tracked.status.success(),
-        "git ls-files website failed: {}",
+        "git ls-files public site failed: {}",
         String::from_utf8_lossy(&tracked.stderr)
     );
     let tracked = String::from_utf8_lossy(&tracked.stdout);
     for line in tracked.lines() {
         assert!(
             !line.ends_with(".html"),
-            "website/ must not track generated HTML ({line}); markdown is the source of truth"
+            "public site must not track generated HTML ({line}); markdown is the source of truth"
         );
     }
     assert!(
-        !root.join("website/generate.drac").exists(),
+        !site.join("generate.drac").exists(),
         "generate.drac must not remain as the publisher"
     );
 }
@@ -628,8 +645,8 @@ fn generate_website_script_stages_html_to_dist() {
         "generate.drac must not remain the publisher:\n{script_text}"
     );
     assert!(
-        !root.join("website/generate.drac").exists(),
-        "website/generate.drac must be retired as renderer"
+        !public_site_root().join("generate.drac").exists(),
+        "generate.drac must be retired as renderer"
     );
 
     let out = published_pages();
@@ -640,11 +657,15 @@ fn generate_website_script_stages_html_to_dist() {
         "staged index should be the language homepage, got:\n{index}"
     );
     assert!(
-        !index.contains("Learn is the public path"),
-        "staged index must not be Learn copied to index, got:\n{index}"
+        index.contains("Compiles to JavaScript"),
+        "staged index must be the language homepage, not Learn copied to index, got:\n{index}"
     );
     assert_nav(&index);
     let (_, learn) = published_page("learn");
+    assert!(
+        learn.contains("Learn is the public path"),
+        "Learn hub should keep its teaching copy, got:\n{learn}"
+    );
     assert_visible_status(&learn, "learn");
     assert!(
         out.join(".nojekyll").is_file(),

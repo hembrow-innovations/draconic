@@ -26,15 +26,32 @@ fn repo_root() -> PathBuf {
         .expect("repo root")
 }
 
+fn public_site_root() -> PathBuf {
+    let from_env = std::env::var_os("DRACONIC_WEB").map(PathBuf::from);
+    let candidate = from_env.unwrap_or_else(|| repo_root().join("../draconic-web"));
+    candidate.canonicalize().unwrap_or_else(|e| {
+        panic!(
+            "public site lives in draconic-web (set DRACONIC_WEB); {}: {e}",
+            candidate.display()
+        )
+    })
+}
+
 fn read(path: &str) -> String {
     let full = repo_root().join(path);
     assert!(full.is_file(), "missing {} (D04.02)", full.display());
     fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {}: {e}", full.display()))
 }
 
+fn read_site(path: &str) -> String {
+    let full = public_site_root().join(path);
+    assert!(full.is_file(), "missing {} (D04.02)", full.display());
+    fs::read_to_string(&full).unwrap_or_else(|e| panic!("read {}: {e}", full.display()))
+}
+
 #[test]
 fn install_docs_list_available_os_arch_pairs() {
-    let text = read("website/content/install.md");
+    let text = read_site("content/install.md");
     for pair in AVAILABLE_PAIRS {
         assert!(
             text.contains(pair),

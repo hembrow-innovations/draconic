@@ -20,7 +20,7 @@ This guide is the developer flow for the `draconic` CLI: install, parse a Progra
 
 - **PATH**: after the install script, `~/.draconic/bin` must be on `PATH` so `draconic` resolves.
 - **Rust (`cargo`)**: required to build the Toolchain from a clone.
-- **LLVM**: required for `--target native` (native binaries and the website generator). The JS target does not need LLVM.
+- **LLVM**: required for `--target native`. The JS target does not need LLVM.
 - **Node**: `draconic run` defaults to `--target js` and executes the emitted JS with `node`.
 - **Git**: required for `draconic get` / `draconic mod tidy` (git-backed packages).
 

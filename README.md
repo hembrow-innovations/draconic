@@ -99,7 +99,7 @@ while (true) {
 - **[Reference](https://hembrow-innovations.github.io/draconic/reference.html)** — CLI, types, Dual-world rules, host I/O, packages
 - **[Install](https://hembrow-innovations.github.io/draconic/install.html)** — public install path
 
-Sources for those pages live in [`website/`](./website/).
+Sources for those pages live in the sibling `draconic-web` repo.
 
 ## CLI
 

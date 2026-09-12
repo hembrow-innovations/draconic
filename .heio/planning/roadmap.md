@@ -32,7 +32,7 @@ Locations. Destinations, not a schedule. Language checklist is archived at docs/
   - bet: catchable exceptions vs abort stay distinct (ADR-0011)
 - **product**: public Learn/Reference and example programs
   - bet: docs site already exists; remaining P/S rows are polish
-- **public-site**: ODM-style two-column homepage, walkable Learn, and working Reference from website/, presented by TanStack Start, with shipped/not-yet and fence compile still honest
+- **public-site**: ODM-style two-column homepage, walkable Learn, and working Reference from draconic-web, presented by TanStack Start, with shipped/not-yet and fence compile still honest
   - bet: TanStack Start presentation; ODM chrome as the visual and docs-shell reference; keep markdown teaching sources and fence contract; pivot if the fence pipeline cannot be retargeted without lying
 
 ## See also

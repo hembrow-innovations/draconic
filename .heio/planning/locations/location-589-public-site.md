@@ -12,7 +12,7 @@ updated_at: "2026-09-07T18:00:00Z"
 
 ## This is working when
 
-A visitor gets an ODM-style two-column language site from `website/`: sticky grouped side nav, dark navy tokens, a language homepage, walkable Learn, and working Reference, presented by a TanStack Start app, with shipped/not-yet and fence compile still honest.
+A visitor gets an ODM-style two-column language site from `draconic-web`: sticky grouped side nav, dark navy tokens, a language homepage, walkable Learn, and working Reference, presented by a TanStack Start app, with shipped/not-yet and fence compile still honest.
 
 ## Nested locations
 
@@ -24,4 +24,4 @@ TanStack Start presentation; ODM public site chrome as the visual and docs-shell
 
 ## See also
 
-[[0013-public-site-tanstack-start]], [[0010-public-docs-draconic-ssg]], [[guides-public-docs]], docs/specs/draconic/public-site/, CONTEXT.md Learn/Reference, website/, [[ticket-628-public-site-redesign]], [[website-redesign]], [[website-odm-match]].
+[[0013-public-site-tanstack-start]], [[0010-public-docs-draconic-ssg]], [[guides-public-docs]], docs/specs/draconic/public-site/, CONTEXT.md Learn/Reference, draconic-web, [[ticket-628-public-site-redesign]], [[website-redesign]], [[website-odm-match]].

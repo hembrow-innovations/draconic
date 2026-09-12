@@ -15,7 +15,7 @@ updated_at: "2026-09-12T11:24:45Z"
 
 ## Signal
 
-Website chrome polish review 2026-09-12 after [[slice-880-empty-404]] was marked met. `public-site.chrome:not-found` promises the response is 404, the document title names the miss, and recovery chrome stays. `website/src/tests/not-found.test.ts` greps that root source does not say `statusCode: 200` and never requests an unknown URL. GitHub Pages prerender lists only real pages and has no 404.html.
+Website chrome polish review 2026-09-12 after [[slice-880-empty-404]] was marked met. `public-site.chrome:not-found` promises the response is 404, the document title names the miss, and recovery chrome stays. `draconic-web/src/tests/not-found.test.ts` greps that root source does not say `statusCode: 200` and never requests an unknown URL. GitHub Pages prerender lists only real pages and has no 404.html.
 
 ## Fit
 
@@ -23,11 +23,11 @@ Unknown until triage. Follow-up after met [[slice-880-empty-404]] / [[task-881-e
 
 ## Notes
 
-- `website/src/tests/not-found.test.ts` is source-only; vitest passed without fetching a miss
-- `website/src/components/NotFound/NotFound.tsx` puts `Not found · Draconic` in a body `<title>`; other pages use `pageShareHead`
-- `website/src/routes/__root.tsx` still has default title Draconic; unmatched URLs still take that root title
+- `draconic-web/src/tests/not-found.test.ts` is source-only; vitest passed without fetching a miss
+- `draconic-web/src/components/NotFound/NotFound.tsx` puts `Not found · Draconic` in a body `<title>`; other pages use `pageShareHead`
+- `draconic-web/src/routes/__root.tsx` still has default title Draconic; unmatched URLs still take that root title
 - Recovery view has no page-specific description, canonical, or Open Graph
-- `website/vite.config.ts` prerender `crawlLinks: false` and no 404.html
+- `draconic-web/vite.config.ts` prerender `crawlLinks: false` and no 404.html
 - No splat `routes/$.tsx`; local Start SSR may still 404 while public Pages serves something else
 
 ## Parent
@@ -42,8 +42,8 @@ Unknown until triage. Follow-up after met [[slice-880-empty-404]] / [[task-881-e
 
 **What we've established so far:**
 
-- Contract `public-site.chrome:not-found` promises the response is 404. The named lock is `website/src/tests/not-found.test.ts`. That file only greps root source for `notFoundComponent` and that it does not say `statusCode: 200`. It never fetches an unknown URL and never reads a response status.
-- Spec test.md How for that lock also omits HTTP 404. It substitutes “no splat route that would 200”. There is no `routes/$.tsx`. There is no `404.html` in the repo. `website/vite.config.ts` prerender lists only real pages with `crawlLinks: false`.
+- Contract `public-site.chrome:not-found` promises the response is 404. The named lock is `draconic-web/src/tests/not-found.test.ts`. That file only greps root source for `notFoundComponent` and that it does not say `statusCode: 200`. It never fetches an unknown URL and never reads a response status.
+- Spec test.md How for that lock also omits HTTP 404. It substitutes “no splat route that would 200”. There is no `routes/$.tsx`. There is no `404.html` in the repo. `draconic-web/vite.config.ts` prerender lists only real pages with `crawlLinks: false`.
 - Slice-880 Done said the response is a 404. Its oracle was only `vitest run not-found`. Task-881 current-behavior already treated local Start as 404 before the recovery view existed. That is not a lock for the public origin.
 - Distinct from closed [[ticket-856-empty-404]] (generic empty Not Found paragraph). Share tags and document title on the miss sit next to [[ticket-907-share-head-tests-false-green]] and met [[slice-890-meta-description]], not this status claim. Recovery still puts `Not found · Draconic` in a body title while root head defaults to Draconic.
 

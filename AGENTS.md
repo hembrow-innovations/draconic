@@ -15,7 +15,7 @@ Load the matching skill before the work it covers.
 - **diagnose**: hard bugs and performance regressions
 - **behaviour-contracts**: intended behaviour under `docs/`
 - **codebase-design**: module seams and interfaces
-- **website**: public Learn and Reference under `website/` (submodule of `~/workbench/draconic-workbench/draconic-web`)
+- **website**: public Learn and Reference in the sibling `draconic-web` repo (`../draconic-web` or `DRACONIC_WEB`)
 
 ## Domain docs
 

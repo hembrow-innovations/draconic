@@ -23,11 +23,11 @@ Unknown until triage. Follow-up after met [[slice-871-per-page-titles]] / [[task
 
 ## Notes
 
-- `website/content/host-io.md` and `website/content/reference-host-io.md` both have title host I/O
-- `website/content/packages.md` and `website/content/reference-packages.md` both have title packages
-- `website/src/routes/host-io.tsx` and `website/src/routes/reference-host-io.tsx` both emit `${loaderData.title} · Draconic` through `pageShareHead`
+- `draconic-web/content/host-io.md` and `draconic-web/content/reference-host-io.md` both have title host I/O
+- `draconic-web/content/packages.md` and `draconic-web/content/reference-packages.md` both have title packages
+- `draconic-web/src/routes/host-io.tsx` and `draconic-web/src/routes/reference-host-io.tsx` both emit `${loaderData.title} · Draconic` through `pageShareHead`
 - Same collision on packages routes and on `og:title`
-- `website/src/tests/document-title.test.ts` loops markdown routes and never asserts unique titles
+- `draconic-web/src/tests/document-title.test.ts` loops markdown routes and never asserts unique titles
 - Visible CONTEXT terms on the pages stay host I/O and packages; this signal is document title and share title, not the side-nav accessible names from [[slice-869-distinct-nav-labels]]
 
 ## Parent
@@ -43,7 +43,7 @@ Unknown until triage. Follow-up after met [[slice-871-per-page-titles]] / [[task
 **What we've established so far:**
 
 - Confirmed bug against `public-site.chrome:document-title`. Learn `host-io` and Reference `reference-host-io` both have markdown title host I/O. Learn `packages` and Reference `reference-packages` both have markdown title packages. Those four routes all pass `${loaderData.title} · Draconic` into `pageShareHead`, so document title and og:title collide as `host I/O · Draconic` and `packages · Draconic`. Tabs cannot tell Learn from Reference.
-- `website/src/tests/document-title.test.ts` only requires Learn, Reference, and from JavaScript to be three distinct titles, and every markdown route not solely Draconic. The markdown-route loop never asserts unique titles across pages.
+- `draconic-web/src/tests/document-title.test.ts` only requires Learn, Reference, and from JavaScript to be three distinct titles, and every markdown route not solely Draconic. The markdown-route loop never asserts unique titles across pages.
 - Search and side-nav accessible names already prefix `Learn ·` versus `Reference ·`. Visible CONTEXT terms and page h1 copy stay host I/O and packages. [[slice-869-distinct-nav-labels]] covered nav names only. [[slice-871-per-page-titles]] is met and did not lock uniqueness for paired Learn/Reference chapters.
 - Other content titles do not collide. Only those two CONTEXT-term pairs share a document title.
 
