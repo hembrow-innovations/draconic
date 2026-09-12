@@ -80,4 +80,5 @@ Options for triage. Not a locked design.
 
 - Missing library emit, not a printer bug. JS backend has no `export` printer. Linker flatten drops the entry export table. E11 never promised Node-importable artifacts. No docs rejection; ADR-0009 rejects npm as v1, not this.
 - First cut: named exports on flattened JS emit, opt-in `--library`. Default `draconic run` stays a script. Default export and `export *` stay out of this sprint.
+- Remainder after slice-911: [[ticket-913-default-js-build-no-esm]], [[ticket-914-js-library-default-export]], [[ticket-915-js-library-export-star]].
 - Promoted. Drain [[task-910-entry-export-table]] first.
