@@ -2,13 +2,13 @@
 id: "slice-875-github-mobile-hit"
 title: "Compact mobile GitHub control"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by:
   - slice-865-github-above-fold
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T08:13:09Z"
 ---
 
 # Compact mobile GitHub control
@@ -33,10 +33,10 @@ At a small viewport the GitHub control is a compact tap target, not a stretched 
 
 ## Oracle checklist
 
-- [ ] O1: small-viewport GitHub is not stretch-aligned into a tall column
+- [x] O1: small-viewport GitHub is not stretch-aligned into a tall column
   CHECK: pnpm --dir website exec vitest run mobile-a11y
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: 2026-09-12 `pnpm --dir website exec vitest run mobile-a11y` → Test Files  1 passed (1). task-879 archived.
 
 ## Pool
 
