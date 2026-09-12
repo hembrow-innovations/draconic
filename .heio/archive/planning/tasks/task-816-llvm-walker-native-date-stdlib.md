@@ -2,14 +2,14 @@
 id: "task-816-llvm-walker-native-date-stdlib"
 title: "LLVM walker native Date and stdlib"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-814-host-name-catalog"]
 sprint: "platform"
 slice: "slice-815-llvm-walker-native-date-stdlib"
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T22:10:00Z"
 ---
 
 # LLVM walker native Date and stdlib
@@ -61,12 +61,19 @@ Those four native Conformance surfaces pass. The walker selects existing native 
 - size-file-budget: no file over 1000
 
 **Acceptance criteria:**
-- [ ] Slice O1 `date_runs` prints `test result: ok.`
-- [ ] Slice O2 stdlib_flags prints `test result: ok.`
-- [ ] Slice O3 stdlib_url prints `test result: ok.`
-- [ ] Slice O4 `invalid_runs_both_targets` prints `test result: ok.`
-- [ ] Unmatched IR still diagnostics (no hello-stub success)
-- [ ] No new host API
+- [x] Slice O1 `date_runs` prints `test result: ok.`
+- [x] Slice O2 stdlib_flags prints `test result: ok.`
+- [x] Slice O3 stdlib_url prints `test result: ok.`
+- [x] Slice O4 `invalid_runs_both_targets` prints `test result: ok.`
+- [x] Unmatched IR still diagnostics (no hello-stub success)
+- [x] No new host API
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-conformance --test builtins --offline date_runs; stdlib_flags; stdlib_url; stdlib_compression invalid_runs_both_targets; unsupported_js_module_errors
+- **result**: win
+- **gap**: none. Date.now steal-routes to host_time only when is_host_time_module. parseFlags/parseUrl/gzip ident gates select existing emit. Unmatched IR still diagnostics.
 
 **Out of scope:**
 - splitting the walker only to meet 1000 lines ([[ticket-809-llvm-walk-over-file-budget]])

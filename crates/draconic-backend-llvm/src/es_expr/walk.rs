@@ -79,8 +79,11 @@ impl Seen {
     }
 
     fn emit(self, module: &Module) -> Result<String, Diagnostic> {
-        if !self.host.is_empty() || self.has_date_now {
+        if !self.host.is_empty() {
             return super::host_dispatch::emit_host(module, &self);
+        }
+        if self.has_date_now && crate::host_time::is_host_time_module(module) {
+            return crate::host_time::emit_host_time(module);
         }
         super::es_kind::emit_es(module, &self)
     }
@@ -587,5 +590,45 @@ fn walk_object_pattern(els: &[ObjectPatternEl], module: &Module, seen: &mut Seen
             }
             ObjectPatternEl::Rest(p) => walk_pattern(p, module, seen),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use draconic_frontend::compile_source;
+
+    fn emit(src: &str) -> Result<String, draconic_diagnostics::Diagnostic> {
+        crate::emit_llvm_ir(&compile_source(src).expect("compile"))
+    }
+
+    #[test]
+    fn date_fixture_emits_via_walker_not_host_time() {
+        let src = include_str!("../../../../tests/conformance/fixtures/es/builtins/date.drac");
+        let ir = emit(src).expect("date via walker");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "date must not hello-stub:\n{ir}"
+        );
+        assert!(
+            !ir.contains("draconic_rt_host_now_ms"),
+            "Date builtins must not steal-route into host time:\n{ir}"
+        );
+        for s in ["function", "true", "number"] {
+            assert!(ir.contains(s), "missing {s:?} in emit:\n{ir}");
+        }
+    }
+
+    #[test]
+    fn date_now_host_clock_still_runtime() {
+        let src = include_str!("../../../../tests/conformance/fixtures/host/time/date_now.drac");
+        let ir = emit(src).expect("host Date.now via walker");
+        assert!(
+            ir.contains("draconic_rt_host_now_ms"),
+            "clock-only Date.now must stay runtime host time:\n{ir}"
+        );
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "host Date.now must not hello-stub:\n{ir}"
+        );
     }
 }

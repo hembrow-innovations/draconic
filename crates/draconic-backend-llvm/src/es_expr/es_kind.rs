@@ -142,7 +142,11 @@ fn es_kind(module: &Module, seen: &Seen) -> EsKind {
         || seen.ident("hmacSha256")
         || seen.ident("aeadEncrypt")
         || seen.ident("aeadDecrypt")
-        || seen.ident("randomBytes"))
+        || seen.ident("randomBytes")
+        || seen.ident("gzip")
+        || seen.ident("gunzip")
+        || seen.ident("deflate")
+        || seen.ident("inflate"))
         && crate::es_encoding::is_es_encoding_module(module)
     {
         return EsKind::Encoding;
@@ -272,4 +276,55 @@ fn is_builtins_ident(seen: &Seen) -> bool {
         || seen.ident("Float64Array")
         || seen.ident("isNaN")
         || seen.ident("isFinite")
+        || seen.ident("parseFlags")
+        || seen.ident("flagHelp")
+        || seen.ident("parseUrl")
+        || seen.ident("parseQuery")
+        || seen.ident("serializeQuery")
+}
+
+#[cfg(test)]
+mod tests {
+    use draconic_frontend::compile_source;
+
+    fn emit(src: &str) -> Result<String, draconic_diagnostics::Diagnostic> {
+        crate::emit_llvm_ir(&compile_source(src).expect("compile"))
+    }
+
+    #[test]
+    fn parse_flags_emits_via_walker() {
+        let src = include_str!(
+            "../../../../tests/conformance/fixtures/stdlib/flags/parse_long_short.drac"
+        );
+        let ir = emit(src).expect("parseFlags via walker");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "flags must not hello-stub:\n{ir}"
+        );
+        assert!(ir.contains("define i32 @main"), "missing main:\n{ir}");
+    }
+
+    #[test]
+    fn parse_url_emits_via_walker() {
+        let src =
+            include_str!("../../../../tests/conformance/fixtures/stdlib/url/parse_basics.drac");
+        let ir = emit(src).expect("parseUrl via walker");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "url must not hello-stub:\n{ir}"
+        );
+        assert!(ir.contains("define i32 @main"), "missing main:\n{ir}");
+    }
+
+    #[test]
+    fn gzip_invalid_emits_via_walker() {
+        let src =
+            include_str!("../../../../tests/conformance/fixtures/stdlib/compression/invalid.drac");
+        let ir = emit(src).expect("gzip invalid via walker");
+        assert!(
+            !ir.contains("draconic_rt_hello"),
+            "compression invalid must not hello-stub:\n{ir}"
+        );
+        assert!(ir.contains("define i32 @main"), "missing main:\n{ir}");
+    }
 }
