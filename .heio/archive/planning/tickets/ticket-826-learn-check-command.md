@@ -2,19 +2,19 @@
 id: "ticket-826-learn-check-command"
 title: "Shipped Learn typed samples never show draconic check"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T11:22:00Z"
-updated_at: "2026-09-12T11:22:00Z"
+updated_at: "2026-09-12T11:58:00Z"
 ---
 
 # Shipped Learn typed samples never show draconic check
 
 ## Signal
 
-Website swarm 2026-09-12. from JavaScript, from systems, Dual worlds, and native types teach typed Programs with parse and run only. types Reference already shows `draconic check` on the same greet and width samples. A visitor writing on the Learn path has no public typecheck loop until they leave Learn.
+Closed. Website swarm shipped `draconic check` on typed Learn samples in from JavaScript, from systems, Dual worlds, and native types. `website/src/tests/learn-pages.test.ts` locks those command fences. Command fences stay non-`drac`. Remaining not-yet pages stay prose-only.
 
 ## Fit
 

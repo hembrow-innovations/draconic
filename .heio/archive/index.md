@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-826-learn-check-command** — closed; shipped Learn typed samples show draconic check
 - **ticket-828-learn-host-io-filesystem-sample** — closed; Learn host I/O shipped a compiling write-then-read filesystem fence
 - **ticket-827-install-node-prerequisite** — closed; Install names Node on PATH before the first draconic run command
 - **ticket-825-host-io-working-pages** — closed; Learn and Reference host I/O shipped with compiling stdoutWrite fence and named portable APIs

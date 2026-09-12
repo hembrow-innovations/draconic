@@ -45,8 +45,11 @@ let total: i32 = add(20, 22);
 console.log(total as number);
 ```
 
+Parse it, typecheck it, or run it:
+
 ```
 draconic parse add.drac
+draconic check add.drac
 draconic run add.drac
 ```
 

@@ -24,10 +24,11 @@ let label: string = "ready";
 console.log(label, next);
 ```
 
-Parse it or run it. Default `draconic run` target is js. The JS backend polyfills portable native scalars as ordinary JavaScript values:
+Parse it, typecheck it, or run it. Default `draconic run` target is js. The JS backend polyfills portable native scalars as ordinary JavaScript values:
 
 ```
 draconic parse boundary.drac
+draconic check boundary.drac
 draconic run boundary.drac
 ```
 

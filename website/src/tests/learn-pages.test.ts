@@ -162,6 +162,7 @@ test("learn pages", () => {
   expect(fromJsPage.body).toContain("globalThis.console");
   expect(fromJsPage.body).toContain("unresolved");
   expect(fromJsPage.body).toContain("function greet(name: string): string");
+  expect(fromJsPage.body).toContain("draconic check greet.drac");
   expect(fromJsPage.body.match(/```drac/g)?.length).toBe(2);
   expect(fromJs).toContain("greet");
   expect(fromJs).toContain(
@@ -174,6 +175,7 @@ test("learn pages", () => {
   expect(fromSystemsPage.body).toContain("function add(x: i32, y: i32): i32");
   expect(fromSystemsPage.body).toContain("as number");
   expect(fromSystemsPage.body).toContain("--target native");
+  expect(fromSystemsPage.body).toContain("draconic check add.drac");
   expect(fromSystemsPage.body.match(/```drac/g)?.length).toBe(2);
   expect(fromSystems).toContain("add");
   expect(fromSystems).toContain(
@@ -201,6 +203,9 @@ test("learn pages", () => {
   expect(loadMarkdownPage("dual-worlds").body).toContain("```drac");
   expect(loadMarkdownPage("dual-worlds").body).toContain("as i32");
   expect(loadMarkdownPage("dual-worlds").body).toContain("as number");
+  expect(loadMarkdownPage("dual-worlds").body).toContain(
+    "draconic check boundary.drac",
+  );
   expect(dualWorlds).toContain("jsCount");
   expect(dualWorlds).toContain("<pre>");
   expect(dualWorlds).toContain("<code>");
@@ -213,6 +218,8 @@ test("learn pages", () => {
   expect(nativeTypesPage.body).toContain("type Point = { x: i32; y: i32 }");
   expect(nativeTypesPage.body).toContain("as number");
   expect(nativeTypesPage.body).toContain("It builds today");
+  expect(nativeTypesPage.body).toContain("draconic check width.drac");
+  expect(nativeTypesPage.body).toContain("draconic check point.drac");
   expect(nativeTypesPage.body).toContain("## i32 and i64");
   expect(nativeTypesPage.body).toContain("## Fixed structs");
   expect(nativeTypesPage.body.match(/```drac/g)?.length).toBe(2);

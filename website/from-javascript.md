@@ -39,8 +39,11 @@ function greet(name: string): string {
 console.log(greet("from Draconic"));
 ```
 
+Parse it, typecheck it, or run it:
+
 ```
 draconic parse greet.drac
+draconic check greet.drac
 draconic run greet.drac
 ```
 

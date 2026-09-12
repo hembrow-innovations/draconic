@@ -26,10 +26,11 @@ let wide: i64 = 42;
 console.log(count as number, wide as number);
 ```
 
-Parse it or run it. Default `draconic run` target is js. The JS backend polyfills portable native scalars as ordinary JavaScript values:
+Parse it, typecheck it, or run it. Default `draconic run` target is js. The JS backend polyfills portable native scalars as ordinary JavaScript values:
 
 ```
 draconic parse width.drac
+draconic check width.drac
 draconic run width.drac
 ```
 
@@ -45,8 +46,11 @@ let p: Point = { x: 10, y: 20 };
 console.log(p.x as number, p.y as number);
 ```
 
+Parse it, typecheck it, or run it:
+
 ```
 draconic parse point.drac
+draconic check point.drac
 draconic run point.drac
 ```
 
