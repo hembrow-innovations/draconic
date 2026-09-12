@@ -45,7 +45,7 @@ draconic build --target js hello.drac -o hello.js
 draconic run hello.drac
 ```
 
-Native binaries need an LLVM toolchain on the machine:
+Default `draconic run` executes the emitted JavaScript with `node` on PATH. Native binaries need an LLVM toolchain on the machine:
 
 ```
 draconic build --target native hello.drac -o hello

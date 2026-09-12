@@ -161,6 +161,7 @@ test("learn pages", () => {
   expect(fromSystems).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(install).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(install).toContain('<a href="/from-systems">from systems</a>');
+  expect(install).toContain("`node` on PATH");
   expect(dualWorlds).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(dualWorlds).toContain('<a href="/from-systems">from systems</a>');
   expect(dualWorlds).toContain('<a href="/modules">modules</a>');

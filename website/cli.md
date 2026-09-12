@@ -30,7 +30,7 @@ console.log("hello from Draconic");
 - `draconic check [--watch] <file>` — typecheck with no emit
 - `draconic fmt [--check] <file>` — format in place (`--check` reports whether the file is already formatted)
 - `draconic build --target js|native [--strip] [--lto] <file> [-o <out>]` — compile to JavaScript or a native binary. `--strip` and `--lto` are native-only size opts (LTO is a size-delta smoke versus the default native artifact).
-- `draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]` — build and execute a Program. Default target is js.
+- `draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]` — build and execute a Program. Default target is js, which executes the emitted JavaScript with `node` on PATH.
 - `draconic repl [--target js|embed]` — interactive loop. `embed` is the native eval path.
 - `draconic test <path>` — run Conformance fixtures, not a general application test runner
 - `draconic version` — print version

@@ -19,6 +19,7 @@ test("markdown render install subset", () => {
     "curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/scripts/install.sh | sh",
   );
   expect(html).toContain("let console = globalThis.console;");
+  expect(html).toContain("`node` on PATH");
   expect(html).toContain(
     '<a href="/from-javascript">from JavaScript</a>',
   );
@@ -38,6 +39,7 @@ test("markdown render cli commands keep angle placeholders as text", () => {
   const html = renderMarkdown(page.body);
 
   expect(html).toContain("draconic parse &lt;file&gt;");
+  expect(html).toContain("`node` on PATH");
   expect(html).toContain("[-o &lt;out&gt;]");
   expect(html).not.toContain("<file>");
   expect(html).not.toContain("<out>");
