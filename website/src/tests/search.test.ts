@@ -70,6 +70,7 @@ test("search", () => {
   expect(root).toContain("SearchIndexProvider");
 
   expect(search).toContain("public-site.search:titles-headings");
+  expect(search).toContain("public-site.search:keyboard-live");
   expect(search).toContain("public-site.search:session");
   expect(search).toContain("useLocation");
   expect(search).toContain("useEffect");
@@ -78,6 +79,20 @@ test("search", () => {
   expect(search).toContain('setQuery("")');
   expect(search).toContain("onKeyDown");
   expect(search).toContain("Escape");
+  expect(search).toContain("ArrowDown");
+  expect(search).toContain("ArrowUp");
+  expect(search).toContain('"Enter"');
+  expect(search).toContain("useNavigate");
+  expect(search).toContain("navigate(");
+  expect(search).toContain('role="combobox"');
+  expect(search).toContain("aria-expanded");
+  expect(search).toContain("aria-controls");
+  expect(search).toContain("aria-activedescendant");
+  expect(search).toContain('role="listbox"');
+  expect(search).toContain('role="option"');
+  expect(search).toContain("aria-selected");
+  expect(search).toContain("aria-live");
+  expect(search).toContain("${results.length}");
   expect(search).not.toContain("aria-current");
   expect(search).toContain('type="search"');
   expect(search).toContain("querySearchIndex");

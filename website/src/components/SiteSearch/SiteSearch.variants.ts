@@ -23,8 +23,22 @@ export const siteSearchResultsVariants = cva(
  * Result links use the same body role as primary nav.
  */
 export const siteSearchLinkVariants = cva(
-  "flex min-h-11 items-center px-3 font-body text-body text-muted no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  "flex min-h-11 items-center px-3 font-body text-body no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  {
+    variants: {
+      selected: {
+        true: "text-ink",
+        false: "text-muted",
+      },
+    },
+    defaultVariants: { selected: false },
+  },
 );
+
+/**
+ * Polite status for hit counts and misses, off-screen for sighted layout.
+ */
+export const siteSearchLiveVariants = cva("sr-only");
 
 /**
  * Miss copy when a query hits no title or heading.

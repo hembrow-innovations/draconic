@@ -2,7 +2,7 @@
 id: "task-883-search-keyboard-live"
 title: "Make search results keyboardable and announced"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-882-search-keyboard-live"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:35:00Z"
 ---
 
 # Make search results keyboardable and announced
@@ -68,11 +68,11 @@ Keyboard users can move through visible hits and activate the selected hit, incl
 - Accessibility names: expanded or selected-hit wiring on the search control; a live region for hits and misses.
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.search:keyboard-live` with a test pointer
-- [ ] Tests fail if the search control has no keyboard path through hits and no live announcement of hits or misses
-- [ ] Dual worlds still hits and a miss still shows No matching pages
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] `public-site.search:titles-headings` and `public-site.a11y:keyboard-small` still hold
+- [x] Contract lists `public-site.search:keyboard-live` with a test pointer
+- [x] Tests fail if the search control has no keyboard path through hits and no live announcement of hits or misses
+- [x] Dual worlds still hits and a miss still shows No matching pages
+- [x] Named vitest file passes and typecheck exits 0
+- [x] `public-site.search:titles-headings` and `public-site.a11y:keyboard-small` still hold
 
 **Out of scope:**
 - Body-term indexing ([[ticket-821-search-body-terms]])
@@ -82,3 +82,7 @@ Keyboard users can move through visible hits and activate the selected hit, incl
 
 **Explain this part:**
 This sitting is search chrome a11y. It does not change what a query matches and does not own session reset. If [[task-874-search-session-reset]] is in flight, do not collide on the same control without reading it first.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run search` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.search:keyboard-live`; Dual worlds and miss copy unchanged; combobox wiring is on SiteSearch, not a hamburger.

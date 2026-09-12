@@ -5,5 +5,6 @@ export {
   siteSearchInputVariants,
   siteSearchResultsVariants,
   siteSearchLinkVariants,
+  siteSearchLiveVariants,
   siteSearchEmptyVariants,
 } from "./SiteSearch.variants";

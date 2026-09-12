@@ -68,6 +68,8 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: page outline
 - `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title or heading text.
   test: website/src/tests/search.test.ts
+- `public-site.search:keyboard-live`: Keyboard users can move through visible search hits with Arrow Down and Arrow Up and activate the selected hit, including the first hit on Enter; screen-reader users hear that results or No matching pages appeared.
+  test: website/src/tests/search.test.ts
 - `public-site.search:session`: Following a search result or pressing Escape clears the query and result list so leftover hits cannot keep aria-current="page".
   test: website/src/tests/search.test.ts
 - `public-site.a11y:keyboard-small`: Primary nav and article reading work with keyboard and at a small viewport.
