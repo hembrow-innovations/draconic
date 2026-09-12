@@ -6,7 +6,7 @@ test("markdown render install subset", () => {
   const html = renderMarkdown(page.body);
 
   expect(html).toContain("<h1>Install</h1>");
-  expect(html).toContain("<h2>Reproducibility</h2>");
+  expect(html).toContain('<h2 id="reproducibility">Reproducibility</h2>');
   expect(html).toContain(
     "<p>Get the toolchain, then parse, build, and run a Program before reading further.</p>",
   );
@@ -25,6 +25,12 @@ test("markdown render install subset", () => {
   );
   expect(html).toContain('<a href="/from-systems">from systems</a>');
   expect(html).toContain('<a href="/dual-worlds">Dual worlds</a>');
+
+  const native = loadMarkdownPage("native-types");
+  const nativeHtml = renderMarkdown(native.body);
+  expect(nativeHtml).toContain('<h2 id="i32-and-i64">i32 and i64</h2>');
+  expect(nativeHtml).toContain('<h2 id="fixed-structs">Fixed structs</h2>');
+  expect(nativeHtml).toContain("<h1>native types</h1>");
 
   expect(html).not.toContain("# Install");
   expect(html).not.toContain("## Reproducibility");

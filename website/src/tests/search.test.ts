@@ -5,6 +5,7 @@ import { expect, test } from "vitest";
 import {
   buildSearchIndex,
   querySearchIndex,
+  searchHitHref,
   searchHitLabel,
 } from "../lib/search";
 
@@ -71,9 +72,11 @@ test("search", () => {
   expect(search).toContain('type="search"');
   expect(search).toContain("querySearchIndex");
   expect(search).toContain("searchHitLabel");
+  expect(search).toContain("searchHitHref");
   expect(search).toContain("No matching pages");
   expect(search).toContain("from \"@tanstack/react-router\"");
   expect(search).toContain("Link");
+  expect(search).toContain("hash=");
   expect(search).toContain("siteSearchVariants");
   expect(search).toContain("siteSearchEmptyVariants");
   expect(search).not.toMatch(/playground/i);
@@ -137,6 +140,11 @@ test("search", () => {
   expect(searchHitLabel(nativePage!, "Fixed structs")).toBe(
     "Learn · native types · Fixed structs",
   );
+  expect(searchHitHref(nativePage!, "Fixed structs")).toBe(
+    "/native-types#fixed-structs",
+  );
+  expect(searchHitHref(nativePage!, "native types")).toBe("/native-types");
+  expect(searchHitHref(nativePage!, "i32")).toBe("/native-types#i32-and-i64");
 
   const packageHits = querySearchIndex(index, "packages");
   const learnPackages = packageHits.find((hit) => hit.href === "/packages");

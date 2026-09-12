@@ -1,3 +1,5 @@
+import { uniqueHeadingId, unwrapMarkdownLinks } from "./headingId";
+
 const APP_SLUG = /^[a-z0-9-]+$/;
 
 /**
@@ -36,6 +38,7 @@ export function toAppHref(href: string): string {
  */
 export function renderMarkdown(body: string): string {
   const lines = body.split(/\r?\n/);
+  const seen = new Set<string>();
   let html = "";
   let inFence = false;
   let inList = false;
@@ -82,7 +85,12 @@ export function renderMarkdown(body: string): string {
         ? line.slice(hashes + 1)
         : line.slice(hashes);
       const level = hashes <= 3 ? hashes : 4;
-      html += `<h${level}>${renderInline(text)}</h${level}>\n`;
+      const id = uniqueHeadingId(unwrapMarkdownLinks(text), seen);
+      if (level === 1) {
+        html += `<h1>${renderInline(text)}</h1>\n`;
+      } else {
+        html += `<h${level} id="${id}">${renderInline(text)}</h${level}>\n`;
+      }
       continue;
     }
 

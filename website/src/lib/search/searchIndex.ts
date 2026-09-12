@@ -1,4 +1,9 @@
-import { listMarkdownPages, type MarkdownPage } from "../content";
+import {
+  listMarkdownPages,
+  uniqueHeadingId,
+  unwrapMarkdownLinks,
+  type MarkdownPage,
+} from "../content";
 
 /**
  * One public page in the title and heading finder.
@@ -33,7 +38,7 @@ export function extractHeadings(source: string): string[] {
     while (hashes < line.length && line[hashes] === "#") {
       hashes += 1;
     }
-    const text = unwrapLinks(line.slice(hashes).trim());
+    const text = unwrapMarkdownLinks(line.slice(hashes).trim());
     if (text !== "") {
       headings.push(text);
     }
@@ -66,6 +71,28 @@ export function querySearchIndex(
     return [];
   }
   return index.filter((entry) => matchesEntry(entry, needle));
+}
+
+/**
+ * Page path, plus a heading fragment when the query hit a section not the title.
+ *
+ * @param entry - Indexed page
+ * @param query - Visitor search text
+ * @returns Start path, with `#slug` when the match is a heading
+ */
+export function searchHitHref(entry: SearchEntry, query: string): string {
+  const needle = query.trim().toLowerCase();
+  if (needle === "" || entry.title.toLowerCase().includes(needle)) {
+    return entry.href;
+  }
+  const seen = new Set<string>();
+  for (const heading of entry.headings) {
+    const id = uniqueHeadingId(heading, seen);
+    if (heading !== entry.title && heading.toLowerCase().includes(needle)) {
+      return `${entry.href}#${id}`;
+    }
+  }
+  return entry.href;
 }
 
 /**
@@ -115,8 +142,4 @@ function matchesEntry(entry: SearchEntry, needle: string): boolean {
     return true;
   }
   return entry.headings.some((heading) => heading.toLowerCase().includes(needle));
-}
-
-function unwrapLinks(text: string): string {
-  return text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
 }

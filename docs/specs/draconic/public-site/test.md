@@ -64,8 +64,11 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
   - **How:** DocsShell is aside plus article plus Badge from shipped or not-yet; article children are kicker, then heading, then Badge, then remaining markdown, then footer; home and root do not use that chrome; tokens and CVA, no hex.
   - **Why:** Locks `public-site.chrome:docs-sidebar` and `public-site.chrome:docs-article-order`.
 - **website/src/tests/search.test.ts** — `search`
-   - **How:** Static index of routed `website/*.md` titles and headings; query Dual worlds hits `/dual-worlds`; query Fixed structs hits `/native-types`; body-only and vault phrases miss; SiteSearch in site chrome links to Start routes.
-  - **Why:** Locks `public-site.search:titles-headings`.
+   - **How:** Static index of routed `website/*.md` titles and headings; query Dual worlds hits `/dual-worlds`; query Fixed structs hits `/native-types#fixed-structs` and labels Learn · native types · Fixed structs; query i32 hits `/native-types#i32-and-i64`; query packages labels Learn · packages and Reference · packages; body-only and vault phrases miss; a miss shows No matching pages; SiteSearch in site chrome links to Start routes, with heading hits carrying the section hash.
+   - **Why:** Locks `public-site.search:titles-headings`.
+- **website/src/tests/markdown-render.test.ts** — `markdown render install subset`
+  - **How:** Install h1 stays without an id so DocsShell can peel it; Reproducibility renders as h2 with id reproducibility; native types h2s are i32-and-i64 and fixed-structs.
+  - **Why:** Supports `public-site.search:titles-headings` heading fragments on the markdown subset.
 - **website/src/tests/site-header-primary-nav.test.ts** — `site header primary nav`
   - **How:** Root layout is skip then sticky side nav then main; side nav source has wordmark, Learn, Reference, GitHub, search, and theme toggle; home and Learn routes do not remount that chrome; current hub chrome uses an existing token with aria-current, not muted ink alone.
   - **Why:** Locks `public-site.chrome:primary-nav`, `public-site.chrome:odm-shell`, and `public-site.chrome:current-page`.
