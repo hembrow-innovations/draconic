@@ -2,12 +2,12 @@
 id: "slice-909-entry-export-table"
 title: "Entry named exports survive flatten"
 kind: slice
-status: active
+status: met
 sprint: "js-library-esm"
 blocked_by: []
 tags: [js, linker, distribution]
 created_at: "2026-09-12T11:05:00Z"
-updated_at: "2026-09-12T11:14:46Z"
+updated_at: "2026-09-12T21:20:00Z"
 ---
 
 # Entry named exports survive flatten
@@ -38,11 +38,11 @@ None.
 - [x] O1: single-file named export names survive lower
   CHECK: cargo test -p draconic-frontend --offline entry_named_exports_on_ir -- --nocapture
   EXPECT: view-export-ok
-  EVIDENCE: `view-export-ok` and exit 0 (task-910). Slice not met.
+  EVIDENCE: `view-export-ok`; test result: ok. 1 passed; exit 0
 - [x] O2: re-export graph keeps the public name on IR
   CHECK: cargo test -p draconic-frontend --offline reexport_entry_export_names_on_ir -- --nocapture
   EXPECT: view-reexport-ok
-  EVIDENCE: `view-reexport-ok` and exit 0 (task-910). Slice not met.
+  EVIDENCE: `view-reexport-ok`; test result: ok. 1 passed; exit 0
 
 ## Pool
 

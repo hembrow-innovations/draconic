@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-909-entry-export-table** — met; entry named-export names survive flatten as IR metadata; default JS emit still has no export; js-library-esm stays active
 - **task-910-entry-export-table** — completed; entry named exports survive flatten as IR metadata; default JS emit still has no export (slice-909)
 - **housekeeping** — archived 19 met slices (14 website-chrome-polish, 1 website-search-index, 4 platform) and closed 19 tickets; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; open follow-ups 902–908 stay; platform, opt-in-bench, website-chrome-polish, website-search-index, and global-object-followup stay active
 - **housekeeping** — filed [[ticket-908-js-library-esm-export]] from GitHub issue 1 (JS library ESM emit); remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform, opt-in-bench, website-chrome-polish, website-search-index, and global-object-followup stay active
