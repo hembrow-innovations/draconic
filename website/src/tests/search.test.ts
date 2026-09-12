@@ -181,6 +181,7 @@ test("search", () => {
   expect(packageRoot?.headings).toContain("Package root");
   expect(packageRoot?.headings).toContain("get");
   expect(packageRoot?.headings).toContain("mod tidy");
+  expect(packageRoot?.headings).toContain("Flagship service");
   expect(searchHitHref(packageRoot!, "Package root")).toBe(
     "/packages#package-root",
   );
@@ -192,6 +193,17 @@ test("search", () => {
   expect(searchHitHref(packageRoot!, "mod tidy")).toBe("/packages#mod-tidy");
   expect(searchHitLabel(packageRoot!, "mod tidy")).toBe(
     "Learn · packages · mod tidy",
+  );
+
+  const flagship = querySearchIndex(index, "Flagship service").find(
+    (hit) => hit.href === "/packages",
+  );
+  expect(flagship?.headings).toContain("Flagship service");
+  expect(searchHitHref(flagship!, "Flagship service")).toBe(
+    "/packages#flagship-service",
+  );
+  expect(searchHitLabel(flagship!, "Flagship service")).toBe(
+    "Learn · packages · Flagship service",
   );
 
   const cliRun = querySearchIndex(index, "run").find(

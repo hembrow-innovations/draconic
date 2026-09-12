@@ -73,6 +73,6 @@ draconic build --target native listen.drac -o listen
 ./listen
 ```
 
-A listen loop accepts connections on that socket. Copy [HTTP echo](https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo) when you want `tcpListen` plus `httpParseRequest` in one Program.
+A listen loop accepts connections on that socket. Copy [HTTP echo](https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo) when you want `tcpListen` plus `httpParseRequest` in one Program. Copy [Flagship service](https://github.com/hembrow-innovations/draconic/tree/main/examples/flagship-service) when you want that listen path plus filesystem config and a git dependency.
 
 Continue to [packages](packages.html). Lookup: [host I/O](reference-host-io.html).

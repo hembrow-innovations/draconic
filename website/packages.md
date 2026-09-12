@@ -67,4 +67,8 @@ import { greet } from "github.com/org/pkg";
 
 Copy [pkg-lib](https://github.com/hembrow-innovations/draconic/tree/main/examples/pkg-lib) and [pkg-consumer](https://github.com/hembrow-innovations/draconic/tree/main/examples/pkg-consumer) when you want a package root plus a consumer in one tree.
 
+## Flagship service
+
+pkg-lib and pkg-consumer are the pair. Copy [Flagship service](https://github.com/hembrow-innovations/draconic/tree/main/examples/flagship-service) when you want typed HTTP, filesystem config, and a git dependency in one Program.
+
 Lookup: [packages](reference-packages.html) and [CLI](cli.html).

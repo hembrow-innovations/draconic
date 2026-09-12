@@ -311,6 +311,9 @@ test("learn pages", () => {
   expect(hostIo).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',
   );
+  expect(hostIo).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/flagship-service">Flagship service</a>',
+  );
   expect(hostIo).toContain('<a href="/packages">packages</a>');
   expect(hostIo).toContain('<a href="/reference-host-io">host I/O</a>');
   expect(hostIo).toContain('<a href="/cli">CLI</a>');
@@ -337,6 +340,10 @@ test("learn pages", () => {
   );
   expect(packagesHtml).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/pkg-consumer">pkg-consumer</a>',
+  );
+  expect(packagesPage.body).toContain("## Flagship service");
+  expect(packagesHtml).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/flagship-service">Flagship service</a>',
   );
   expect(packagesHtml).toContain('<a href="/modules">modules</a>');
   expect(packagesHtml).toContain('<a href="/reference-packages">packages</a>');
