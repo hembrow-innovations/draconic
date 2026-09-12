@@ -45,6 +45,9 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.chrome:odm-shell`: Every page, including home, uses skip-to-content plus a sticky side nav plus a main column.
   test: website/src/tests/site-footer-and-skip-link.test.ts
   test: website/src/tests/site-header-primary-nav.test.ts
+- `public-site.chrome:not-found`: An unknown URL keeps skip-to-content, sticky side nav, and footer; main has a heading that names the miss and an in-site link back to a real page; the router default Not Found paragraph is not the main content; the document title names the miss; the response is 404; no side-nav item is aria-current=page for a path that is not a page.
+  test: website/src/tests/not-found.test.ts
+  test: not found
 - `public-site.chrome:favicon`: The origin serves a favicon so the browser tab shows a site icon and `/favicon.ico` is not a 404.
   test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:document-title`: Each public page's document title names the open page so tabs distinguish destinations. Home may remain Draconic. Article titles use the page's existing heading or markdown title, not a new slogan.

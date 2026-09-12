@@ -2,7 +2,7 @@
 id: "task-881-empty-404"
 title: "Recover unknown URLs with a not-found page"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-880-empty-404"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T08:22:12Z"
 ---
 
 # Recover unknown URLs with a not-found page
@@ -67,10 +67,14 @@ Unknown URLs still use skip-link, sticky side nav, and footer. Main has a headin
 - Existing site chrome; no new marketing bar
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.chrome:not-found` with a test pointer
-- [ ] Tests fail if root has no `notFoundComponent` or if recovery main is only the default Not Found paragraph
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Promise ids listed above still hold (or were deliberately edited)
+- [x] Contract lists `public-site.chrome:not-found` with a test pointer
+- [x] Tests fail if root has no `notFoundComponent` or if recovery main is only the default Not Found paragraph
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Promise ids listed above still hold (or were deliberately edited)
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run not-found` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.chrome:not-found`; keeps `public-site.chrome:odm-shell`; recovery heading and Home link; no default Not Found paragraph; no extra marketing chrome.
 
 **Out of scope:**
 - Per-page titles on real routes ([[task-872-per-page-titles]]); Learn/Reference copy; playground; vault-as-site

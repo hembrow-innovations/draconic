@@ -5,6 +5,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { NotFound } from "../components/NotFound";
 import { SiteFooter } from "../components/SiteFooter";
 import {
   SiteHeader,
@@ -41,13 +42,14 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootComponent,
+  notFoundComponent: NotFound,
 });
 
 /**
  * Skip link, sticky side nav, and main column on every route.
  *
  * Locks `public-site.chrome:odm-shell`, `public-site.chrome:primary-nav`,
- * and `public-site.chrome:favicon`.
+ * `public-site.chrome:favicon`, and `public-site.chrome:not-found`.
  */
 function RootComponent() {
   const { searchIndex } = Route.useLoaderData();
