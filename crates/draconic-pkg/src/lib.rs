@@ -162,6 +162,51 @@ mod tests {
     }
 
     #[test]
+    fn forbid_central_registry_v1_identity_is_git_backed_module_path() {
+        let path = "github.com/org/pkg";
+        let git = default_git_url(path);
+        assert_eq!(git, "https://github.com/org/pkg.git");
+
+        let m = parse_manifest(
+            r#"
+module = "github.com/acme/app"
+
+[dependencies]
+"github.com/org/pkg" = "1.0.0"
+"#,
+        )
+        .expect("git-backed consumer");
+        let primary = resolve_git_url(&m, path);
+        assert_eq!(
+            primary, git,
+            "get/resolve primary source is git clone of the module path"
+        );
+        for host in ["registry.npmjs.org", "registry.yarnpkg.com", "crates.io"] {
+            assert!(
+                !primary.contains(host),
+                "primary source must not be a central registry ({host}): {primary}"
+            );
+        }
+
+        assert!(
+            parse_manifest(r#"module = "lodash""#).is_err(),
+            "bare npm name is not a git-backed module path"
+        );
+        assert!(
+            parse_manifest(r#"module = "@scope/pkg""#).is_err(),
+            "npm scoped name is not a git-backed module path"
+        );
+        assert!(
+            parse_get_spec("lodash@1.0.0").is_err(),
+            "get must not treat a registry package name as identity"
+        );
+        assert!(
+            parse_get_spec("@scope/pkg@1.0.0").is_err(),
+            "get must not treat a scoped registry name as identity"
+        );
+    }
+
+    #[test]
     fn resolve_git_url_uses_default_when_urls_empty() {
         let m = manifest("github.com/acme/app", &[("github.com/org/lib", "1.0.0")]);
         assert_eq!(
