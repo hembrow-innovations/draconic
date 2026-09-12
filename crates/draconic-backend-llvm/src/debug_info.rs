@@ -233,6 +233,7 @@ mod tests {
             body_spans: vec![Span::new(0, 10)],
             shapes: vec![],
             has_extern_ffi: false,
+            named_exports: Vec::new(),
         }
     }
 

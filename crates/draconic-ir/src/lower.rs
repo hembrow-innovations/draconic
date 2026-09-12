@@ -15,13 +15,13 @@ mod lower_expr_object;
 mod lower_pattern;
 mod lower_private;
 
+use crate::{AssignTarget, BindingKind, Expr, Local, LocalId, Module, Stmt, SwitchCase};
 use lower_class::lower_class;
 use lower_class_element::{possible_constructor_return, undef_expr};
 use lower_expr::{
     lower_array_pattern_els, lower_binding_pattern, lower_expr, lower_expr_hint,
     lower_object_pattern_props, lower_params,
 };
-use crate::{AssignTarget, BindingKind, Expr, Local, LocalId, Module, Stmt, SwitchCase};
 
 /// Per-`lower` bookkeeping for private fields/methods/brands and synthetic locals.
 /// Owned by `lower` for the duration of one lowering — no process-global state.
@@ -182,6 +182,7 @@ pub fn lower(checked: &CheckedProgram) -> Module {
         body_spans,
         shapes: checked.shapes().to_vec(),
         has_extern_ffi,
+        named_exports: Vec::new(),
     }
 }
 

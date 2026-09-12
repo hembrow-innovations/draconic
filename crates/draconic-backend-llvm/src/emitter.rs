@@ -136,6 +136,7 @@ mod tests {
             body_spans: Vec::new(),
             shapes: Vec::new(),
             has_extern_ffi: false,
+            named_exports: Vec::new(),
         }
     }
 

@@ -2,14 +2,14 @@
 id: "task-910-entry-export-table"
 title: "Keep entry named exports on IR"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "js-library-esm"
 slice: "slice-909-entry-export-table"
 tags: [js, linker, distribution]
 created_at: "2026-09-12T11:05:00Z"
-updated_at: "2026-09-12T11:05:00Z"
+updated_at: "2026-09-12T11:14:46Z"
 ---
 
 # Keep entry named exports on IR
@@ -72,11 +72,11 @@ A Module entry with `export const`, `export function`, or `export { name }` is l
 - Checker still rejects leftover `import` / `export` on the flattened `Program`.
 
 **Acceptance criteria:**
-- [ ] Slice O1 CHECK prints `view-export-ok` and exits 0
-- [ ] Slice O2 CHECK prints `view-reexport-ok` and exits 0
-- [ ] `cargo test -p draconic-frontend --offline` prints `test result: ok.`
-- [ ] Default JS emit of a named-export entry still has no `export` keyword
-- [ ] No CLI flag added
+- [x] Slice O1 CHECK prints `view-export-ok` and exits 0
+- [x] Slice O2 CHECK prints `view-reexport-ok` and exits 0
+- [x] `cargo test -p draconic-frontend --offline` prints `test result: ok.`
+- [x] Default JS emit of a named-export entry still has no `export` keyword
+- [x] No CLI flag added
 
 **Out of scope:**
 - `draconic build --library` and the JS `export { … }` printer ([[task-912-js-library-named-esm]])

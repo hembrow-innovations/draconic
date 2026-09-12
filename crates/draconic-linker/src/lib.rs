@@ -60,8 +60,15 @@ pub struct PackageLinkContext {
 /// Discovers `draconic.lock` + default module cache by walking ancestors of
 /// `entry` when present; otherwise only relative specifiers are accepted.
 pub fn link_entry(entry: &Path) -> Result<Program, Diagnostic> {
+    Ok(link_entry_with_named_exports(entry)?.0)
+}
+
+/// Link `entry` and keep the entry named-export table (public → local after flatten).
+pub fn link_entry_with_named_exports(
+    entry: &Path,
+) -> Result<(Program, Vec<(String, String)>), Diagnostic> {
     let pkgs = discover_package_context(entry);
-    link_entry_with_packages(entry, pkgs.as_ref())
+    link_loaded(entry, pkgs.as_ref())
 }
 
 /// Link with an explicit lock + cache for module-path imports (K06.01).
@@ -69,6 +76,13 @@ pub fn link_entry_with_packages(
     entry: &Path,
     packages: Option<&PackageLinkContext>,
 ) -> Result<Program, Diagnostic> {
+    Ok(link_loaded(entry, packages)?.0)
+}
+
+fn link_loaded(
+    entry: &Path,
+    packages: Option<&PackageLinkContext>,
+) -> Result<(Program, Vec<(String, String)>), Diagnostic> {
     let entry = normalize_path(entry)?;
     let mut loader = Loader::new(packages.map(|p| Arc::new(p.clone())));
     loader.load_graph(&entry)?;

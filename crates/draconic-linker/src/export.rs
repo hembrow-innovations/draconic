@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use draconic_diagnostics::{codes, Diagnostic, Span};
 
 use crate::load::Loader;
-use crate::namespace::{BINDING_DEFERRED_NAMESPACE, BINDING_NAMESPACE};
+use crate::namespace::{final_binding_name, BINDING_DEFERRED_NAMESPACE, BINDING_NAMESPACE};
 
 impl Loader {
     /// Resolve `name` exported by `module_id` to `(defining_module_id, local_name)`.
@@ -235,6 +235,36 @@ impl Loader {
         }
         visiting.remove(&module_id);
         Ok((out, ambiguous))
+    }
+
+    /// Entry named exports after flatten: public name → local (mangled if a dep).
+    /// Skips `default`. Does not include `export *` star names.
+    pub(crate) fn entry_named_exports(
+        &self,
+        entry_id: usize,
+        mangled: &[HashMap<String, String>],
+    ) -> Result<Vec<(String, String)>, Diagnostic> {
+        let module = &self.modules[entry_id];
+        let mut publics: Vec<String> = module.exports.keys().cloned().collect();
+        for re in &module.named_reexports {
+            publics.push(re.exported.clone());
+        }
+        publics.sort();
+        publics.dedup();
+        let mut pairs = Vec::new();
+        for public in publics {
+            if public == "default" {
+                continue;
+            }
+            let Some((def_id, local)) =
+                self.resolve_export(entry_id, &public, &mut HashSet::new())?
+            else {
+                continue;
+            };
+            let remote = final_binding_name(mangled, def_id, &local)?;
+            pairs.push((public, remote));
+        }
+        Ok(pairs)
     }
 
     /// IndirectExportEntries must resolve (not null/ambiguous) — E19.71.

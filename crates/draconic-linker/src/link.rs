@@ -21,7 +21,10 @@ use crate::rename::{rename_stmt, ScopeStack};
 use crate::spans::{stmt_span_approx, uniqueify_stmt_spans, SyntheticSpans};
 
 impl Loader {
-    pub(crate) fn link(&mut self, entry: &Path) -> Result<Program, Diagnostic> {
+    pub(crate) fn link(
+        &mut self,
+        entry: &Path,
+    ) -> Result<(Program, Vec<(String, String)>), Diagnostic> {
         let entry = normalize_path(entry)?;
         let entry_id = *self.ids.get(&entry).expect("entry loaded");
 
@@ -46,6 +49,8 @@ impl Loader {
             }
             mangled.push(map);
         }
+
+        let named_exports = self.entry_named_exports(entry_id, &mangled)?;
 
         let mut import_renames: Vec<HashMap<String, String>> =
             vec![HashMap::new(); self.modules.len()];
@@ -368,10 +373,13 @@ impl Loader {
         // (E19.86: eager namespace objects are instantiated up-front with the other
         // namespace machinery, no longer emitted after each module body.)
 
-        Ok(Program {
-            body: linked_body,
-            span: Span::new(start, end),
-        })
+        Ok((
+            Program {
+                body: linked_body,
+                span: Span::new(start, end),
+            },
+            named_exports,
+        ))
     }
 
     /// Modules that evaluate eagerly: entry plus the closure of `eval_deps`.

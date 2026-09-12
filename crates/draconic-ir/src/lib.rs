@@ -13,7 +13,7 @@ pub use expr::{
     Arg, ArrayElement, ArrayPatternEl, AssignTarget, Expr, ObjectPatternEl, ObjectProp,
     ObjectPropKey, Param, Pattern, UpdateTarget,
 };
-pub use module::{Local, Module};
+pub use module::{Local, Module, NamedExport};
 pub use stmt::{Stmt, SwitchCase};
 
 pub use lower::lower;

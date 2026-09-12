@@ -4,6 +4,13 @@ use draconic_diagnostics::Span;
 
 use crate::Stmt;
 
+/// Entry named export after flatten: public name plus the local that holds the value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedExport {
+    pub public_name: String,
+    pub local_name: String,
+}
+
 /// Top-level IR unit both backends consume.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
@@ -17,6 +24,9 @@ pub struct Module {
     /// Program declared `extern "C"` (native-only FFI). JS backend must hard-error (F08.01).
     /// When true, `body` contains one or more `Stmt::ExternFunction` ABI decls (F06.03).
     pub has_extern_ffi: bool,
+    /// Entry named exports (public name → local after flatten). Empty for Scripts.
+    /// LLVM ignores this. Default JS emit does not print `export`.
+    pub named_exports: Vec<NamedExport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -70,6 +70,7 @@ pub fn emit_js_repl(module: &Module) -> Result<(String, bool), Diagnostic> {
         body_spans: vec![Span::dummy()],
         shapes: module.shapes.clone(),
         has_extern_ffi: module.has_extern_ffi,
+        named_exports: Vec::new(),
     };
     let expr_js = emit_js(&expr_only)?;
     let expr_js = expr_js.trim().trim_end_matches(';').trim();

@@ -9,11 +9,11 @@ use draconic_ast::{Program, Stmt};
 use draconic_check::{check, check_for_target, check_module, check_module_for_target};
 use draconic_diagnostics::Diagnostic;
 use draconic_ir::lower;
-use draconic_linker::link_entry;
+use draconic_linker::{link_entry, link_entry_with_named_exports};
 use draconic_parser::{parse, parse_module};
 
 pub use draconic_check::{CheckedProgram, CompileTarget};
-pub use draconic_ir::Module;
+pub use draconic_ir::{Module, NamedExport};
 
 /// Compile `source` as a Script (no filesystem link graph).
 ///
@@ -38,14 +38,14 @@ pub fn compile_source_module(source: &str) -> Result<Module, Diagnostic> {
 /// import/export syntax (parse-driven, not a source substring heuristic).
 /// Linked entries use the Module goal (top-level `await` allowed).
 pub fn compile_path(entry: &Path) -> Result<Module, Diagnostic> {
-    let checked = check_path(entry)?;
-    Ok(lower(&checked))
+    let loaded = load_program(entry)?;
+    compile_loaded(loaded, None)
 }
 
 /// Compile a filesystem entry after checking host and FFI policy for `target`.
 pub fn compile_path_for_target(entry: &Path, target: CompileTarget) -> Result<Module, Diagnostic> {
-    let checked = check_path_for_target(entry, target)?;
-    Ok(lower(&checked))
+    let loaded = load_program(entry)?;
+    compile_loaded(loaded, Some(target))
 }
 
 /// Always link `entry` as a Module graph, then check and lower.
@@ -54,8 +54,15 @@ pub fn compile_path_for_target(entry: &Path, target: CompileTarget) -> Result<Mo
 /// Dynamic-only entries that load `import defer` / `import.defer` still need
 /// flatten — hosts that cannot parse that syntax (Node) must not see it.
 pub fn compile_path_linked(entry: &Path) -> Result<Module, Diagnostic> {
-    let checked = check_path_linked(entry)?;
-    Ok(lower(&checked))
+    let (program, named_exports) = link_entry_with_named_exports(entry)?;
+    compile_loaded(
+        LoadedProgram {
+            program,
+            module_goal: true,
+            named_exports,
+        },
+        None,
+    )
 }
 
 /// Parse `source` Script-first, then Module. No filesystem link.
@@ -92,7 +99,8 @@ pub fn check_source_module(source: &str) -> Result<CheckedProgram, Diagnostic> {
 
 /// Parse or link `entry`, then check, without lowering.
 pub fn check_path(entry: &Path) -> Result<CheckedProgram, Diagnostic> {
-    check_loaded(load_program(entry)?, None)
+    let loaded = load_program(entry)?;
+    check_loaded(loaded.program, loaded.module_goal, None)
 }
 
 /// Parse or link `entry`, then check host and FFI policy for `target`.
@@ -100,19 +108,43 @@ pub fn check_path_for_target(
     entry: &Path,
     target: CompileTarget,
 ) -> Result<CheckedProgram, Diagnostic> {
-    check_loaded(load_program(entry)?, Some(target))
+    let loaded = load_program(entry)?;
+    check_loaded(loaded.program, loaded.module_goal, Some(target))
 }
 
 /// Always `link_entry` on `entry`, then check as Module, without lowering.
 pub fn check_path_linked(entry: &Path) -> Result<CheckedProgram, Diagnostic> {
-    check_loaded((link_entry(entry)?, true), None)
+    check_loaded(link_entry(entry)?, true, None)
+}
+
+struct LoadedProgram {
+    program: Program,
+    module_goal: bool,
+    named_exports: Vec<(String, String)>,
+}
+
+fn compile_loaded(
+    loaded: LoadedProgram,
+    target: Option<CompileTarget>,
+) -> Result<Module, Diagnostic> {
+    let checked = check_loaded(loaded.program, loaded.module_goal, target)?;
+    let mut module = lower(&checked);
+    module.named_exports = loaded
+        .named_exports
+        .into_iter()
+        .map(|(public_name, local_name)| NamedExport {
+            public_name,
+            local_name,
+        })
+        .collect();
+    Ok(module)
 }
 
 fn check_loaded(
-    loaded: (Program, bool),
+    program: Program,
+    module_goal: bool,
     target: Option<CompileTarget>,
 ) -> Result<CheckedProgram, Diagnostic> {
-    let (program, module_goal) = loaded;
     match (module_goal, target) {
         (true, Some(target)) => check_module_for_target(program, target),
         (true, None) => check_module(program),
@@ -121,7 +153,7 @@ fn check_loaded(
     }
 }
 
-fn load_program(entry: &Path) -> Result<(Program, bool), Diagnostic> {
+fn load_program(entry: &Path) -> Result<LoadedProgram, Diagnostic> {
     let source = std::fs::read_to_string(entry).map_err(|e| {
         Diagnostic::new(
             format!("read {}: {e}", entry.display()),
@@ -131,10 +163,28 @@ fn load_program(entry: &Path) -> Result<(Program, bool), Diagnostic> {
     // Script-first detection. Export + top-level await fails Script parse once
     // `await` is IdentifierReference outside Module (E19.52) — retry Module.
     match parse(&source) {
-        Ok(program) if program_has_module_syntax(&program) => Ok((link_entry(entry)?, true)),
-        Ok(program) => Ok((program, false)),
+        Ok(program) if program_has_module_syntax(&program) => {
+            let (program, named_exports) = link_entry_with_named_exports(entry)?;
+            Ok(LoadedProgram {
+                program,
+                module_goal: true,
+                named_exports,
+            })
+        }
+        Ok(program) => Ok(LoadedProgram {
+            program,
+            module_goal: false,
+            named_exports: Vec::new(),
+        }),
         Err(script_err) => match parse_module(&source) {
-            Ok(program) if program_has_module_syntax(&program) => Ok((link_entry(entry)?, true)),
+            Ok(program) if program_has_module_syntax(&program) => {
+                let (program, named_exports) = link_entry_with_named_exports(entry)?;
+                Ok(LoadedProgram {
+                    program,
+                    module_goal: true,
+                    named_exports,
+                })
+            }
             _ => Err(script_err),
         },
     }
@@ -226,6 +276,7 @@ mod tests {
         std::fs::write(&path, "let x = 1;\n").unwrap();
         let module = compile_path(&path).expect("compile path script");
         assert!(module.locals.iter().any(|l| l.name == "x") || !module.body.is_empty());
+        assert!(module.named_exports.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -287,6 +338,73 @@ mod tests {
             !err.message.is_empty(),
             "script diagnostic must be kept, got empty message"
         );
+    }
+
+    fn named_export_local<'a>(module: &'a Module, public: &str) -> &'a str {
+        module
+            .named_exports
+            .iter()
+            .find(|e| e.public_name == public)
+            .map(|e| e.local_name.as_str())
+            .unwrap_or_else(|| panic!("missing public export `{public}`"))
+    }
+
+    #[test]
+    fn entry_named_exports_on_ir() {
+        let (dir, path) = write_temp_drac("view-export", "export const view = \"view\";\n");
+        let module = compile_path(&path).expect("compile named-export entry");
+        let local = named_export_local(&module, "view");
+        assert_eq!(local, "view");
+        assert!(
+            module.locals.iter().any(|l| l.name == local),
+            "IR local `{local}` missing"
+        );
+        println!("view-export-ok");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reexport_entry_export_names_on_ir() {
+        let dir = std::env::temp_dir().join(format!(
+            "draconic-frontend-view-reexport-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("dep.drac"), "export const view = \"view\";\n").unwrap();
+        let main = dir.join("lib.drac");
+        std::fs::write(&main, "export { view } from \"./dep.drac\";\n").unwrap();
+        let module = compile_path(&main).expect("compile re-export entry");
+        let local = named_export_local(&module, "view");
+        assert!(
+            !local.is_empty(),
+            "public name `view` must bind a flattened local"
+        );
+        assert!(
+            module.locals.iter().any(|l| l.name == local),
+            "flattened local `{local}` missing"
+        );
+        println!("view-reexport-ok");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entry_export_alias_uses_public_name() {
+        let (dir, path) = write_temp_drac(
+            "view-alias",
+            "const local = \"view\";\nexport { local as publicName };\n",
+        );
+        let module = compile_path(&path).expect("compile aliased named export");
+        let local = named_export_local(&module, "publicName");
+        assert_eq!(local, "local");
+        assert!(
+            module
+                .named_exports
+                .iter()
+                .all(|e| e.public_name != "local"),
+            "alias must use publicName as the public key"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
