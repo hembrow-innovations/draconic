@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — filed wayfinder [[ticket-876-browser-window-self]], [[ticket-877-test262-absent-globalthis]], [[ticket-878-adr-0004-global-wording]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **ticket-854-globalthis-property** — closed; no `globalThis` identifier or property; Programs see `global`
 - **housekeeping** — closed [[ticket-854-globalthis-property]]; wayfinder [[rounds-842-global-object-identifier]] still awaiting-answers; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **ticket-841-use-global-not-globalthis** — dropped; teaching bind obsolete (free console); identifier rewrite stays on wayfinder and ticket-854

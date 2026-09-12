@@ -6,7 +6,7 @@ sitting_kind: wayfinder
 status: awaiting-answers
 tags: [wayfinder]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T06:59:47Z"
+updated_at: "2026-09-12T07:03:42Z"
 ---
 
 # Global object identifier
@@ -68,9 +68,7 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 
 ## Not yet specified
 
-- Browser `window` / `self` host aliases.
-- How Test262 and native console lowering move off `globalThis` now that the property is gone.
-- Exact wording of reopened [[0004-full-ecma-262-and-embed]] and [[location-218-conformance]].
+None. Frontier is [[ticket-876-browser-window-self]] and [[ticket-877-test262-absent-globalthis]]; [[ticket-878-adr-0004-global-wording]] waits on both.
 
 ## Out of scope
 
@@ -80,3 +78,4 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 - Node `global` as an extra host alias ([[ticket-845-node-global-alias]] dropped).
 - Teaching console bind from the global object ([[ticket-846-teaching-console-bind]] dropped).
 - Inbound teaching bind via `global` instead of `globalThis` ([[ticket-841-use-global-not-globalthis]] dropped).
+- How native `globalThis.console.log` lowering moves off `globalThis` (later planning sitting; free `console` is decided).
