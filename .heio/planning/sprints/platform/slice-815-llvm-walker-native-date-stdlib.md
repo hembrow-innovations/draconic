@@ -2,12 +2,12 @@
 id: "slice-815-llvm-walker-native-date-stdlib"
 title: "LLVM walker native Date and stdlib"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: ["slice-813-host-name-catalog"]
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T22:30:00Z"
 ---
 
 # LLVM walker native Date and stdlib
@@ -35,22 +35,22 @@ Native Conformance for `es/builtins/date`, `stdlib/flags`, `stdlib/url`, and `st
 
 ## Oracle checklist
 
-- [ ] O1: native Date fixture runs
+- [x] O1: native Date fixture runs
   CHECK: cargo test -p draconic-conformance --test builtins --offline date_runs
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O2: native flags fixtures run
+  EVIDENCE: cargo test -p draconic-conformance --test builtins --offline date_runs → test result: ok. 1 passed; 0 failed.
+- [x] O2: native flags fixtures run
   CHECK: cargo test -p draconic-conformance --test stdlib_flags --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: native url fixtures run
+  EVIDENCE: cargo test -p draconic-conformance --test stdlib_flags --offline → test result: ok. 6 passed; 0 failed.
+- [x] O3: native url fixtures run
   CHECK: cargo test -p draconic-conformance --test stdlib_url --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O4: native compression invalid fixture runs
+  EVIDENCE: cargo test -p draconic-conformance --test stdlib_url --offline → test result: ok. 6 passed; 0 failed.
+- [x] O4: native compression invalid fixture runs
   CHECK: cargo test -p draconic-conformance --test stdlib_compression --offline invalid_runs_both_targets
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: cargo test -p draconic-conformance --test stdlib_compression --offline invalid_runs_both_targets → test result: ok. 1 passed; 0 failed.
 
 ## Pool
 

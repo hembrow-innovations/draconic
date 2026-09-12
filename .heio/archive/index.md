@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met [[slice-815-llvm-walker-native-date-stdlib]]; task-816 archived; platform stays active
 - **task-816-llvm-walker-native-date-stdlib** — completed; LLVM walker routes native Date, flags, url, and compression-invalid (slice-815)
 - **housekeeping** — met [[slice-813-host-name-catalog]]; task-814 archived; platform stays active
 - **ticket-837-flagship-service-unnamed** — closed; Learn packages names Flagship service with a heading and GitHub `examples/flagship-service` link; host I/O links the same example
