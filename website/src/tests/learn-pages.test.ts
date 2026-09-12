@@ -247,6 +247,10 @@ test("learn pages", () => {
   expect(loadMarkdownPage("dual-worlds").body).toContain(
     "draconic check boundary.drac",
   );
+  expect(loadMarkdownPage("dual-worlds").body).toContain(
+    "draconic build --target native boundary.drac -o boundary",
+  );
+  expect(loadMarkdownPage("dual-worlds").body).toContain("./boundary");
   expect(dualWorlds).toContain("jsCount");
   expect(dualWorlds).toContain("<pre>");
   expect(dualWorlds).toContain("<code>");
@@ -260,6 +264,10 @@ test("learn pages", () => {
   expect(nativeTypesPage.body).toContain("as number");
   expect(nativeTypesPage.body).toContain("It builds today");
   expect(nativeTypesPage.body).toContain("draconic check width.drac");
+  expect(nativeTypesPage.body).toContain(
+    "draconic build --target native width.drac -o width",
+  );
+  expect(nativeTypesPage.body).toContain("./width");
   expect(nativeTypesPage.body).toContain("draconic check point.drac");
   expect(nativeTypesPage.body).toContain("## i32 and i64");
   expect(nativeTypesPage.body).toContain("## Fixed structs");

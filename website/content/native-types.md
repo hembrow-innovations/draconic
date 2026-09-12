@@ -34,6 +34,13 @@ draconic check width.drac
 draconic run width.drac
 ```
 
+Native binaries need an LLVM toolchain on the machine:
+
+```
+draconic build --target native width.drac -o width
+./width
+```
+
 ## Fixed structs
 
 A fixed struct is a type alias of native scalar fields. Initialize it with an object literal and read fields. Save this as `point.drac`. It builds today:

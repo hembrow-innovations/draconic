@@ -32,6 +32,13 @@ draconic check boundary.drac
 draconic run boundary.drac
 ```
 
+Native binaries need an LLVM toolchain on the machine:
+
+```
+draconic build --target native boundary.drac -o boundary
+./boundary
+```
+
 `string as i32` is a Checker error. Pointers (`*T`, `&x`) are native-only: valid on LLVM, a hard error on the JS backend, never silent wrong code.
 
 Why the boundary is explicit: the two worlds do not share representation. Crossing is a type-level and lowering-level fact, not an accident of the backend. Ownership-only and arena-only runtimes were rejected because they cannot host a full ECMA-262 superset without cutting semantics.
