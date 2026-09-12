@@ -2,7 +2,7 @@
 id: "task-887-reference-related-footer"
 title: "Add a related-link footer on Reference articles"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-886-reference-related-footer"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:50:00Z"
 ---
 
 # Add a related-link footer on Reference articles
@@ -67,13 +67,17 @@ Each Reference working page ends with a related-link footer that walks CLI, type
 - A Reference sequence helper and pager, parallel to Learn, not a Learn rewrite
 
 **Acceptance criteria:**
-- [ ] Tests fail if ReferencePage still passes no footer children
-- [ ] `/cli` and the other working pages have article-footer related links; the hub is not rewritten
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] LearnPager source is not rewritten as the mechanism
+- [x] Tests fail if ReferencePage still passes no footer children
+- [x] `/cli` and the other working pages have article-footer related links; the hub is not rewritten
+- [x] Named vitest files pass and typecheck exits 0
+- [x] LearnPager source is not rewritten as the mechanism
 
 **Out of scope:**
 - Learn pager rewrite; hub cards; teaching copy; playground
 
 **Explain this part:**
 The promise already names the footer on Reference. This sitting closes a false green. It is not a Learn IA change.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run reference-prev-next docs-shell` — win. Test Files  2 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff keeps `public-site.chrome:docs-article-order` and `public-site.ia:reference-walkable`; LearnPager is untouched; hub cards stay; teaching copy is unchanged.

@@ -183,6 +183,8 @@ test("docs shell", () => {
   expect(learnPage).toContain("kicker={page.section}");
   expect(learnPage).toContain("LearnPager");
   expect(referencePage).toContain("kicker={page.section}");
+  expect(referencePage).toContain("ReferencePager");
+  expect(referencePage).toContain("page.slug");
   expect(referencePage).not.toContain("LearnPager");
 
   expect(pagerVariants).toContain("text-link");

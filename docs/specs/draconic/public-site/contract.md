@@ -30,6 +30,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.ia:reference-walkable`: Reference is walkable as CLI, types, Dual-world rules, host I/O, and packages.
   test: website_pipeline_reference_skeleton_is_walkable
   test: website/src/tests/reference-hub-pages.test.ts
+  test: website/src/tests/reference-prev-next.test.ts
 - `public-site.fences:shipped-must-build`: A shipped page's copy-paste Draconic fence builds.
   test: website_pipeline_shipped_drac_fence_builds
 - `public-site.fences:forbid-not-yet-fences`: A not-yet page that contains a code fence fails the site pipeline.
