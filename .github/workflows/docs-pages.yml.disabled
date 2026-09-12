@@ -25,7 +25,9 @@ jobs:
       - name: Build CLI (release)
         run: cargo build -p draconic-cli --release
       - name: Compile shipped fences
-        run: cargo test -p draconic-integration-tests --test website_pipeline --release -- skeleton_is_walkable
+        env:
+          DRACONIC_BIN: ${{ github.workspace }}/target/release/draconic
+        run: pnpm --dir ../draconic-web exec vitest run website-fences
       - name: Generate site
         env:
           DRACONIC: ${{ github.workspace }}/target/release/draconic

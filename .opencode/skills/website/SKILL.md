@@ -11,7 +11,7 @@ Purpose, IA, and fence rules stay in this language repo at `docs/specs/draconic/
 
 ## Discover first
 
-1. Find teaching markdown. Law is `content/<slug>.md` with `title`, `section`, and `status`. Done when the Vite glob, Vitest catalog, and `website_pipeline` fence checker read only `content/`, and the package root has no teaching `.md`.
+1. Find teaching markdown. Law is `content/<slug>.md` with `title`, `section`, and `status`. Done when the Vite glob, Vitest catalog, and website-fences checker read only `content/`, and the package root has no teaching `.md`.
 2. Copy a neighboring route and primitive under `src/`. Home at `/` is JSX. Learn and Reference chapters load markdown through `DocsShell`, `LearnPage`, or `ReferencePage`. Done when the new file sits beside its neighbor in the same folder shape (`Component.tsx`, `.types.ts`, `.variants.ts`, `index.ts`).
 3. Load **frontend-development** for tokens, CVA, nested `src/`, and Start file routes. Hex lives in `src/styles/theme.css`. Done when the sitting uses those rules instead of inventing a second palette or kit.
 
