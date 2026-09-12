@@ -148,7 +148,7 @@ Draconic is built in the open. Completeness is the Conformance suite plus the [a
 cargo test --workspace
 ```
 
-Do not invent work from the archived checklist. Domain terms are in [CONTEXT.md](./CONTEXT.md); locked decisions are in [docs/adr/](./docs/adr/). Pull requests are welcome.
+Do not invent work from the archived checklist. Domain terms are in [glossary](../docs/overview/glossary.md); locked decisions are in [docs/adr/](../docs/adr/). Pull requests are welcome.
 
 ## License
 

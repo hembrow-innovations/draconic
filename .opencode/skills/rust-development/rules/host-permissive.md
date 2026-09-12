@@ -13,4 +13,4 @@ Filesystem and TCP succeed when a Program runs with no explicit grant subset. Op
 
 **Correct:** host I/O succeeds with no flags. Flags narrow the set when present (R02.03 / R02.04).
 
-**Notes.** ADR-0008. Vocabulary: **Default permission policy** in `CONTEXT.md`. Sockets-first host I/O. JS hard-errors until a bridge row. See `host-registry`.
+**Notes.** ADR-0008. Vocabulary: **Default permission policy** in `docs/overview/glossary.md`. Sockets-first host I/O. JS hard-errors until a bridge row. See `host-registry`.

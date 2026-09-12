@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 One **Loop** = one atomic Roadmap item, red → green → done. Completeness is **Roadmap + Conformance suite**, not model judgment.
 
-Read before work: `CONTEXT.md`, relevant `docs/adr/`, `ROADMAP.md`.
+Read before work: `docs/overview/glossary.md`, relevant `docs/adr/`, `ROADMAP.md`.
 
 ## Steps
 
@@ -37,7 +37,7 @@ The Loop is complete when: claimed item is `done` or `blocked` with reason, work
 - **Both targets when required.** For `both`, JS and native paths must be tested or explicitly split into `js` / `native` child rows — never ship one backend and call the language feature done.
 - **Hard error > wrong code.** Native-only / JS-only features must diagnostic on the other backend.
 - **No empty-board invention.** Zero `todo` ⇒ stop (see Claim step). Completeness is Roadmap + suite, not model judgment.
-- **Vocabulary:** use terms from `CONTEXT.md` (Program, IR, Frontend, JS backend, LLVM backend, Runtime, Embed, Roadmap, Loop).
+- **Vocabulary:** use terms from `docs/overview/glossary.md` (Program, IR, Frontend, JS backend, LLVM backend, Runtime, Embed, Roadmap, Loop).
 - **Drive with `/tdd`** when implementing non-trivial behavior.
 - **Commit every work package.** Never leave a finished Loop uncommitted; never batch multiple done items into one commit unless the user asks.
 
@@ -46,6 +46,6 @@ The Loop is complete when: claimed item is `done` or `blocked` with reason, work
 Installed dest path is `.pi/skills/draconic-loop/` (three `../` to repo root).
 
 - Roadmap stub: [`ROADMAP.md`](../../../ROADMAP.md) (empty board). Historical checklist: [`docs/overview/ROADMAP.md`](../../../docs/overview/ROADMAP.md)
-- Glossary: [`CONTEXT.md`](../../../CONTEXT.md)
+- Glossary: [`docs/overview/glossary.md`](../../../docs/overview/glossary.md)
 - ADRs: [`docs/adr/`](../../../docs/adr/)
 - Workspace: `cargo test --workspace`, binary `draconic` from `crates/draconic-cli`

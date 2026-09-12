@@ -13,4 +13,4 @@ The parser turns tokens into an AST. The linker loads an entry's ESM graph, mang
 
 **Correct:** `parse` / `parse_module` for grammar; `link_entry` / `link_entry_with_packages` after Module detection; `draconic-pkg` for git module identity.
 
-**Notes.** CONTEXT.md: Linker is not part of the Parser product. Lower panics on leftover `import`/`export`. See `ir-after-link` and `pkg-git-modules`.
+**Notes.** Glossary: Linker is not part of the Parser product. Lower panics on leftover `import`/`export`. See `ir-after-link` and `pkg-git-modules`.

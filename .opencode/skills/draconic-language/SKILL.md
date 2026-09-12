@@ -10,7 +10,7 @@ Toolchain for the language. Folds compile-path seams, dual-world rules, Conforma
 ## Discover first
 
 1. Frontend first. Callers compile through `compile_path` / `check_path` / `compile_source`. Do not re-assemble parser, linker, checker, and IR.
-2. Terms from `CONTEXT.md`. Program, Frontend, IR, Dual worlds, JS value, Native type, Runtime, Embed, Conformance suite.
+2. Terms from `docs/overview/glossary.md`. Program, Frontend, IR, Dual worlds, JS value, Native type, Runtime, Embed, Conformance suite.
 3. Locked decisions in `docs/adr/`. The Roadmap Tests column is the Done bar.
 4. Nested crate modules. File target ≤1000 LOC; hard 1250 for new files.
 

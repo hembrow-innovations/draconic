@@ -24,6 +24,6 @@ Locked decisions that constrain Rust live in `docs/adr/`:
 - `0011` catchable exceptions vs `draconic_rt_abort`
 - `0012` keep `cargo test --workspace`; 10 minute oracle
 
-Glossary: `CONTEXT.md`. Completeness: `ROADMAP.md`.
+Glossary: `docs/overview/glossary.md`. Completeness: `ROADMAP.md`.
 
 Deep-module deepening: `../codebase-design/DEEPENING.md`.

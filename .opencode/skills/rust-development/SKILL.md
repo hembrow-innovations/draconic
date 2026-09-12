@@ -14,7 +14,7 @@ Production Rust for this toolchain. Folds codebase-design (crate modules) and di
 3. Compiler failures are `Diagnostic` plus `codes::*`. pkg uses focused enums.
 4. File target ≤1000 LOC. Split by feature seam (`es_*`, `host_*`, pkg files).
 
-Working notes go through **management**. Durable decisions go through **docs**. Vocabulary lives in `CONTEXT.md`.
+Working notes go through **management**. Durable decisions go through **docs**. Vocabulary lives in `docs/overview/glossary.md`.
 
 ## Stack
 

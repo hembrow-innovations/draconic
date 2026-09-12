@@ -17,4 +17,4 @@ JS values are heap-managed (GC on native). Native types (`i32`, `i64`, layout st
 - JS backend: native scalars / layouts polyfill as ordinary JS; pointers hard-error
 - LLVM / runtime: unboxed native; JS values through the GC
 
-**Notes.** Vocabulary is **Native type** and **JS value** (`CONTEXT.md`). ADR-0003. Pointers and `extern "C"` are native-only. See `dual-js-policy`.
+**Notes.** Vocabulary is **Native type** and **JS value** (`docs/overview/glossary.md`). ADR-0003. Pointers and `extern "C"` are native-only. See `dual-js-policy`.

@@ -19,9 +19,9 @@ Load the matching skill before the work it covers.
 
 ## Domain docs
 
-Single-context layout (`CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`. `AGENTS.md` wins over the docs skill default layout: locked decisions live in `docs/adr/`, not `docs/decisions/adr/`.
+Single-context layout (`docs/overview/glossary.md` + `docs/adr/`). See `docs/agents/domain.md`. `AGENTS.md` wins over the docs skill default layout: locked decisions live in `docs/adr/`, not `docs/decisions/adr/`.
 
-- **Glossary**: `CONTEXT.md`
+- **Glossary**: `docs/overview/glossary.md`
 - **Locked decisions**: `docs/adr/`
 - **Completeness**: archived `docs/overview/ROADMAP.md` plus the Conformance suite. Root `ROADMAP.md` is a stub.
 
@@ -30,7 +30,7 @@ Single-context layout (`CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
 This repo **is** the Draconic toolchain. Completeness is driven by:
 
 - [`docs/overview/ROADMAP.md`](./docs/overview/ROADMAP.md) — archived feature checklist
-- [`CONTEXT.md`](./CONTEXT.md) — glossary
+- [`docs/overview/glossary.md`](../docs/overview/glossary.md) — glossary
 - [`docs/adr/`](./docs/adr/) — locked decisions
 - **draconic-language** skill — toolchain conventions
 - **draconic-loop** skill — one atomic Roadmap item per Loop (test-first)
@@ -48,8 +48,8 @@ Each `rs` file should have a soft limit of 1,000 lines.
 - Markdown: never tables — use `- **{text}**: {text}`
 - Do not invent work when ROADMAP has no `todo` and the user did not name a task
 - Always keep the rusts `target/` directory below 10GB
-- Do not edit `.hivemind/hivemind.yaml`
-- AFter each slice, task or ticket work/change do housekeeping on `.heio/` and commit
+- Planning lives in the workbench `.heio` submodule (`../.heio` from this repo), not this tree
+- After each slice, task or ticket work/change do housekeeping on that `.heio/` and commit
 - File size target ≤1000 LOC, hard limit 1250 (prove fails over 1200)
 - Scratch `draconic build` without `-o` writes `{stem}.out.js` (js) or `{stem}.out` (native); those names are gitignored. Use `-o` only for an artifact you intend to keep. Do not emit `{stem}.js` or a nameless binary next to Conformance fixtures.
 

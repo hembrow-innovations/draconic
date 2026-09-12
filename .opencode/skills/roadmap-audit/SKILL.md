@@ -16,7 +16,7 @@ This is not **draconic-loop**. Loop implements. This sitting audits.
 Both bars are Named, Fetchable, and Comparable. Fetch the files. Do not grade from memory.
 
 - **Claim bar** — the row in `docs/overview/ROADMAP.md`. Status holds only if the Tests paths exist and are green on the listed Targets. `native` / `both` means program results (`native.stdout`), not B08 `hello\n`.
-- **Production bar** — `CONTEXT.md` plus `.heio/planning/intent.md`. A team can use this feature without leaving Draconic: JS emit where the row is `js`/`both`, native binary where the row is `native`/`both` or a sibling N-row already claims it, Checker depth where the row is a **T** item. The Checker is TypeScript-inspired, not tsc. Untyped JS staying permissive is not a gap.
+- **Production bar** — `docs/overview/glossary.md` plus `.heio/planning/intent.md`. A team can use this feature without leaving Draconic: JS emit where the row is `js`/`both`, native binary where the row is `native`/`both` or a sibling N-row already claims it, Checker depth where the row is a **T** item. The Checker is TypeScript-inspired, not tsc. Untyped JS staying permissive is not a gap.
 
 Do not treat an **E** row listed `js` as a native miss when an **N08** (or other N) sibling covers the same fixtures. Audit that sibling when the cursor reaches it.
 

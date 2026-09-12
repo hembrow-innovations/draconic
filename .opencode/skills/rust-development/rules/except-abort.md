@@ -17,4 +17,4 @@ void throw_js(value v) { draconic_rt_abort("throw"); }
 
 **Correct:** user `throw` and ECMA `Error` objects stay in the JS exception path. `draconic_rt_abort` is for invariant / permission-to-die failures.
 
-**Notes.** ADR-0011 / Roadmap R04.01 vs R04.02. Vocabulary in `CONTEXT.md`. Embed budget failures are diagnostics, not catchable JS (`embed-eval`).
+**Notes.** ADR-0011 / Roadmap R04.01 vs R04.02. Vocabulary in `docs/overview/glossary.md`. Embed budget failures are diagnostics, not catchable JS (`embed-eval`).

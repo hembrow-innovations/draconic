@@ -15,7 +15,7 @@ This pack is the knowledge home for toolchain conventions. Workflow stays in sib
 
 Source of truth outside this folder:
 
-- Glossary: `CONTEXT.md`
+- Glossary: `docs/overview/glossary.md`
 - Locked decisions: `docs/adr/`
 - Completeness: archived `docs/overview/ROADMAP.md` plus the Conformance suite
 - Frontend entry: `crates/draconic-frontend/src/lib.rs`
