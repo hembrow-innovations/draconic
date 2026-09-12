@@ -238,29 +238,21 @@ impl Loader {
     }
 
     /// Entry named exports after flatten: public name → local (mangled if a dep).
-    /// Includes `default` when the entry authors it. Does not include `export *` star names.
+    /// GetModuleNamespace set: direct exports, named re-exports, and `export *` star names.
+    /// Includes `default` when the entry authors it. Star does not contribute `default`.
+    /// Ambiguous star collisions are omitted.
     pub(crate) fn entry_named_exports(
         &self,
         entry_id: usize,
         mangled: &[HashMap<String, String>],
     ) -> Result<Vec<(String, String)>, Diagnostic> {
-        let module = &self.modules[entry_id];
-        let mut publics: Vec<String> = module.exports.keys().cloned().collect();
-        for re in &module.named_reexports {
-            publics.push(re.exported.clone());
-        }
-        publics.sort();
-        publics.dedup();
-        let mut pairs = Vec::new();
-        for public in publics {
-            let Some((def_id, local)) =
-                self.resolve_export(entry_id, &public, &mut HashSet::new())?
-            else {
-                continue;
-            };
+        let resolved = self.collect_resolved_exports(entry_id)?;
+        let mut pairs = Vec::with_capacity(resolved.len());
+        for (public, (def_id, local)) in resolved {
             let remote = final_binding_name(mangled, def_id, &local)?;
             pairs.push((public, remote));
         }
+        pairs.sort();
         Ok(pairs)
     }
 

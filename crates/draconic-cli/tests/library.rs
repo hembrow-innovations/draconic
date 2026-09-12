@@ -1,4 +1,5 @@
-//! `toolchain.cli:build-js-library-esm` and `toolchain.cli:build-js-library-default`.
+//! `toolchain.cli:build-js-library-esm`, `toolchain.cli:build-js-library-default`,
+//! and `toolchain.cli:build-js-library-export-star`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -445,6 +446,153 @@ fn run_module_default_export_stays_script() {
         &dir,
         "p.drac",
         "export default \"def\";\nconsole.log(\"script-ok\");\n",
+    );
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("run")
+        .arg("--target")
+        .arg("js")
+        .arg(&src));
+    assert_eq!(code, 0, "run failed\nstdout={stdout}\nstderr={stderr}");
+    assert!(
+        stdout.contains("script-ok"),
+        "stdout={stdout}\nstderr={stderr}"
+    );
+}
+
+#[test]
+fn build_js_library_export_star_imports() {
+    let dir = temp_dir();
+    write_program(&dir, "dep.drac", "export const view = \"view\";\n");
+    let src = write_program(&dir, "lib.drac", "export * from \"./dep.drac\";\n");
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library export-star build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let (ncode, nout, nerr) = node_import_named(&out, "view", "view");
+    assert_eq!(
+        ncode, 0,
+        "Node import {{ view }} from export * failed\nstdout={nout}\nstderr={nerr}"
+    );
+    assert!(nout.contains("ok"), "stdout={nout}");
+}
+
+#[test]
+fn build_js_library_export_star_omits_default() {
+    let dir = temp_dir();
+    write_program(
+        &dir,
+        "dep.drac",
+        "export default \"def\";\nexport const view = \"view\";\n",
+    );
+    let src = write_program(&dir, "lib.drac", "export * from \"./dep.drac\";\n");
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "library export-star default-skip build failed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let (ncode, nout, nerr) = node_import_named(&out, "view", "view");
+    assert_eq!(
+        ncode, 0,
+        "Node import {{ view }} from export * failed\nstdout={nout}\nstderr={nerr}"
+    );
+
+    let url = format!("file://{}", out.display());
+    let script = format!(
+        "const m = await import('{url}'); if (m.default !== undefined) process.exit(1); console.log('ok');"
+    );
+    let (dcode, dout, derr) = run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script));
+    assert_eq!(
+        dcode, 0,
+        "star must not re-export default\nstdout={dout}\nstderr={derr}"
+    );
+}
+
+#[test]
+fn build_js_library_export_star_omits_ambiguous() {
+    let dir = temp_dir();
+    write_program(
+        &dir,
+        "a.drac",
+        "export const first = \"first\";\nexport const both = \"a\";\n",
+    );
+    write_program(
+        &dir,
+        "b.drac",
+        "export const second = \"second\";\nexport const both = \"b\";\n",
+    );
+    let src = write_program(
+        &dir,
+        "lib.drac",
+        "export * from \"./a.drac\";\nexport * from \"./b.drac\";\n",
+    );
+    let out = dir.join("lib.mjs");
+
+    let (code, stdout, stderr) = run(draconic()
+        .arg("build")
+        .arg("--target")
+        .arg("js")
+        .arg("--library")
+        .arg(&src)
+        .arg("-o")
+        .arg(&out));
+    assert_eq!(
+        code, 0,
+        "ambiguous star library build must succeed\nstdout={stdout}\nstderr={stderr}"
+    );
+
+    let (ncode, nout, nerr) = node_import_named(&out, "first", "first");
+    assert_eq!(
+        ncode, 0,
+        "Node import {{ first }} from ambiguous star failed\nstdout={nout}\nstderr={nerr}"
+    );
+
+    let url = format!("file://{}", out.display());
+    let script = format!(
+        "const m = await import('{url}'); if (m.both !== undefined) process.exit(1); if (m.second !== 'second') process.exit(1); console.log('ok');"
+    );
+    let (acode, aout, aerr) = run(Command::new("node")
+        .arg("--input-type=module")
+        .arg("-e")
+        .arg(script));
+    assert_eq!(
+        acode, 0,
+        "ambiguous star name both must be omitted\nstdout={aout}\nstderr={aerr}"
+    );
+}
+
+#[test]
+fn run_module_export_star_stays_script() {
+    let dir = temp_dir();
+    write_program(&dir, "dep.drac", "export const view = \"view\";\n");
+    let src = write_program(
+        &dir,
+        "p.drac",
+        "export * from \"./dep.drac\";\nconsole.log(\"script-ok\");\n",
     );
 
     let (code, stdout, stderr) = run(draconic()
