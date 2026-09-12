@@ -131,6 +131,14 @@ test("search", () => {
   const dualPage = dualWorlds.find((hit) => hit.href === "/dual-worlds");
   expect(dualPage?.headings).toContain("Dual worlds");
 
+  const fromSource = querySearchIndex(index, "From source");
+  const installHit = fromSource.find((hit) => hit.href === "/install");
+  expect(installHit?.headings).toContain("From source");
+  expect(searchHitHref(installHit!, "From source")).toBe("/install#from-source");
+  expect(searchHitLabel(installHit!, "From source")).toBe(
+    "Learn · Install · From source",
+  );
+
   const nativeTypes = querySearchIndex(index, "Fixed structs");
   expect(nativeTypes.some((hit) => hit.href === "/native-types")).toBe(true);
   const nativePage = nativeTypes.find((hit) => hit.href === "/native-types");

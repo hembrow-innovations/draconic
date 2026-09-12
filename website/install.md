@@ -30,6 +30,27 @@ The install script picks the host pair. Release CI builds a host-triple binary f
 - windows/amd64
 - windows/arm64
 
+The one-liner downloads a host-triple artifact from GitHub Releases. If that artifact is not published yet, build from source.
+
+## From source
+
+Requires a Rust toolchain (`cargo`). Clone the repository, then build the CLI:
+
+```
+git clone https://github.com/hembrow-innovations/draconic.git
+cd draconic
+cargo build -p draconic-cli --release
+```
+
+That writes `target/release/draconic`. Add that directory to `PATH` if needed, then confirm:
+
+```
+export PATH="$PWD/target/release:$PATH"
+draconic -V
+```
+
+The same commands live in the [repository README](https://github.com/hembrow-innovations/draconic).
+
 A Program is a unit of Draconic source the toolchain accepts. Save this as `hello.drac`. It builds today:
 
 ```drac
@@ -52,7 +73,7 @@ draconic build --target native hello.drac -o hello
 ./hello
 ```
 
-The clone-build-run path stays in the repository README. Learn assumes you can already parse and build.
+Learn assumes you can already parse and build.
 
 Next: pick a landing. Use [from JavaScript](from-javascript.html) if you already think in ECMAScript. Use [from systems](from-systems.html) if you already think in Rust, Go, or C. Those landings join at [Dual worlds](dual-worlds.html).
 

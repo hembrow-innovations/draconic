@@ -191,6 +191,19 @@ test("learn pages", () => {
   expect(nodeIdx).toBeGreaterThan(-1);
   expect(runIdx).toBeGreaterThan(-1);
   expect(nodeIdx).toBeLessThan(runIdx);
+  expect(installPage.body).toContain("## From source");
+  expect(installPage.body).toContain("GitHub Releases");
+  expect(installPage.body).toContain(
+    "git clone https://github.com/hembrow-innovations/draconic.git",
+  );
+  expect(installPage.body).toContain("cargo build -p draconic-cli --release");
+  expect(installPage.body).toContain("target/release/draconic");
+  expect(installPage.body).not.toContain(
+    "The clone-build-run path stays in the repository README.",
+  );
+  expect(install).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic">repository README</a>',
+  );
   expect(dualWorlds).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(dualWorlds).toContain('<a href="/from-systems">from systems</a>');
   expect(dualWorlds).toContain('<a href="/modules">modules</a>');

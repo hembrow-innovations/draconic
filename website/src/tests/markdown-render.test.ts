@@ -18,6 +18,11 @@ test("markdown render install subset", () => {
   expect(html).toContain(
     "curl -fsSL https://raw.githubusercontent.com/hembrow-innovations/draconic/main/scripts/install.sh | sh",
   );
+  expect(html).toContain('<h2 id="from-source">From source</h2>');
+  expect(html).toContain("cargo build -p draconic-cli --release");
+  expect(html).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic">repository README</a>',
+  );
   expect(html).toContain("let console = globalThis.console;");
   expect(html).toContain("`node` on PATH");
   expect(html).toContain(
