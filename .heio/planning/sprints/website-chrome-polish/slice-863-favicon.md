@@ -2,12 +2,12 @@
 id: "slice-863-favicon"
 title: "Public site favicon"
 kind: slice
-status: active
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T18:00:00Z"
+updated_at: "2026-09-12T07:30:00Z"
 ---
 
 # Public site favicon

@@ -3,6 +3,7 @@
 One-liners of what landed. Newest first.
 
 - **ROADMAP.md** — archived language completeness checklist to `docs/overview/ROADMAP.md`; root stub is empty-board; remainder E17.02 / E18.44 stay parked as [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]]
+- **slice-863-favicon** — met; public origin serves `/favicon.ico`; website-chrome-polish stays active
 - **task-864-favicon** — completed; public origin serves `/favicon.ico` and root links it (slice-863)
 - **housekeeping** — promoted open tickets 821, 856–862, and 876–878 into frozen slices and ready tasks; website-chrome-polish gained [[slice-880-empty-404]] through [[slice-892-outline-current-section]]; new sprints [[website-search-index]] and [[global-object-followup]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform, opt-in-bench, website-chrome-polish, website-search-index, and global-object-followup stay active
 
