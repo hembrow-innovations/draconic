@@ -123,6 +123,10 @@ test("docs shell", () => {
   expect(variants).toContain("[&_h2]:border-t");
   expect(variants).toContain("[&_h2]:border-line");
   expect(variants).toContain("[&_h2]:pt-8");
+  expect(variants).toContain("[&_h2>a]:text-ink");
+  expect(variants).toContain("[&_h2>a]:no-underline");
+  expect(variants).toContain("[&_h2>a]:focus-visible:ring-2");
+  expect(variants).toContain("[&_h2>a]:focus-visible:ring-accent");
   expect(variants).not.toContain("[&_h2:first-of-type]");
   expect(variants).toContain("[&>div>p:first-child]");
   expect(variants).toContain("border-t");

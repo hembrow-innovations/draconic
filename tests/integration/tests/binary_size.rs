@@ -69,7 +69,7 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 /// Docs name both native size opts on the public CLI reference page.
 #[test]
 fn cli_docs_name_strip_and_lto_flags() {
-    let text = read("website/cli.md");
+    let text = read("website/content/cli.md");
     assert!(
         text.contains("--strip"),
         "CLI docs must name --strip:\n{text}"

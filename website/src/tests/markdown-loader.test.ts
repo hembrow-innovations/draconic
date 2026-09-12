@@ -7,6 +7,7 @@ import { listMarkdownPages, loadMarkdownPage } from "../lib/content";
 import { listMarkdownPagesFromDir } from "../lib/content/loadMarkdown.fs";
 
 const websiteDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const contentDir = join(websiteDir, "content");
 
 test("markdown loader install.md", () => {
   const page = loadMarkdownPage("install");
@@ -21,7 +22,11 @@ test("markdown loader install.md", () => {
 });
 
 test("markdown loader catalog from files not generate.drac", () => {
-  const websiteSlugs = readdirSync(websiteDir)
+  const rootMarkdown = readdirSync(websiteDir).filter((name) =>
+    name.endsWith(".md"),
+  );
+  expect(rootMarkdown).toEqual([]);
+  const websiteSlugs = readdirSync(contentDir)
     .filter((name) => name.endsWith(".md"))
     .map((name) => name.slice(0, -3))
     .sort();

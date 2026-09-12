@@ -16,7 +16,7 @@ export const docsShellKickerVariants = cva(
  * Article pane: Badge, ODM prose (code surface, h2 rules, muted lede), not a new markdown language.
  */
 export const docsShellArticleVariants = cva(
-  "flex-1 min-w-0 flex flex-col gap-4 font-body text-body text-ink [&_h1]:font-display [&_h1]:text-display [&_h1]:text-ink [&>div>p:first-child]:text-muted [&_h2]:mt-8 [&_h2]:border-t [&_h2]:border-line [&_h2]:pt-8 [&_pre]:overflow-x-auto [&_pre]:bg-code [&_pre]:p-4 [&_pre]:font-mono [&_pre]:text-mono [&_code]:bg-code [&_code]:font-mono [&_code]:text-mono [&_a]:text-link",
+  "flex-1 min-w-0 flex flex-col gap-4 font-body text-body text-ink [&_h1]:font-display [&_h1]:text-display [&_h1]:text-ink [&>div>p:first-child]:text-muted [&_h2]:mt-8 [&_h2]:border-t [&_h2]:border-line [&_h2]:pt-8 [&_h2>a]:text-ink [&_h2>a]:no-underline [&_h2>a]:hover:text-link [&_h2>a]:focus-visible:outline-none [&_h2>a]:focus-visible:ring-2 [&_h2>a]:focus-visible:ring-accent [&_pre]:overflow-x-auto [&_pre]:bg-code [&_pre]:p-4 [&_pre]:font-mono [&_pre]:text-mono [&_code]:bg-code [&_code]:font-mono [&_code]:text-mono [&_a]:text-link",
 );
 
 /**

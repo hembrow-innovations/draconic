@@ -6,6 +6,7 @@ import { learnNeighbors } from "../features/learn/learnSequence";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
+const contentDir = join(websiteDir, "content");
 const pagerDir = join(srcDir, "features", "learn", "LearnPager");
 const sequencePath = join(srcDir, "features", "learn", "learnSequence.ts");
 const pageDir = join(srcDir, "features", "learn", "LearnPage");
@@ -116,14 +117,14 @@ test("learn prev next", () => {
     "beginner",
     "vault",
     "playground",
-    "reference",
   ];
   for (const slug of extra) {
     expect(learnNeighbors(slug)).toEqual({ prev: [], next: [] });
     expect(existsSync(join(routesDir, `${slug}.tsx`))).toBe(false);
   }
+  expect(learnNeighbors("reference")).toEqual({ prev: [], next: [] });
 
-  const learnHub = readFileSync(join(websiteDir, "learn.md"), "utf8");
+  const learnHub = readFileSync(join(contentDir, "learn.md"), "utf8");
   expect(learnHub).toContain("[from JavaScript](from-javascript.html)");
   expect(learnHub).toContain("[from systems](from-systems.html)");
   expect(learnHub).toContain("[Dual worlds](dual-worlds.html)");

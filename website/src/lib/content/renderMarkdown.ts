@@ -33,6 +33,8 @@ export function toAppHref(href: string): string {
 /**
  * Turn the public markdown subset into HTML: headings, paragraphs, lists, fences, and links.
  *
+ * Locks `public-site.markdown:heading-permalinks` for headings below h1.
+ *
  * @param body - Markdown body from a `website/` page, without frontmatter
  * @returns HTML for that subset
  */
@@ -89,7 +91,7 @@ export function renderMarkdown(body: string): string {
       if (level === 1) {
         html += `<h1>${renderInline(text)}</h1>\n`;
       } else {
-        html += `<h${level} id="${id}">${renderInline(text)}</h${level}>\n`;
+        html += `<h${level} id="${id}"><a href="#${id}">${renderInline(text)}</a></h${level}>\n`;
       }
       continue;
     }

@@ -41,14 +41,15 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
 #[test]
 fn docs_name_env_draconic_shebang() {
     let readme = fs::read_to_string(repo_root().join("README.md")).expect("README.md");
-    let cli = fs::read_to_string(repo_root().join("website/cli.md")).expect("website/cli.md");
+    let cli = fs::read_to_string(repo_root().join("website/content/cli.md"))
+        .expect("website/content/cli.md");
     assert!(
         readme.contains(DOCUMENTED_SHEBANG),
         "README.md must name {DOCUMENTED_SHEBANG}"
     );
     assert!(
         cli.contains(DOCUMENTED_SHEBANG),
-        "website/cli.md must name {DOCUMENTED_SHEBANG}"
+        "website/content/cli.md must name {DOCUMENTED_SHEBANG}"
     );
 }
 

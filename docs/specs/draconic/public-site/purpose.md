@@ -8,7 +8,7 @@ domain: draconic
 area: public-site
 tags: [purpose]
 created_at: "2026-09-06"
-updated_at: "2026-09-07"
+updated_at: "2026-09-12"
 ---
 
 # Public site purpose
@@ -27,6 +27,8 @@ Give someone writing a Program a public language homepage, a Learn path, and wor
 - **Site chrome**: Two-column shell on every page: skip link, sticky side nav, main column. Side nav has wordmark, Learn, Reference, and GitHub. Search stays in that nav.
 - **Docs article**: Learn and Reference pages share that shell. The article column has a section kicker, heading, status badge, and related-link footer. Side nav groups list the Learn path and Reference pages.
 - **Keyboard and small-viewport use**: Primary nav and article reading remain usable. At a small viewport the side nav stacks and wraps; no separate marketing top bar.
+- **Copyable fences**: A visitor can copy the text of a rendered code fence on a Learn or Reference page.
+- **Heading permalinks**: A section heading on a Learn or Reference page links to its fragment id.
 
 ## Out of scope
 
@@ -40,7 +42,7 @@ Give someone writing a Program a public language homepage, a Learn path, and wor
 ## Surfaces
 
 - **Public GitHub Pages site**: Where a visitor reads the language homepage, Learn, and Reference.
-- **Markdown sources in `website/`**: Teaching source with `title`, `section`, and `status`.
+- **Markdown sources in `website/content/`**: Teaching source with `title`, `section`, and `status`.
 
 ## Authority
 

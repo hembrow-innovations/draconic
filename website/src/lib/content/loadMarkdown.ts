@@ -1,5 +1,5 @@
 /**
- * Teaching page loaded from `website/*.md`, not from the agent vault.
+ * Teaching page loaded from `website/content/*.md`, not from the agent vault.
  */
 export type MarkdownPage = {
   slug: string;
@@ -11,14 +11,14 @@ export type MarkdownPage = {
 
 const SLUG_PATTERN = /^[a-z0-9-]+$/;
 
-const bundledMarkdown = import.meta.glob("../../../*.md", {
+const bundledMarkdown = import.meta.glob("../../../content/*.md", {
   eager: true,
   query: "?raw",
   import: "default",
 }) as Record<string, string>;
 
 /**
- * Catalog of public teaching pages bundled from `website/*.md`.
+ * Catalog of public teaching pages bundled from `website/content/*.md`.
  *
  * @returns Parsed pages for each markdown file in the content root
  */
@@ -33,7 +33,7 @@ export function listMarkdownPages(): MarkdownPage[] {
 /**
  * Load one teaching page by slug from the bundled catalog.
  *
- * @param slug - File stem of a `website/*.md` page
+ * @param slug - File stem of a `website/content/*.md` page
  * @returns Title, section, status, and markdown body
  */
 export function loadMarkdownPage(slug: string): MarkdownPage {

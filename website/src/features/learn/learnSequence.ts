@@ -1,5 +1,5 @@
 /**
- * One stop on the public Learn path from `website/learn.md`.
+ * One stop on the public Learn path from `website/content/learn.md`.
  */
 export type LearnStop = {
   href: LearnHref;

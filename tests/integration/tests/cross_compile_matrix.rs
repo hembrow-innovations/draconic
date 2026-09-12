@@ -34,7 +34,7 @@ fn read(path: &str) -> String {
 
 #[test]
 fn install_docs_list_available_os_arch_pairs() {
-    let text = read("website/install.md");
+    let text = read("website/content/install.md");
     for pair in AVAILABLE_PAIRS {
         assert!(
             text.contains(pair),

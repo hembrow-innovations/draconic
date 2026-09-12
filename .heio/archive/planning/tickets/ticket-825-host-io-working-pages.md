@@ -2,19 +2,19 @@
 id: "ticket-825-host-io-working-pages"
 title: "Host I/O Learn and Reference never name callable APIs"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T11:22:00Z"
-updated_at: "2026-09-12T11:22:00Z"
+updated_at: "2026-09-12T11:35:00Z"
 ---
 
 # Host I/O Learn and Reference never name callable APIs
 
 ## Signal
 
-Website swarm 2026-09-12. After Dual worlds, modules, and native types, a visitor cannot look up `stdoutWrite`, `readFileText`, `tcpListen`, or `httpParseRequest` on the public site. `website/host-io.md` and `website/reference-host-io.md` are not-yet prose. ROADMAP H00 through H17 is done. Portable conformance and `examples/http-echo` already compile.
+Closed. Website swarm shipped `website/host-io.md` and `website/reference-host-io.md`: compiling `stdoutWrite` fence, named `readFileText` / `tcpListen` / `httpParseRequest`, `draconic check`, and a GitHub HTTP echo link. Hub tests and public-docs status list mark both pages shipped. Remaining not-yet pages stay prose-only.
 
 ## Fit
 

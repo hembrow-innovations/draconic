@@ -28,17 +28,43 @@ console.log("hello from Draconic");
 
 `draconic parse <file>` — parse a Program and print the AST dump
 
+## extract
+
+`draconic extract <file>` — print v1 JSON for functions, types, imports, and calls in one Program
+
 ## check
 
-`draconic check [--watch] <file>` — typecheck with no emit
+`draconic check [--watch] <file>` — typecheck with no emit. `--watch` re-runs when the file changes.
 
 ## fmt
 
 `draconic fmt [--check] <file>` — format in place (`--check` reports whether the file is already formatted)
 
+## doc
+
+`draconic doc [--format md|html] [-o <out>] <file>` — extract `/** doc comments */` to markdown (default) or HTML. Writes stdout unless `-o` names a file.
+
+Save this as `greet.drac`. It builds today:
+
+```drac
+let console = globalThis.console;
+
+/** Greet a name. */
+function greet(name: string): string {
+  return "hello " + name;
+}
+
+console.log(greet("from Draconic"));
+```
+
+```
+draconic check greet.drac
+draconic doc greet.drac
+```
+
 ## build
 
-`draconic build --target js|native [--strip] [--lto] <file> [-o <out>]` — compile to JavaScript or a native binary. `--strip` and `--lto` are native-only size opts (LTO is a size-delta smoke versus the default native artifact).
+`draconic build --target js|native [--watch] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]` — compile to JavaScript or a native binary. `--target` is required. `--strip` and `--lto` are native-only size opts (LTO is a size-delta smoke versus the default native artifact). `--link` is native-only. `--watch` rebuilds on change. When `-o` is omitted, JS writes `{stem}.out.js` and native writes `{stem}.out` beside the input.
 
 ## run
 
@@ -46,11 +72,11 @@ console.log("hello from Draconic");
 
 ## repl
 
-`draconic repl [--target js|embed]` — interactive loop. `embed` is the native eval path.
+`draconic repl [--target js|embed]` — interactive loop. Default is js. `embed` is the native eval path. Multi-line continues until the chunk parses. Type `.exit` or `.quit` to leave.
 
 ## test
 
-`draconic test <path>` — run Conformance fixtures, not a general application test runner
+`draconic test [--coverage] [--jobs <n>] <path>` — run Conformance fixtures, not a general application test runner. `<path>` is a directory or a `.drac` file. `--coverage` reports JS line coverage. `--jobs` sets the worker pool when coverage is off.
 
 ## version
 
@@ -60,7 +86,11 @@ console.log("hello from Draconic");
 
 `draconic help` — show usage
 
-Package commands such as `get` and `mod tidy` are under [packages](reference-packages.html). `bindgen` is documented in the repository README.
+Package commands such as `get` and `mod tidy` are under [packages](reference-packages.html).
+
+## bindgen
+
+`draconic bindgen <header> [-o <out>]` — write Draconic `extern "C"` declarations from a C header. Default output is the header path with a `.drac` extension.
 
 ## Permissions
 

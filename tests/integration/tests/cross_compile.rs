@@ -105,7 +105,7 @@ fn host_pair_is_in_the_matrix() {
 /// Combined sitting: docs + CI name the matrix, and LLVM emits a host binary.
 #[test]
 fn docs_ci_and_host_llvm_emit_form_one_available_matrix() {
-    let install = read("website/install.md");
+    let install = read("website/content/install.md");
     let workflow = read(".github/workflows/release-artifact.yml.disabled");
     for (pair, _) in SPEC_PAIRS {
         assert!(

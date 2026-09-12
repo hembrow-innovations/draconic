@@ -25,7 +25,7 @@ Unknown until triage. Current promise `public-site.search:titles-headings` is ti
 - Index: `website/src/lib/search/searchIndex.ts`
 - Chrome: `website/src/components/SiteSearch/SiteSearch.tsx`
 - Lock: `website/src/tests/search.test.ts`
-- CLI verbs parse, check, fmt, build, run, repl, test, version, and help are headings on `website/cli.md`. Search for run, fmt, and repl hits `/cli` with section hashes. Body-term indexing still needs a contract edit.
+- CLI verbs parse, extract, check, fmt, doc, build, run, repl, test, version, help, and bindgen are headings on `website/content/cli.md`. Search for run, fmt, repl, extract, doc, and bindgen hits `/cli` with section hashes. Body-term indexing still needs a contract edit.
 
 ## Parent
 

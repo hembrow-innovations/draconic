@@ -6,6 +6,7 @@ import { loadMarkdownPage, renderMarkdown } from "../lib/content";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
+const contentDir = join(websiteDir, "content");
 const routesDir = join(srcDir, "routes");
 const pageDir = join(srcDir, "features", "learn", "LearnPage");
 
@@ -119,7 +120,7 @@ test("learn pages", () => {
     const routePath = join(routesDir, `${chapter.slug}.tsx`);
     expect(statSync(routePath).isFile()).toBe(true);
     const route = readFileSync(routePath, "utf8");
-    const source = readFileSync(join(websiteDir, `${chapter.slug}.md`), "utf8");
+    const source = readFileSync(join(contentDir, `${chapter.slug}.md`), "utf8");
     const page = loadMarkdownPage(chapter.slug);
     const html = renderMarkdown(page.body);
 

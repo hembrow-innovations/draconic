@@ -22,8 +22,8 @@ Unknown until triage. In scope of `public-site.ia:reference-walkable` and `publi
 
 ## Notes
 
-- Page: `website/types.md`
-- Learn sample: `website/native-types.md`
+- Page: `website/content/types.md`
+- Learn sample: `website/content/native-types.md`
 - Lock: `website/src/tests/reference-hub-pages.test.ts`
 - Do not add fences on not-yet pages
 

@@ -11,6 +11,7 @@ import {
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
+const contentDir = join(websiteDir, "content");
 const searchDir = join(srcDir, "components", "SiteSearch");
 const searchLib = join(srcDir, "lib", "search");
 
@@ -227,6 +228,31 @@ test("search", () => {
   expect(searchHitHref(cliRepl!, "repl")).toBe("/cli#repl");
   expect(searchHitLabel(cliRepl!, "repl")).toBe("Reference · CLI · repl");
 
+  const cliExtract = querySearchIndex(index, "extract").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliExtract?.headings).toContain("extract");
+  expect(searchHitHref(cliExtract!, "extract")).toBe("/cli#extract");
+  expect(searchHitLabel(cliExtract!, "extract")).toBe(
+    "Reference · CLI · extract",
+  );
+
+  const cliDoc = querySearchIndex(index, "doc").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliDoc?.headings).toContain("doc");
+  expect(searchHitHref(cliDoc!, "doc")).toBe("/cli#doc");
+  expect(searchHitLabel(cliDoc!, "doc")).toBe("Reference · CLI · doc");
+
+  const cliBindgen = querySearchIndex(index, "bindgen").find(
+    (hit) => hit.href === "/cli",
+  );
+  expect(cliBindgen?.headings).toContain("bindgen");
+  expect(searchHitHref(cliBindgen!, "bindgen")).toBe("/cli#bindgen");
+  expect(searchHitLabel(cliBindgen!, "bindgen")).toBe(
+    "Reference · CLI · bindgen",
+  );
+
   const tcpListen = querySearchIndex(index, "tcpListen").find(
     (hit) => hit.href === "/host-io",
   );
@@ -247,7 +273,7 @@ test("search", () => {
   expect(querySearchIndex(index, "Public site purpose")).toEqual([]);
   expect(querySearchIndex(index, "Give someone writing a Program")).toEqual([]);
 
-  const websiteSlugs = readdirSync(websiteDir)
+  const websiteSlugs = readdirSync(contentDir)
     .filter((name) => name.endsWith(".md"))
     .map((name) => name.slice(0, -3));
   const indexedHrefs = new Set(index.map((entry) => entry.href));

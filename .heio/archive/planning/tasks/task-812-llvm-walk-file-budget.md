@@ -2,14 +2,14 @@
 id: "task-812-llvm-walk-file-budget"
 title: "LLVM walk file budget"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-811-llvm-walk-file-budget"
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T14:00:00Z"
 ---
 
 # LLVM walk file budget
@@ -59,10 +59,17 @@ Every Rust file in `draconic-backend-llvm` is ≤1000 lines. Hard limit 1250. Sp
 - tests stay next to the modules they lock
 
 **Acceptance criteria:**
-- [ ] Slice O1 prints `max-loc-ok`
-- [ ] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
-- [ ] No new `walk_host_*` fingerprint adapter
-- [ ] No hello-stub success for unsupported IR
+- [x] Slice O1 prints `max-loc-ok`
+- [x] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
+- [x] No new `walk_host_*` fingerprint adapter
+- [x] No hello-stub success for unsupported IR
+
+## Gauntlet
+
+- **round**: 1
+- **command**: O1 python loc scan; cargo test -p draconic-backend-llvm --offline
+- **result**: win
+- **gap**: none. walk.rs split into walk collect, host_dispatch, and es_kind. O1 max-loc-ok. O2 325 passed.
 
 **Out of scope:**
 - native Date / flags / url / compression emit ([[ticket-807-llvm-walker-native-date-stdlib]])

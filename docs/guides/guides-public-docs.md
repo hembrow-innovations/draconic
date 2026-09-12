@@ -14,17 +14,17 @@ updated_at: "2026-09-12"
 
 ## Overview
 
-Public Learn and Reference remain sourced from `website/` markdown (`title`, `section`, `status`). That tree is not this vault ([[0010-public-docs-draconic-ssg]], [[specs/draconic/public-site/purpose|Public site purpose]]). Presentation is a TanStack Start app under `website/` ([[0013-public-site-tanstack-start]]), which supersedes [[0010-public-docs-draconic-ssg]] only as the HTML renderer. Kept from 0010: Learn and Reference IA, shipped versus not-yet, fence compile, playground later, and the vault is not the site. Home is a language homepage, not Learn copied to index. Do not treat generated HTML as truth. Agent and Toolchain notes stay under `docs/`. Orientation: [[overview-toolchain]], [[overview-vault]].
+Public Learn and Reference remain sourced from `website/content/` markdown (`title`, `section`, `status`). That tree is not this vault ([[0010-public-docs-draconic-ssg]], [[specs/draconic/public-site/purpose|Public site purpose]]). Presentation is a TanStack Start app under `website/` ([[0013-public-site-tanstack-start]]), which supersedes [[0010-public-docs-draconic-ssg]] only as the HTML renderer. Kept from 0010: Learn and Reference IA, shipped versus not-yet, fence compile, playground later, and the vault is not the site. Home is a language homepage, not Learn copied to index. Do not treat generated HTML as truth. Agent and Toolchain notes stay under `docs/`. Orientation: [[overview-toolchain]], [[overview-vault]].
 
 ## Prerequisites
 
-- **Read `website/` as source**: `.md` files with `title`, `section`, and `status` frontmatter. Do not treat generated `.html` as the source of truth.
+- **Read `website/content/` as source**: `.md` files with `title`, `section`, and `status` frontmatter. Do not treat generated `.html` as the source of truth.
 - **Know the split**: this vault ([[standards-docs-vault]]) is for agents and maintainers. Learn and Reference are for people writing Programs.
 - **Publisher**: `scripts/generate-website.sh` wraps the TanStack Start static build (`pnpm --dir website build`) and stages HTML for GitHub Pages.
 
 ## Steps
 
-1. **Edit markdown in `website/`**, not vault notes, when the change is public language teaching or working reference.
+1. **Edit markdown in `website/content/`**, not vault notes, when the change is public language teaching or working reference.
 
 2. **Stay inside the subset**: headings, paragraphs, lists, code fences, links, and status frontmatter (`title`, `section`, `status`). Keep those tags.
 
@@ -38,14 +38,14 @@ Public Learn and Reference remain sourced from `website/` markdown (`title`, `se
 
 ## Examples
 
-Learn path (from `website/learn.md`): Install, then from JavaScript or from systems, joining at Dual worlds, then modules, native types, host I/O, packages.
+Learn path (from `website/content/learn.md`): Install, then from JavaScript or from systems, joining at Dual worlds, then modules, native types, host I/O, packages.
 
-Reference path (from `website/reference.md`): CLI, types, Dual-world rules, host I/O, packages. Working pages while writing a Program, not a generated API dump. The vault API notes ([[api-cli]], [[api-embed]]) are the command and crate contracts for agents.
+Reference path (from `website/content/reference.md`): CLI, types, Dual-world rules, host I/O, packages. Working pages while writing a Program, not a generated API dump. The vault API notes ([[api-cli]], [[api-embed]]) are the command and crate contracts for agents.
 
-Status in `website/*.md` as of this note:
+Status in `website/content/*.md` as of this note:
 
-- **shipped**: Learn, Reference, Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, packages, CLI, types, Dual-world rules, Reference host I/O
-- **not-yet**: Reference packages
+- **shipped**: Learn, Reference, Install, from JavaScript, from systems, Dual worlds, modules, native types, host I/O, packages, CLI, types, Dual-world rules, Reference host I/O, Reference packages
+- **not-yet**: none
 
 Shipped pages may include copy-paste fences. Not-yet pages stay prose.
 

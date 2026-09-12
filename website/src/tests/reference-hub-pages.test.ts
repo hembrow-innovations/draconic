@@ -6,13 +6,14 @@ import { loadMarkdownPage, renderMarkdown } from "../lib/content";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
+const contentDir = join(websiteDir, "content");
 const routesDir = join(srcDir, "routes");
 const navDir = join(srcDir, "features", "reference", "ReferenceNav");
 const cardsDir = join(srcDir, "features", "reference", "ReferenceHubCards");
 const pageDir = join(srcDir, "features", "reference", "ReferencePage");
 const referenceRoute = join(routesDir, "reference.tsx");
 
-/** Hub order from `public-site.ia:reference-walkable` and `website/reference.md`. */
+/** Hub order from `public-site.ia:reference-walkable` and `website/content/reference.md`. */
 const referencePath = [
   { href: "/cli", label: "CLI" },
   { href: "/types", label: "types" },
@@ -44,13 +45,13 @@ const referencePages = [
   {
     slug: "reference-host-io",
     title: "host I/O",
-    status: "not-yet",
+    status: "shipped",
     copy: "This page is lookup. The designed lesson is",
   },
   {
     slug: "reference-packages",
     title: "packages",
-    status: "not-yet",
+    status: "shipped",
     copy: "This page is lookup, not the Learn chapter.",
   },
 ] as const;
@@ -134,7 +135,7 @@ test("reference hub pages", () => {
     join(srcDir, "features", "learn", "LearnNav", "LearnNav.tsx"),
     "utf8",
   );
-  const referenceHub = readFileSync(join(websiteDir, "reference.md"), "utf8");
+  const referenceHub = readFileSync(join(contentDir, "reference.md"), "utf8");
   const routeTree = readFileSync(join(srcDir, "routeTree.gen.ts"), "utf8");
   const page = loadMarkdownPage("reference");
 
@@ -312,7 +313,7 @@ test("reference hub pages", () => {
     const routePath = join(routesDir, `${working.slug}.tsx`);
     expect(statSync(routePath).isFile()).toBe(true);
     const workingRoute = readFileSync(routePath, "utf8");
-    const source = readFileSync(join(websiteDir, `${working.slug}.md`), "utf8");
+    const source = readFileSync(join(contentDir, `${working.slug}.md`), "utf8");
     const workingPage = loadMarkdownPage(working.slug);
     const html = renderMarkdown(workingPage.body);
 
@@ -348,7 +349,8 @@ test("reference hub pages", () => {
     expect(html).not.toContain("api-cli");
   }
 
-  const cli = renderMarkdown(loadMarkdownPage("cli").body);
+  const cliPage = loadMarkdownPage("cli");
+  const cli = renderMarkdown(cliPage.body);
   const types = renderMarkdown(loadMarkdownPage("types").body);
   const dualWorldRules = renderMarkdown(loadMarkdownPage("dual-world-rules").body);
   const hostIo = renderMarkdown(loadMarkdownPage("reference-host-io").body);
@@ -357,6 +359,23 @@ test("reference hub pages", () => {
   expect(cli).toContain('<a href="/reference-packages">packages</a>');
   expect(cli).toContain('<a href="/types">types</a>');
   expect(cli).toContain('<a href="/dual-world-rules">Dual-world rules</a>');
+  expect(cliPage.body).toContain("## extract");
+  expect(cliPage.body).toContain("## doc");
+  expect(cliPage.body).toContain("## bindgen");
+  expect(cliPage.body).toContain("draconic extract");
+  expect(cliPage.body).toContain("draconic doc");
+  expect(cliPage.body).toContain("draconic bindgen");
+  expect(cliPage.body).toContain("/** Greet a name. */");
+  expect(cliPage.body).toContain("function greet(name: string): string");
+  expect(cliPage.body).toContain("{stem}.out.js");
+  expect(cliPage.body).toContain("--coverage");
+  expect(cliPage.body).toContain(".exit");
+  expect(cliPage.body).toContain("It builds today");
+  expect(cliPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(cli).toContain("extract");
+  expect(cli).toContain("bindgen");
+  expect(cli).toContain("<pre>");
+  expect(cli).toContain("<code>");
   expect(types).toContain('<a href="/dual-world-rules">Dual-world rules</a>');
   expect(types).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(types).toContain('<a href="/dual-worlds">Dual worlds</a>');
@@ -393,10 +412,46 @@ test("reference hub pages", () => {
   expect(dualWorldRules).toContain("<code>");
   expect(dualWorldRules).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(dualWorldRules).toContain('<a href="/types">types</a>');
+  const hostIoPage = loadMarkdownPage("reference-host-io");
+  expect(hostIoPage.body).toContain("```drac");
+  expect(hostIoPage.body).toContain("stdoutWrite");
+  expect(hostIoPage.body).toContain("readFileText");
+  expect(hostIoPage.body).toContain("tcpListen");
+  expect(hostIoPage.body).toContain("httpParseRequest");
+  expect(hostIoPage.body).toContain("draconic check");
+  expect(hostIoPage.body).toContain("## stdoutWrite");
+  expect(hostIoPage.body).toContain("## Names");
+  expect(hostIoPage.body).toContain("It builds today");
+  expect(hostIoPage.body).not.toContain(
+    "hard-errors unsupported host APIs until an explicit bridge exists",
+  );
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(1);
+  expect(hostIo).toContain("stdoutWrite");
+  expect(hostIo).toContain("<pre>");
+  expect(hostIo).toContain("<code>");
   expect(hostIo).toContain('<a href="/host-io">host I/O</a>');
   expect(hostIo).toContain('<a href="/cli">CLI</a>');
+  const packagesPage = loadMarkdownPage("reference-packages");
+  expect(packagesPage.body).toContain("```drac");
+  expect(packagesPage.body).toContain("export function greet");
+  expect(packagesPage.body).toContain('from "github.com/org/pkg"');
+  expect(packagesPage.body).toContain("It builds today");
+  expect(packagesPage.body).toContain("draconic check index.drac");
+  expect(packagesPage.body).toContain("draconic get github.com/org/pkg@1.0.0");
+  expect(packagesPage.body).toContain("draconic mod tidy");
+  expect(packagesPage.body).toContain("--url");
+  expect(packagesPage.body).toContain("## Package root");
+  expect(packagesPage.body).toContain("## get");
+  expect(packagesPage.body).toContain("## mod tidy");
+  expect(packagesPage.body.match(/```drac/g)?.length).toBe(1);
+  expect(packages).toContain("greet");
+  expect(packages).toContain("<pre>");
+  expect(packages).toContain("<code>");
   expect(packages).toContain('<a href="/packages">packages</a>');
   expect(packages).toContain('<a href="/cli">CLI</a>');
+  expect(referenceHub).toContain(
+    "[packages](reference-packages.html) — git identity, manifest, lockfile, get and tidy. Shipped.",
+  );
 
   const extra = ["api-cli", "tutorial", "getting-started", "beginner", "vault"];
   for (const slug of extra) {

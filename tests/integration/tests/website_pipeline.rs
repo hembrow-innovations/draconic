@@ -263,7 +263,7 @@ fn assert_html_document(html: &str) {
 
 #[test]
 fn website_pipeline_learn_and_reference_nav_and_status() {
-    check_fences(&repo_root().join("website")).expect("repo fences");
+    check_fences(&repo_root().join("website/content")).expect("repo fences");
 
     let (_, learn) = published_page("learn");
     assert_html_document(&learn);
@@ -293,7 +293,7 @@ fn assert_markdown_subset(html: &str) {
         "expected heading Install as h1, got:\n{html}"
     );
     assert!(
-        html.contains("<h2>") && html.contains("Reproducibility"),
+        html.contains("<h2") && html.contains("Reproducibility"),
         "expected heading Reproducibility as h2, got:\n{html}"
     );
     assert!(
@@ -475,7 +475,7 @@ fn assert_learn_chapter_nav(html: &str) {
 
 #[test]
 fn website_pipeline_learn_skeleton_is_walkable() {
-    check_fences(&repo_root().join("website")).expect("repo fences");
+    check_fences(&repo_root().join("website/content")).expect("repo fences");
 
     let (_, learn) = published_page("learn");
     assert_nav(&learn);
@@ -512,7 +512,7 @@ fn assert_reference_page_nav(html: &str) {
 
 #[test]
 fn website_pipeline_reference_skeleton_is_walkable() {
-    check_fences(&repo_root().join("website")).expect("repo fences");
+    check_fences(&repo_root().join("website/content")).expect("repo fences");
 
     let (_, reference) = published_page("reference");
     assert_nav(&reference);

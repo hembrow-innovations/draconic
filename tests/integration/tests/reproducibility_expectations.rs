@@ -25,7 +25,7 @@ fn read(path: &str) -> String {
 
 #[test]
 fn install_docs_have_a_reproducibility_section() {
-    let text = read("website/install.md");
+    let text = read("website/content/install.md");
     let lower = text.to_ascii_lowercase();
     assert!(
         text.contains("## Reproducibility") || lower.contains("reproducibility"),
@@ -35,7 +35,7 @@ fn install_docs_have_a_reproducibility_section() {
 
 #[test]
 fn install_docs_name_timestamp_and_path_reproducibility_expectations() {
-    let text = read("website/install.md");
+    let text = read("website/content/install.md");
     let lower = text.to_ascii_lowercase();
     assert!(
         lower.contains("timestamp"),

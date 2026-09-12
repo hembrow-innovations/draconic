@@ -42,7 +42,7 @@ test("home hero and cta", () => {
   const hero = readFileSync(join(heroDir, "HomeHero.tsx"), "utf8");
   const variants = readFileSync(join(heroDir, "HomeHero.variants.ts"), "utf8");
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
-  const learnHub = readFileSync(join(websiteDir, "learn.md"), "utf8");
+  const learnHub = readFileSync(join(websiteDir, "content", "learn.md"), "utf8");
 
   expect(home).toContain("createFileRoute");
   expect(home).toContain('"/"');

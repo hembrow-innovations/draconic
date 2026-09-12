@@ -45,8 +45,8 @@ test("home sample", () => {
     "utf8",
   );
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
-  const install = readFileSync(join(websiteDir, "install.md"), "utf8");
-  const types = readFileSync(join(websiteDir, "types.md"), "utf8");
+  const install = readFileSync(join(websiteDir, "content", "install.md"), "utf8");
+  const types = readFileSync(join(websiteDir, "content", "types.md"), "utf8");
 
   expect(home).toContain("createFileRoute");
   expect(home).toContain('"/"');

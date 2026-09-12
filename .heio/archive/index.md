@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **website CLI reference** — teaching markdown lives in `website/content/`; CLI Reference names extract, doc, bindgen, default `{stem}.out.js`, `--coverage`, and `.exit`
 - **housekeeping** — met [[slice-815-llvm-walker-native-date-stdlib]]; task-816 archived; platform stays active
 - **task-816-llvm-walker-native-date-stdlib** — completed; LLVM walker routes native Date, flags, url, and compression-invalid (slice-815)
 - **housekeeping** — met [[slice-813-host-name-catalog]]; task-814 archived; platform stays active

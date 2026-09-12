@@ -47,7 +47,7 @@ export function extractHeadings(source: string): string[] {
 }
 
 /**
- * Build the static title and heading index from routed `website/*.md` pages.
+ * Build the static title and heading index from routed `website/content/*.md` pages.
  *
  * @returns Finder entries for existing Start routes
  */

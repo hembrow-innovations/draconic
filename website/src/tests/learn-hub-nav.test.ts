@@ -6,11 +6,12 @@ import { loadMarkdownPage, renderMarkdown } from "../lib/content";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
+const contentDir = join(websiteDir, "content");
 const navDir = join(srcDir, "features", "learn", "LearnNav");
 const cardsDir = join(srcDir, "features", "learn", "LearnHubCards");
 const learnRoute = join(srcDir, "routes", "learn.tsx");
 
-/** Hub order from `public-site.ia:learn-walkable` and `website/learn.md`. */
+/** Hub order from `public-site.ia:learn-walkable` and `website/content/learn.md`. */
 const learnPath = [
   { href: "/install", label: "Install" },
   { href: "/from-javascript", label: "from JavaScript" },
@@ -95,7 +96,7 @@ test("learn hub nav", () => {
     join(srcDir, "features", "docs", "DocsShell", "DocsShell.tsx"),
     "utf8",
   );
-  const learnHub = readFileSync(join(websiteDir, "learn.md"), "utf8");
+  const learnHub = readFileSync(join(contentDir, "learn.md"), "utf8");
   const routeTree = readFileSync(join(srcDir, "routeTree.gen.ts"), "utf8");
   const page = loadMarkdownPage("learn");
 
