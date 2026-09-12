@@ -31,8 +31,8 @@ export const onThisPageItemVariants = cva("", {
 });
 
 /**
- * Fragment link to a section heading. Focus ring uses the accent token.
+ * Fragment link to a section heading. The heading in view uses ink; siblings stay muted.
  */
 export const onThisPageLinkVariants = cva(
-  "inline-flex items-center py-1 font-body text-body text-muted no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+  "inline-flex items-center py-1 font-body text-body text-muted no-underline hover:text-ink aria-[current=true]:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 );

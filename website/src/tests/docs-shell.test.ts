@@ -124,10 +124,18 @@ test("docs shell", () => {
   expect(outline).toContain('aria-label="On this page"');
   expect(outline).toContain("On this page");
   expect(outline).toContain("href={`#${item.id}`}");
+  expect(outline).toContain("useLocation");
+  expect(outline).toContain("location.hash");
+  expect(outline).toContain("item.id");
+  expect(outline).toContain('"aria-current": "true"');
+  expect(outline).not.toContain('"aria-current": "page"');
+  expect(outline).not.toMatch(/<a[^>]*aria-current/);
   expect(outline).not.toMatch(/playground/i);
   expect(outlineVariants).toContain('from "class-variance-authority"');
   expect(outlineVariants).toContain("cva(");
   expect(outlineVariants).toContain("text-muted");
+  expect(outlineVariants).toContain("aria-[current=true]:text-ink");
+  expect(outlineVariants).not.toMatch(/aria-\[current=true\]:text-muted/);
   expect(outlineVariants).toContain("focus-visible:ring-accent");
   expect(outlineVariants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(outlineVariants).not.toMatch(/\bmax-w-sm\b/);
@@ -220,6 +228,26 @@ test("page outline", () => {
       `<h2 id="${item.id}"><a href="#${item.id}">${item.text}</a></h2>`,
     );
   }
+
+  const outlineSource = readFileSync(join(outlineDir, "OnThisPage.tsx"), "utf8");
+  const outlineVariants = readFileSync(
+    join(outlineDir, "OnThisPage.variants.ts"),
+    "utf8",
+  );
+  const header = readFileSync(
+    join(srcDir, "components", "SiteHeader", "SiteHeader.tsx"),
+    "utf8",
+  );
+  expect(outline.map((item) => item.id)).toContain("zed-editor");
+  expect(outlineSource).toContain("location.hash");
+  expect(outlineSource).toContain("item.id");
+  expect(outlineSource).toContain('"aria-current": "true"');
+  expect(outlineSource).not.toContain('"aria-current": "page"');
+  expect(outlineSource).not.toMatch(/<a[^>]*aria-current/);
+  expect(outlineVariants).toContain("text-muted");
+  expect(outlineVariants).toContain("aria-[current=true]:text-ink");
+  expect(outlineVariants).not.toMatch(/aria-\[current=true\]:text-muted/);
+  expect(header).toContain('"aria-current": "page"');
 
   expect(extractPageOutline(loadMarkdownPage("dual-worlds").body)).toEqual([]);
 

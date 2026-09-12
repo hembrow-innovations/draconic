@@ -2,17 +2,16 @@
 id: "task-893-outline-current-section"
 title: "Mark the heading in view on On this page"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
 slice: "slice-892-outline-current-section"
 area: public-site
-tags: [website, public-site]
+tags: [ website, public-site ]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T20:15:00Z"
 ---
-
 # Mark the heading in view on On this page
 
 ## Blocked by
@@ -67,13 +66,17 @@ The outline still lists heading fragment links. The heading in view is marked, i
 - Existing outline ids that already match heading permalinks
 
 **Acceptance criteria:**
-- [ ] Contract `public-site.chrome:on-page-toc` requires marking the heading in view, not only listing links
-- [ ] Tests fail if OnThisPage never sets `aria-current` on the current heading link
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Side-nav `aria-current=page` is unchanged
+- [x] Contract `public-site.chrome:on-page-toc` requires marking the heading in view, not only listing links
+- [x] Tests fail if OnThisPage never sets `aria-current` on the current heading link
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Side-nav `aria-current=page` is unchanged
 
 **Out of scope:**
 - Sticky TOC; current-page nav contrast ([[task-868-current-page-contrast]]); heading permalink generation; playground
 
 **Explain this part:**
 The list already exists. This sitting is current-section state, not a second outline.
+
+## Gauntlet
+
+- **Round 1:** `pnpm --dir website exec vitest run docs-shell` then `pnpm --dir website exec tsc --noEmit` — win. Test Files 1 passed; tsc exit 0. No gap.

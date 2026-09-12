@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-893-outline-current-section** — completed; On this page marks the heading in view with aria-current that is not page; siblings stay unmarked (slice-892)
 - **slice-890-meta-description** — met; page-specific description, canonical, and Open Graph lock from existing copy; website-chrome-polish stays active
 - **task-891-meta-description** — completed; each public page exposes a page-specific description, canonical, and Open Graph summary from existing copy (slice-890)
 - **slice-888-shipped-badge-contrast** — met; shipped chip light-theme contrast locks 4.5:1 at 14px; website-chrome-polish stays active
