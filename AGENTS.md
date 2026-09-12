@@ -23,13 +23,13 @@ Single-context layout (`CONTEXT.md` + `docs/adr/`). See `docs/agents/domain.md`.
 
 - **Glossary**: `CONTEXT.md`
 - **Locked decisions**: `docs/adr/`
-- **Completeness**: `ROADMAP.md` — Loop source of truth with the Conformance suite
+- **Completeness**: archived `docs/overview/ROADMAP.md` plus the Conformance suite. Root `ROADMAP.md` is a stub.
 
 ## Draconic language
 
 This repo **is** the Draconic toolchain. Completeness is driven by:
 
-- [`ROADMAP.md`](./ROADMAP.md) — feature checklist (Loop source of truth)
+- [`docs/overview/ROADMAP.md`](./docs/overview/ROADMAP.md) — archived feature checklist
 - [`CONTEXT.md`](./CONTEXT.md) — glossary
 - [`docs/adr/`](./docs/adr/) — locked decisions
 - **draconic-language** skill — toolchain conventions

@@ -7,14 +7,14 @@ area: overview
 tags: [overview]
 created_at: "2026-09-06"
 updated_at: "2026-09-06"
-description: How language completeness is defined by ROADMAP.md, the Conformance suite, Loop tracks, and locked ADRs.
+description: How language completeness is defined by the archived Roadmap, the Conformance suite, Loop tracks, and locked ADRs.
 ---
 
 # Language completeness
 
 ## Overview
 
-[[ROADMAP]] is the Loop source of truth together with the Conformance suite. A Roadmap item is `done` only when its tests are green on every applicable target (`js`, `native`, both, or `compiler`). This note does not copy the checklist. Glossary terms Loop, Roadmap, and Conformance suite live in [[CONTEXT]]. Layout is [[domain]]. Hub siblings are [[overview-toolchain]] and [[overview-vault]].
+[[ROADMAP]] is the archived Loop checklist together with the Conformance suite. A Roadmap item is `done` only when its tests are green on every applicable target (`js`, `native`, both, or `compiler`). This note does not copy the checklist. Glossary terms Loop, Roadmap, and Conformance suite live in [[CONTEXT]]. Layout is [[domain]]. Hub siblings are [[overview-toolchain]] and [[overview-vault]].
 
 ## Context
 

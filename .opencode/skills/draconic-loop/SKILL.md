@@ -45,7 +45,7 @@ The Loop is complete when: claimed item is `done` or `blocked` with reason, work
 
 Installed dest path is `.pi/skills/draconic-loop/` (three `../` to repo root).
 
-- Roadmap: [`ROADMAP.md`](../../../ROADMAP.md)
+- Roadmap stub: [`ROADMAP.md`](../../../ROADMAP.md) (empty board). Historical checklist: [`docs/overview/ROADMAP.md`](../../../docs/overview/ROADMAP.md)
 - Glossary: [`CONTEXT.md`](../../../CONTEXT.md)
 - ADRs: [`docs/adr/`](../../../docs/adr/)
 - Workspace: `cargo test --workspace`, binary `draconic` from `crates/draconic-cli`

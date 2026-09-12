@@ -95,7 +95,7 @@ _Avoid_: unsupported (too vague)
 ## Completeness process
 
 **Roadmap**:
-The ordered feature checklist that defines what remains for language completeness; source of truth with the test suite.
+The archived feature checklist that defined language completeness; historical source of truth with the test suite (`docs/overview/ROADMAP.md`). Living remainder is not a Loop mill.
 _Avoid_: backlog, kanban, tickets (for this loop)
 
 **Conformance suite**:

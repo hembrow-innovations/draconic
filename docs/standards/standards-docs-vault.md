@@ -14,7 +14,7 @@ updated_at: "2026-09-06"
 
 ## Statement
 
-`docs/` is the committed Obsidian vault for toolchain knowledge that should survive a clone. [[AGENTS]] plus the docs skill own layout. This checkout is a single-context language repo: glossary is [[CONTEXT]], locked decisions are `docs/adr/`, and completeness is [[ROADMAP]]. Specs are folders. Ignore `docs/99_scribble/`. Do not file tickets, slices, tasks, or rounds in `docs/`.
+`docs/` is the committed Obsidian vault for toolchain knowledge that should survive a clone. [[AGENTS]] plus the docs skill own layout. This checkout is a single-context language repo: glossary is [[CONTEXT]], locked decisions are `docs/adr/`, and completeness is archived [[ROADMAP]]. Specs are folders. Ignore `docs/99_scribble/`. Do not file tickets, slices, tasks, or rounds in `docs/`.
 
 ## Rationale
 
@@ -26,7 +26,7 @@ The docs skill default tree puts a glossary under `docs/overview/` and ADRs unde
 - **Kind folder**: the folder under `docs/` is the kind (`standards/`, `guides/`, `api/`, `non-functional/`, `architecture/`, `overview/`, `specs/`). Domain rides in frontmatter as `domain: draconic`. Do not invent `docs/draconic/` except under specs.
 - **Glossary**: [[CONTEXT]] at the repo root (`CONTEXT.md`). Do not start a second glossary in the vault.
 - **Locked decisions**: `docs/adr/` as `NNNN-<slug>.md`. Wikilink by stem, for example [[0006-mega-loop-roadmap-tests]]. Not `docs/decisions/adr/`.
-- **Completeness**: [[ROADMAP]] with the Conformance suite. Not Heio occupancy.
+- **Completeness**: archived [[ROADMAP]] (`docs/overview/ROADMAP.md`) with the Conformance suite. Not Heio occupancy. Root `ROADMAP.md` is a stub.
 - **Specs**: folders under `docs/specs/<domain>/<area>/` (optional `<feature>/`) holding purpose, contract, and test notes. Specs are not flat files.
 - **Ignore scribble**: `docs/99_scribble/` is scratch. Never a source of truth. Never cite it.
 - **No tickets in docs/**: tickets, slices, tasks, rounds, and working reports live under `.heio/` (management skill). Do not copy them into `docs/` as a plan. Promote a finished outcome as an ADR, spec, architecture note, standard, or guide, then close the working file.
@@ -57,5 +57,6 @@ Incorrect:
 ## Exceptions
 
 - **Leftover `docs/reference/guides/`**: those files exist. They are not the layout. Do not edit or move them in this slice. Wikilink only to call them leftover.
-- **Repo-root glossary and Roadmap**: [[CONTEXT]] and [[ROADMAP]] sit next to the vault, not inside a kind folder. That is the [[AGENTS]] override, not a second vault.
+- **Repo-root glossary**: [[CONTEXT]] sits next to the vault, not inside a kind folder. That is the [[AGENTS]] override, not a second vault.
+- **Archived Roadmap**: [[ROADMAP]] lives at `docs/overview/ROADMAP.md`. Historical tables stay. Root `ROADMAP.md` is a stub.
 - **`docs/agents/`**: agent orientation such as [[domain]] is allowed. It is not a place for tickets.

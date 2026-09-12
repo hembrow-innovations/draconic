@@ -17,5 +17,5 @@ Source of truth outside this folder:
 
 - Glossary: `CONTEXT.md`
 - Locked decisions: `docs/adr/`
-- Completeness: `ROADMAP.md` plus the Conformance suite
+- Completeness: archived `docs/overview/ROADMAP.md` plus the Conformance suite
 - Frontend entry: `crates/draconic-frontend/src/lib.rs`

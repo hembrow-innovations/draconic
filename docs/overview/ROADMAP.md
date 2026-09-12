@@ -1,4 +1,18 @@
+---
+id: ROADMAP
+title: Draconic Roadmap
+kind: overview
+domain: draconic
+area: overview
+tags: [overview, roadmap, archive]
+created_at: "2026-09-06"
+updated_at: "2026-09-12"
+description: Archived language completeness checklist. Historical Loop source of truth with the Conformance suite.
+---
+
 # Draconic Roadmap
+
+Archived 2026-09-12. Historical completeness checklist. Do not claim new Loop atoms from these rows. Remainder buckets E17.02 and E18.44 stay parked, not living todos.
 
 Source of truth for completeness, together with the test suite.  
 **Status**: `todo` | `in_progress` | `done` | `blocked`

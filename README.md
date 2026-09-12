@@ -8,7 +8,7 @@
 
 Draconic is a **full ECMAScript superset** with TypeScript-inspired static types and unboxed **native systems types**. Compile the same Program to **JavaScript** or to a **native binary** via LLVM.
 
-> **Status.** Early (v0.1). The toolchain can parse, typecheck, build (`js` | `native`), and test today. Language completeness is still growing — see [ROADMAP.md](./ROADMAP.md).
+> **Status.** Early (v0.1). The toolchain can parse, typecheck, build (`js` | `native`), and test today. The language completeness checklist is [archived](./docs/overview/ROADMAP.md).
 
 ## Why Draconic
 
@@ -142,13 +142,13 @@ The workspace is a Rust monorepo: lexer → parser → check → IR → JS / LLV
 
 ## Contributing
 
-Draconic is built in the open. Completeness is the [Roadmap](./ROADMAP.md): a feature is done only when its tests are green on every applicable target.
+Draconic is built in the open. Completeness is the Conformance suite plus the [archived Roadmap](./docs/overview/ROADMAP.md): a feature is done only when its tests are green on every applicable target.
 
 ```bash
 cargo test --workspace
 ```
 
-Start from a `todo` row, add or extend tests first, then implement. Domain terms are in [CONTEXT.md](./CONTEXT.md); locked decisions are in [docs/adr/](./docs/adr/). Pull requests are welcome.
+Do not invent work from the archived checklist. Domain terms are in [CONTEXT.md](./CONTEXT.md); locked decisions are in [docs/adr/](./docs/adr/). Pull requests are welcome.
 
 ## License
 

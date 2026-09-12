@@ -16,7 +16,7 @@ description: How committed toolchain knowledge is stored in the docs vault, incl
 
 `docs/` is the committed Obsidian vault for toolchain knowledge that should survive a clone. Orientation starts here, at [[overview-toolchain]], and at [[overview-completeness]]. Search this vault first. Ignore `docs/99_scribble/`.
 
-[[domain]] names the single-context layout. `AGENTS.md` wins over the default docs-skill tree: glossary is [[CONTEXT]] (`CONTEXT.md` at repo root), locked decisions live in `docs/adr/` (not `docs/decisions/adr/`), and completeness is [[ROADMAP]].
+[[domain]] names the single-context layout. `AGENTS.md` wins over the default docs-skill tree: glossary is [[CONTEXT]] (`CONTEXT.md` at repo root), locked decisions live in `docs/adr/` (not `docs/decisions/adr/`), and completeness is archived [[ROADMAP]] (`docs/overview/ROADMAP.md`).
 
 ## Context
 
@@ -32,7 +32,7 @@ Public Learn and Reference sources live in `website/`, not this vault ([[0010-pu
 
 - **Glossary**: [[CONTEXT]] — do not duplicate terms here.
 - **Locked decisions**: `docs/adr/` — wikilink by filename stem, for example [[0001-rust-host-compiler]]. Do not invent ADRs in overview notes.
-- **Completeness**: [[ROADMAP]] with the Conformance suite — see [[overview-completeness]].
+- **Completeness**: archived [[ROADMAP]] with the Conformance suite — see [[overview-completeness]]. Root `ROADMAP.md` is a stub.
 - **Layout note**: [[domain]]
 - **Vault standard**: [[standards-docs-vault]]
 - **Language purpose**: [[purpose]] under `docs/specs/draconic/<area>/`
@@ -86,7 +86,7 @@ Note to note uses `[[wikilinks]]` only. Never relative `.md` paths. Filename ste
 
 - **docs/99_scribble/**: scratch. Never source of truth. Ignore.
 - **docs/reference/guides/**: leftover tree. Not source of truth. Do not move it; do not treat it as [[guides-toolchain]] or [[guides-public-docs]].
-- **.heio/**: local working memory (tickets, slices, tasks, rounds). Not language completeness. [[ROADMAP]] remains the Loop checklist.
+- **.heio/**: local working memory (tickets, slices, tasks, rounds). Not language completeness. [[ROADMAP]] is the archived Loop checklist.
 - **website/**: public site sources, not this vault ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]]).
 
 ## Trade-offs

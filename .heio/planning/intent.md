@@ -16,12 +16,12 @@ Draconic is a programming language: a full ECMAScript superset with TypeScript-i
 
 ## Success looks like
 
-A team can replace simple services and harden toward production without leaving the language for routine OS, net, crypto, and package work. Completeness is ROADMAP.md plus the conformance suite. A Roadmap item is done only when its tests are green on every applicable target.
+A team can replace simple services and harden toward production without leaving the language for routine OS, net, crypto, and package work. Completeness is the archived Roadmap (`docs/overview/ROADMAP.md`) plus the conformance suite. A Roadmap item is done only when its tests are green on every applicable target.
 
 ## We will not
 
-Full browser engine, JVM/CLR, CUDA stack, kernel/UEFI, bit-identical Node/V8 or rustc. Do not replace ROADMAP.md with this heio roadmap. Heio-stack is the agent operating loop; ROADMAP.md is the language feature checklist.
+Full browser engine, JVM/CLR, CUDA stack, kernel/UEFI, bit-identical Node/V8 or rustc. Do not replace the archived Roadmap with this heio roadmap. Heio-stack is the agent operating loop; `docs/overview/ROADMAP.md` is the historical language feature checklist.
 
 ## See also
 
-CONTEXT.md, ROADMAP.md, docs/adr/.
+CONTEXT.md, docs/overview/ROADMAP.md, docs/adr/.

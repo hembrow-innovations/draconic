@@ -5,7 +5,7 @@ description: Roadmap audit of one ROADMAP.md row. Use when the user wants /audit
 
 # Roadmap audit
 
-Findings-only sitting. Exactly **one row** from `ROADMAP.md`, then exit. Tests are truth. Tickets are the output. Do not implement. Do not edit `ROADMAP.md`.
+Findings-only sitting. Exactly **one row** from archived `docs/overview/ROADMAP.md`, then exit. Tests are truth. Tickets are the output. Do not implement. Do not edit the archived checklist.
 
 Load **management** before any write under `.heio/`. Load **to-tickets** before filing. Load **draconic-language** for fixture, native-observation, and hard-error rules. Load **docs** only for ADRs the row touches.
 
@@ -15,7 +15,7 @@ This is not **draconic-loop**. Loop implements. This sitting audits.
 
 Both bars are Named, Fetchable, and Comparable. Fetch the files. Do not grade from memory.
 
-- **Claim bar** — the row in `ROADMAP.md`. Status holds only if the Tests paths exist and are green on the listed Targets. `native` / `both` means program results (`native.stdout`), not B08 `hello\n`.
+- **Claim bar** — the row in `docs/overview/ROADMAP.md`. Status holds only if the Tests paths exist and are green on the listed Targets. `native` / `both` means program results (`native.stdout`), not B08 `hello\n`.
 - **Production bar** — `CONTEXT.md` plus `.heio/planning/intent.md`. A team can use this feature without leaving Draconic: JS emit where the row is `js`/`both`, native binary where the row is `native`/`both` or a sibling N-row already claims it, Checker depth where the row is a **T** item. The Checker is TypeScript-inspired, not tsc. Untyped JS staying permissive is not a gap.
 
 Do not treat an **E** row listed `js` as a native miss when an **N08** (or other N) sibling covers the same fixtures. Audit that sibling when the cursor reaches it.
@@ -24,7 +24,7 @@ Do not treat an **E** row listed `js` as a native miss when an **N08** (or other
 
 From the command or the user message:
 
-- Empty or `continue` — next unaudited row in `ROADMAP.md` document order
+- Empty or `continue` — next unaudited row in `docs/overview/ROADMAP.md` document order
 - A Roadmap ID (`B01`, `E01.01`, `T07.03`) — that row, even if already in the ledger
 - `status` — print ledger progress and the next ID. Do not test. Do not file.
 
@@ -65,7 +65,7 @@ Update `next` to the following unaudited ID after each sitting. Re-audit overwri
 
 ### 1. Resolve the row
 
-Parse `ROADMAP.md` pipe rows. ID shape: letter + two digits + optional `.digits` groups (`B01`, `N08.01.04.01`). Columns: ID, Status, Targets, Item, Tests.
+Parse `docs/overview/ROADMAP.md` pipe rows. ID shape: letter + two digits + optional `.digits` groups (`B01`, `N08.01.04.01`). Columns: ID, Status, Targets, Item, Tests.
 
 Read the ledger. Pick the argument ID, or the first row whose ID is not in `## Ledger`.
 

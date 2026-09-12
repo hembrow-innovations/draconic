@@ -57,6 +57,7 @@ Incorrect:
 ## Exceptions
 
 - **Leftover notes** under `docs/reference/guides/` ([[issue-tracker]], [[triage-labels]]) may predate this standard. Do not “fix” them in passing. New notes must follow these rules.
-- **Repo-root [[CONTEXT]] and [[ROADMAP]]** are not vault-kind notes. They do not carry this frontmatter block.
+- **Repo-root [[CONTEXT]]** is not a vault-kind note. It does not carry this frontmatter block.
+- **Archived [[ROADMAP]]** at `docs/overview/ROADMAP.md` keeps its historical pipe tables. Do not convert them in passing.
 - **Public site sources** in `website/` use a smaller markdown subset and status frontmatter ([[0010-public-docs-draconic-ssg]], [[0013-public-site-tanstack-start]], [[guides-public-docs]]). They are not vault notes.
 - **Code fences** may contain source that is not vault markdown. Do not put a table in the surrounding prose.

@@ -5,12 +5,12 @@ kind: "roadmap"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-updated_at: "2026-09-06T18:00:00Z"
+updated_at: "2026-09-12T12:00:00Z"
 ---
 
 # Roadmap
 
-Locations. Destinations, not a schedule. Language row status stays on dest ROADMAP.md.
+Locations. Destinations, not a schedule. Language checklist is archived at docs/overview/ROADMAP.md. Remainder E17.02 / E18.44 stay parked as tickets.
 
 ## Locations
 
@@ -37,4 +37,4 @@ Locations. Destinations, not a schedule. Language row status stays on dest ROADM
 
 ## See also
 
-CONTEXT.md, ROADMAP.md, docs/adr/.
+CONTEXT.md, docs/overview/ROADMAP.md, docs/adr/.
