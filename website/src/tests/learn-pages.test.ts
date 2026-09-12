@@ -303,11 +303,25 @@ test("learn pages", () => {
   expect(hostIoPage.body).toContain(
     "draconic build --target native listen.drac -o listen",
   );
+  expect(hostIoPage.body).toContain("## HTTP echo");
+  expect(hostIoPage.body).toContain("tcpAccept(s)");
+  expect(hostIoPage.body).toContain("tcpRead(a, 65536)");
+  expect(hostIoPage.body).toContain("httpParseRequest(raw)");
+  expect(hostIoPage.body).toContain("req.path");
+  expect(hostIoPage.body).toContain(
+    'httpWriteResponse(200, "OK", "Content-Type: text/plain\\r\\n", path)',
+  );
+  expect(hostIoPage.body).toContain("tcpWrite(a, resp)");
+  expect(hostIoPage.body).toContain("while (true)");
+  expect(hostIoPage.body).toContain("draconic check echo.drac");
+  expect(hostIoPage.body).toContain(
+    "draconic build --target native echo.drac -o echo",
+  );
   expect(hostIoPage.body).toContain("free identifiers");
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(3);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(4);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',

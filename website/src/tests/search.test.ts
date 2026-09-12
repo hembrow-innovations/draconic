@@ -262,6 +262,26 @@ test("search", () => {
     "Learn · host I/O · tcpListen",
   );
 
+  const learnEcho = querySearchIndex(index, "HTTP echo").find(
+    (hit) => hit.href === "/host-io",
+  );
+  expect(learnEcho?.headings).toContain("HTTP echo");
+  expect(searchHitHref(learnEcho!, "HTTP echo")).toBe("/host-io#http-echo");
+  expect(searchHitLabel(learnEcho!, "HTTP echo")).toBe(
+    "Learn · host I/O · HTTP echo",
+  );
+
+  const referenceEcho = querySearchIndex(index, "HTTP echo").find(
+    (hit) => hit.href === "/reference-host-io",
+  );
+  expect(referenceEcho?.headings).toContain("HTTP echo");
+  expect(searchHitHref(referenceEcho!, "HTTP echo")).toBe(
+    "/reference-host-io#http-echo",
+  );
+  expect(searchHitLabel(referenceEcho!, "HTTP echo")).toBe(
+    "Reference · host I/O · HTTP echo",
+  );
+
   const learnHits = querySearchIndex(index, "Dual worlds").filter(
     (hit) => hit.href === "/learn",
   );

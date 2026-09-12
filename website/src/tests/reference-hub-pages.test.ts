@@ -421,11 +421,37 @@ test("reference hub pages", () => {
   expect(hostIoPage.body).toContain("draconic check");
   expect(hostIoPage.body).toContain("## stdoutWrite");
   expect(hostIoPage.body).toContain("## Names");
+  expect(hostIoPage.body).toContain("## HTTP echo");
+  expect(hostIoPage.body).toContain("`tcpListen(port)`");
+  expect(hostIoPage.body).toContain("`tcpAccept(listen)`");
+  expect(hostIoPage.body).toContain("`tcpConnect(host, port)`");
+  expect(hostIoPage.body).toContain("`tcpRead(connection, maxLen)`");
+  expect(hostIoPage.body).toContain("`tcpWrite(connection, bytes)`");
+  expect(hostIoPage.body).toContain("`closeTcp(handle)`");
+  expect(hostIoPage.body).toContain("`httpParseRequest(raw)`");
+  expect(hostIoPage.body).toContain("`method`");
+  expect(hostIoPage.body).toContain("`path`");
+  expect(hostIoPage.body).toContain("`version`");
+  expect(hostIoPage.body).toContain("`body`");
+  expect(hostIoPage.body).toContain(
+    "`httpWriteResponse(status, reason, headers, body)`",
+  );
+  expect(hostIoPage.body).toContain("tcpAccept(s)");
+  expect(hostIoPage.body).toContain("tcpRead(a, 65536)");
+  expect(hostIoPage.body).toContain("httpParseRequest(raw)");
+  expect(hostIoPage.body).toContain("req.path");
+  expect(hostIoPage.body).toContain(
+    'httpWriteResponse(200, "OK", "Content-Type: text/plain\\r\\n", path)',
+  );
+  expect(hostIoPage.body).toContain("draconic check echo.drac");
+  expect(hostIoPage.body).toContain(
+    "draconic build --target native echo.drac -o echo",
+  );
   expect(hostIoPage.body).toContain("It builds today");
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(1);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(2);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain("<pre>");
   expect(hostIo).toContain("<code>");

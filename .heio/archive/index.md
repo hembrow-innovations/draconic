@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **website host I/O HTTP echo** — Learn and Reference host I/O ship a compiling HTTP echo fence plus write-time call shapes (`tcpRead(connection, maxLen)`, `httpParseRequest` fields, `httpWriteResponse`)
 - **website CLI reference** — teaching markdown lives in `website/content/`; CLI Reference names extract, doc, bindgen, default `{stem}.out.js`, `--coverage`, and `.exit`
 - **housekeeping** — met [[slice-815-llvm-walker-native-date-stdlib]]; task-816 archived; platform stays active
 - **task-816-llvm-walker-native-date-stdlib** — completed; LLVM walker routes native Date, flags, url, and compression-invalid (slice-815)
