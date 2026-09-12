@@ -2,7 +2,7 @@
 id: "task-889-shipped-badge-contrast"
 title: "Give the shipped badge sufficient light-theme contrast"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-888-shipped-badge-contrast"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:55:00Z"
 ---
 
 # Give the shipped badge sufficient light-theme contrast
@@ -67,13 +67,17 @@ The shipped chip meets 4.5 to 1 against its fill in light theme at mono size. Da
 - Existing accent and accent-foreground pair; optional value tweak, not a new name
 
 **Acceptance criteria:**
-- [ ] Contract `public-site.nav:learn-reference-status` requires readable shipped-chip contrast, not only a visible word
-- [ ] Tests fail if light shipped text and fill is still the 4.37 pair
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] No new color token name
+- [x] Contract `public-site.nav:learn-reference-status` requires readable shipped-chip contrast, not only a visible word
+- [x] Tests fail if light shipped text and fill is still the 4.37 pair
+- [x] Named vitest file passes and typecheck exits 0
+- [x] No new color token name
 
 **Out of scope:**
 - Current-page nav contrast ([[task-868-current-page-contrast]]); not-yet restyle; Learn/Reference copy; playground
 
 **Explain this part:**
 The chip already exists. This sitting is light-theme contrast, not a second badge invention and not nav green.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run typography-and-badge` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff keeps `public-site.nav:learn-reference-status` visible shipped or not-yet; tightens 4.5:1 at 14px; light `--color-accent` darkened to `#2c6cb3`; no new token; `public-site.chrome:docs-sidebar` and current-page nav untouched.

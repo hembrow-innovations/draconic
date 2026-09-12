@@ -5,6 +5,36 @@ import { expect, test } from "vitest";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.slice(0, 2), 16),
+    parseInt(h.slice(2, 4), 16),
+    parseInt(h.slice(4, 6), 16),
+  ];
+}
+
+function relativeLuminance(hex: string): number {
+  const channels = hexToRgb(hex).map((value) => {
+    const c = value / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const first = relativeLuminance(foreground);
+  const second = relativeLuminance(background);
+  const [hi, lo] = first > second ? [first, second] : [second, first];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function blockColor(block: string, name: string): string {
+  return (
+    block.match(new RegExp(`--color-${name}:\\s*(#[0-9A-Fa-f]{6})`))?.[1] ?? ""
+  );
+}
+
 function walkProductFiles(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
@@ -47,8 +77,24 @@ test("typography and badge", () => {
   expect(variants).toContain("cva(");
   expect(variants).toContain("shipped");
   expect(variants).toContain("not-yet");
+  expect(variants).toContain("bg-accent");
+  expect(variants).toContain("text-accent-foreground");
+  expect(variants).toContain("text-mono");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
+
+  const lightTheme = css.match(/@theme\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const darkTheme = css.match(/html\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  const lightFill = blockColor(lightTheme, "accent");
+  const lightInk = blockColor(lightTheme, "accent-foreground");
+  const darkFill = blockColor(darkTheme, "accent");
+  const darkInk = blockColor(darkTheme, "accent-foreground");
+  expect([hexToRgb(lightInk), hexToRgb(lightFill)]).not.toEqual([
+    [248, 251, 255],
+    [49, 120, 198],
+  ]);
+  expect(contrastRatio(lightInk, lightFill)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(darkInk, darkFill)).toBeGreaterThanOrEqual(4.5);
 
   const component = readFileSync(join(badgeDir, "Badge.tsx"), "utf8");
   expect(component).toContain("badgeVariants");
