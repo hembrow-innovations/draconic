@@ -2,13 +2,13 @@
 id: "ticket-855-free-console-builtin"
 title: "Does a Program see free console?"
 kind: ticket
-status: open
+status: closed
 ticket_type: planning
 tags: [wayfinder]
 blocked_by: []
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T06:44:27Z"
-updated_at: "2026-09-12T06:44:27Z"
+updated_at: "2026-09-12T06:48:45Z"
 ---
 
 # Does a Program see free console?
@@ -25,4 +25,6 @@ Host builtin, not an ECMA-262 remainder rewrite. Does not by itself rewrite [[lo
 
 ## Notes
 
-Inbound after L06 `createLogger`. Native `globalThis.console.log` lowering already shipped. Do not decide here whether free `console` is that host object, the L06 logger, or both.
+Inbound after L06 `createLogger`. Native `globalThis.console.log` lowering already shipped.
+
+Answer: Yes. Checker installs free `console` as the host print object. `console.log` works without a bind: JS uses the JS host console, native uses the shipped native log lowering. `createLogger` stays a separate leveled library. Teaching bind [[ticket-846-teaching-console-bind]] drops.

@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-855-free-console-builtin** — closed; free host `console.log` per target; `createLogger` stays separate
+- **ticket-846-teaching-console-bind** — dropped; free `console` means teaching does not bind from global
 - **ticket-844-program-visible-globalthis** — closed; Programs do not see `globalThis`; identifier is `global`
 - **ticket-845-node-global-alias** — dropped; `global` is the language name, not a Node extra alias
 - **ticket-843-ecma-host-global-names** — closed; ECMA-262 names `globalThis`; Node `global` is legacy

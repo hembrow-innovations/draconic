@@ -2,13 +2,13 @@
 id: "ticket-846-teaching-console-bind"
 title: "Which identifier does teaching use for console bind?"
 kind: ticket
-status: open
+status: dropped
 ticket_type: planning
 tags: [wayfinder]
 blocked_by: ["ticket-844-program-visible-globalthis", "ticket-855-free-console-builtin"]
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T06:44:27Z"
+updated_at: "2026-09-12T06:48:45Z"
 ---
 
 # Which identifier does teaching use for console bind?
@@ -25,4 +25,4 @@ Touches [[location-226-product]] and [[location-589-public-site]] presentation, 
 
 Inbound: [[ticket-841-use-global-not-globalthis]]. Native `globalThis.console.log` lowering already shipped.
 
-[[ticket-844-program-visible-globalthis]] closed: Programs see `global`, not `globalThis`. Teaching name is still this ticket unless [[ticket-855-free-console-builtin]] makes free `console` a builtin and this bind drops.
+Dropped: [[ticket-855-free-console-builtin]] installs free host `console`. Teaching does not bind from the global object.
