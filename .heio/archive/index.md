@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-843-ecma-host-global-names** — closed; ECMA-262 names `globalThis`; Node `global` is legacy
+- **housekeeping** — wayfinder [[rounds-842-global-object-identifier]] charted from [[ticket-841-use-global-not-globalthis]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **housekeeping** — filed [[ticket-841-use-global-not-globalthis]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **ticket-832-learn-native-build-typed** — closed; Dual worlds and native types ship native-build commands for boundary.drac and width.drac
 - **ticket-840-home-native-sample** — closed; home shows native width.drac with i32/i64, Dual-world as, --target native, and a native-types doorway
