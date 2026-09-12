@@ -37,7 +37,7 @@ let console = globalThis.console;
 console.log("hello from Draconic");
 ```
 
-Parse it, build it to JavaScript, or run it. Default `draconic run` target is js:
+Parse it, build it to JavaScript, or run it. Default `draconic run` target is js. Have `node` on PATH before you run: the CLI executes the emitted JavaScript with Node.
 
 ```
 draconic parse hello.drac
@@ -45,7 +45,7 @@ draconic build --target js hello.drac -o hello.js
 draconic run hello.drac
 ```
 
-Default `draconic run` executes the emitted JavaScript with `node` on PATH. Native binaries need an LLVM toolchain on the machine:
+Native binaries need an LLVM toolchain on the machine:
 
 ```
 draconic build --target native hello.drac -o hello

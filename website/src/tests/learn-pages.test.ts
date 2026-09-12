@@ -183,6 +183,12 @@ test("learn pages", () => {
   expect(install).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(install).toContain('<a href="/from-systems">from systems</a>');
   expect(install).toContain("`node` on PATH");
+  const installPage = loadMarkdownPage("install");
+  const nodeIdx = installPage.body.indexOf("`node` on PATH");
+  const runIdx = installPage.body.indexOf("draconic run hello.drac");
+  expect(nodeIdx).toBeGreaterThan(-1);
+  expect(runIdx).toBeGreaterThan(-1);
+  expect(nodeIdx).toBeLessThan(runIdx);
   expect(dualWorlds).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(dualWorlds).toContain('<a href="/from-systems">from systems</a>');
   expect(dualWorlds).toContain('<a href="/modules">modules</a>');
