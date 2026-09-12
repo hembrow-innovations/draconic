@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-916-js-library-default-export** — met; opt-in `build --target js --library` default export Node can `import d from`; named exports still import; default run stays a script; js-library-esm stays active
 - **task-917-js-library-default-export** — completed; `--library` JS artifacts expose authored `export default` for Node `import d from` (slice-916)
 - **ticket-908-js-library-esm-export** — closed; named `--library` emit landed; remainder [[ticket-913-default-js-build-no-esm]] parked; [[ticket-914-js-library-default-export]] and [[ticket-915-js-library-export-star]] promoted
 - **housekeeping** — froze [[slice-916-js-library-default-export]] and [[slice-918-js-library-export-star]] with ready [[task-917-js-library-default-export]] and [[task-919-js-library-export-star]]; js-library-esm stays active

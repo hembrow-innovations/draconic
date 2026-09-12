@@ -2,12 +2,12 @@
 id: "slice-916-js-library-default-export"
 title: "JS library default export"
 kind: slice
-status: frozen
+status: met
 sprint: "js-library-esm"
 blocked_by: []
 tags: [js, linker, distribution]
 created_at: "2026-09-12T18:20:00Z"
-updated_at: "2026-09-12T18:20:00Z"
+updated_at: "2026-09-13T13:00:00Z"
 ---
 
 # JS library default export
@@ -35,18 +35,18 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: Node imports a default export
+- [x] O1: Node imports a default export
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export default "def";' > "$d/lib.drac" && cargo run -p draconic-cli --quiet -- build --target js --library "$d/lib.drac" -o "$d/lib.mjs" && node --input-type=module -e "import v from 'file://$d/lib.mjs'; if (v !== 'def') process.exit(1); console.log('default-ok');"
   EXPECT: default-ok
-  EVIDENCE: pending
-- [ ] O2: Node imports default plus a named export
+  EVIDENCE: `default-ok`; exit 0
+- [x] O2: Node imports default plus a named export
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export default "def";' 'export const named = "n";' > "$d/lib.drac" && cargo run -p draconic-cli --quiet -- build --target js --library "$d/lib.drac" -o "$d/lib.mjs" && node --input-type=module -e "import v, { named } from 'file://$d/lib.mjs'; if (v !== 'def' || named !== 'n') process.exit(1); console.log('default-named-ok');"
   EXPECT: default-named-ok
-  EVIDENCE: pending
-- [ ] O3: default run of a Module with export default stays a script
+  EVIDENCE: `default-named-ok`; exit 0
+- [x] O3: default run of a Module with export default stays a script
   CHECK: d=$(mktemp -d) && printf '%s\n' 'export default "def";' 'console.log("script-ok");' > "$d/p.drac" && cargo run -p draconic-cli --quiet -- run --target js "$d/p.drac"
   EXPECT: script-ok
-  EVIDENCE: pending
+  EVIDENCE: `script-ok`; exit 0
 
 ## Pool
 

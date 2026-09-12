@@ -18,7 +18,7 @@ Location [[location-224-distribution]]. Promoted from [[ticket-908-js-library-es
 
 - [[slice-909-entry-export-table]]: entry named-export names survive flatten as IR metadata. blocked_by: none. met
 - [[slice-911-js-library-named-esm]]: opt-in JS library emit exposes those names to Node. blocked_by: [[slice-909-entry-export-table]]. met
-- [[slice-916-js-library-default-export]]: opt-in JS library emit exposes authored `export default`. blocked_by: none
+- [[slice-916-js-library-default-export]]: opt-in JS library emit exposes authored `export default`. blocked_by: none. met
 - [[slice-918-js-library-export-star]]: opt-in JS library emit exposes `export *` names. blocked_by: [[slice-916-js-library-default-export]]
 
 ## Slices out
@@ -33,4 +33,4 @@ Location [[location-224-distribution]]. Promoted from [[ticket-908-js-library-es
 
 ## Drain
 
-AFK. First claim is [[task-917-js-library-default-export]]. [[task-919-js-library-export-star]] waits on it.
+AFK. [[task-917-js-library-default-export]] completed. Next claim is [[task-919-js-library-export-star]].
