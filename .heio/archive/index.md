@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — promoted open tickets 821, 856–862, and 876–878 into frozen slices and ready tasks; website-chrome-polish gained [[slice-880-empty-404]] through [[slice-892-outline-current-section]]; new sprints [[website-search-index]] and [[global-object-followup]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform, opt-in-bench, website-chrome-polish, website-search-index, and global-object-followup stay active
+
 - **housekeeping** — promoted tickets 847–853 into frozen website-chrome-polish slices [[slice-863-favicon]], [[slice-865-github-above-fold]], [[slice-867-current-page-contrast]], [[slice-869-distinct-nav-labels]], [[slice-871-per-page-titles]], [[slice-873-search-session-reset]], [[slice-875-github-mobile-hit]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; [[ticket-821-search-body-terms]] stays open; platform, opt-in-bench, and website-chrome-polish stay active
 
 - **housekeeping** — filed wayfinder [[ticket-876-browser-window-self]], [[ticket-877-test262-absent-globalthis]], [[ticket-878-adr-0004-global-wording]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
