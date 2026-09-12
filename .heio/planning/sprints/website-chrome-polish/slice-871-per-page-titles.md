@@ -2,12 +2,12 @@
 id: "slice-871-per-page-titles"
 title: "Per-page document titles"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T18:00:00Z"
 ---
 
 # Per-page document titles
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: document titles name the open page
+- [x] O1: document titles name the open page
   CHECK: pnpm --dir website exec vitest run document-title
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: pnpm --dir website exec vitest run document-title → Test Files  1 passed (1). Home stays Draconic; Learn, Reference, and articles use the page name plus Draconic.
 
 ## Pool
 
