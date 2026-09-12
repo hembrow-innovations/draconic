@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — filed [[ticket-908-js-library-esm-export]] from GitHub issue 1 (JS library ESM emit); remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform, opt-in-bench, website-chrome-polish, website-search-index, and global-object-followup stay active
 - **housekeeping** — filed [[ticket-903-duplicate-learn-reference-titles]], [[ticket-904-404-status-untested]], [[ticket-905-outline-hash-not-in-view]], [[ticket-906-search-chrome-source-greps]], [[ticket-907-share-head-tests-false-green]]; [[ticket-902-stale-vault-search-misses]] already covered the stale vault-miss examples; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; website-chrome-polish and website-search-index stay active
 - **slice-894-search-body-terms** — met; teaching-page body terms find their Learn or Reference page; vault-only phrases still miss; website-search-index stays active
 - **task-895-search-body-terms** — completed; teaching-page body terms find their Learn or Reference page; vault-only phrases still miss (slice-894)
