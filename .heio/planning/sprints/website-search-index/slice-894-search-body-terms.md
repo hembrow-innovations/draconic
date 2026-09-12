@@ -2,12 +2,12 @@
 id: "slice-894-search-body-terms"
 title: "Search teaching-page body terms"
 kind: slice
-status: frozen
+status: met
 sprint: "website-search-index"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T19:35:00Z"
 ---
 
 # Search teaching-page body terms
@@ -34,10 +34,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: teaching-body terms hit their Learn or Reference page
+- [x] O1: teaching-body terms hit their Learn or Reference page
   CHECK: pnpm --dir website exec vitest run search
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: Test Files  1 passed (1); Tests  1 passed (1); task-895 completed in archive
 
 ## Pool
 
@@ -45,4 +45,4 @@ None.
 
 ## See also
 
-[[ticket-821-search-body-terms]] [[website-search-index]] [[location-589-public-site]] [[Public site — Contract]]
+[[ticket-821-search-body-terms]] [[ticket-902-stale-vault-search-misses]] [[website-search-index]] [[location-589-public-site]] [[Public site — Contract]]
