@@ -68,7 +68,7 @@ draconic doc greet.drac
 
 ## run
 
-`draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]` — build and execute a Program. Default target is js, which executes the emitted JavaScript with `node` on PATH.
+`draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]` — build and execute a Program. Default target is js, which executes the emitted JavaScript with `node` on PATH. Leftover args after the file are `processArgs()`.
 
 ## repl
 

@@ -370,6 +370,7 @@ test("reference hub pages", () => {
   expect(cliPage.body).toContain("{stem}.out.js");
   expect(cliPage.body).toContain("--coverage");
   expect(cliPage.body).toContain(".exit");
+  expect(cliPage.body).toContain("processArgs");
   expect(cliPage.body).toContain("It builds today");
   expect(cliPage.body.match(/```drac/g)?.length).toBe(2);
   expect(cli).toContain("extract");
@@ -420,6 +421,15 @@ test("reference hub pages", () => {
   expect(hostIoPage.body).toContain("httpParseRequest");
   expect(hostIoPage.body).toContain("draconic check");
   expect(hostIoPage.body).toContain("## stdoutWrite");
+  expect(hostIoPage.body).toContain("## processArgs");
+  expect(hostIoPage.body).toContain("`processArgs()`");
+  expect(hostIoPage.body).toContain("`envGet(key)`");
+  expect(hostIoPage.body).toContain("`envSet(key, value)`");
+  expect(hostIoPage.body).toContain("`envDelete(key)`");
+  expect(hostIoPage.body).toContain("`exit(code)`");
+  expect(hostIoPage.body).toContain("`stdinReadLine()`");
+  expect(hostIoPage.body).toContain("draconic check args.drac");
+  expect(hostIoPage.body).toContain("draconic run args.drac");
   expect(hostIoPage.body).toContain("## Names");
   expect(hostIoPage.body).toContain("## HTTP echo");
   expect(hostIoPage.body).toContain("`tcpListen(port)`");
@@ -451,7 +461,7 @@ test("reference hub pages", () => {
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(3);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain("<pre>");
   expect(hostIo).toContain("<code>");

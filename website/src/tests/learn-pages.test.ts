@@ -293,6 +293,12 @@ test("learn pages", () => {
   const hostIo = renderMarkdown(hostIoPage.body);
   expect(hostIoPage.body).toContain("```drac");
   expect(hostIoPage.body).toContain("stdoutWrite");
+  expect(hostIoPage.body).toContain("## processArgs");
+  expect(hostIoPage.body).toContain("processArgs()");
+  expect(hostIoPage.body).toContain("envGet");
+  expect(hostIoPage.body).toContain("stdinReadLine");
+  expect(hostIoPage.body).toContain("draconic check args.drac");
+  expect(hostIoPage.body).toContain("draconic run args.drac");
   expect(hostIoPage.body).toContain("writeFileText(");
   expect(hostIoPage.body).toContain("readFileText(");
   expect(hostIoPage.body).toContain("tcpListen");
@@ -325,7 +331,7 @@ test("learn pages", () => {
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(4);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(5);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',

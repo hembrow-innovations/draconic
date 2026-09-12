@@ -28,6 +28,23 @@ draconic check hello-host.drac
 draconic run hello-host.drac
 ```
 
+## processArgs
+
+`processArgs()` returns leftover user args after `draconic run file.drac` as a string array. `envGet(key)` reads a string or undefined. `exit(code)` terminates. `stdinReadLine()` reads one line. Save this as `args.drac`. It builds today:
+
+```drac
+let args = processArgs();
+stdoutWrite("hello from processArgs\n");
+```
+
+Parse it, typecheck it, or run it:
+
+```
+draconic parse args.drac
+draconic check args.drac
+draconic run args.drac
+```
+
 ## Filesystem
 
 `readFileText` reads a whole file as text. `writeFileText` writes one. Those names are portable: both backends accept them. Save this as `note.drac`. It builds today:

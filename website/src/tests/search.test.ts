@@ -262,6 +262,28 @@ test("search", () => {
     "Reference · CLI · bindgen",
   );
 
+  const learnProcessArgs = querySearchIndex(index, "processArgs").find(
+    (hit) => hit.href === "/host-io",
+  );
+  expect(learnProcessArgs?.headings).toContain("processArgs");
+  expect(searchHitHref(learnProcessArgs!, "processArgs")).toBe(
+    "/host-io#processargs",
+  );
+  expect(searchHitLabel(learnProcessArgs!, "processArgs")).toBe(
+    "Learn · host I/O · processArgs",
+  );
+
+  const referenceProcessArgs = querySearchIndex(index, "processArgs").find(
+    (hit) => hit.href === "/reference-host-io",
+  );
+  expect(referenceProcessArgs?.headings).toContain("processArgs");
+  expect(searchHitHref(referenceProcessArgs!, "processArgs")).toBe(
+    "/reference-host-io#processargs",
+  );
+  expect(searchHitLabel(referenceProcessArgs!, "processArgs")).toBe(
+    "Reference · host I/O · processArgs",
+  );
+
   const tcpListen = querySearchIndex(index, "tcpListen").find(
     (hit) => hit.href === "/host-io",
   );

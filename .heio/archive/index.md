@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-839-reference-host-io-process** — closed; Learn and Reference host I/O ship a compiling `processArgs` fence plus env/stdin/exit lookup; CLI run names leftover args; search hits processArgs
 - **ticket-838-learn-modules-entry** — closed; Learn modules ships a complete `main.drac` entry, check/run on that entry, and search for Entry
 - **website host I/O HTTP echo** — Learn and Reference host I/O ship a compiling HTTP echo fence plus write-time call shapes (`tcpRead(connection, maxLen)`, `httpParseRequest` fields, `httpWriteResponse`)
 - **website CLI reference** — teaching markdown lives in `website/content/`; CLI Reference names extract, doc, bindgen, default `{stem}.out.js`, `--coverage`, and `.exit`

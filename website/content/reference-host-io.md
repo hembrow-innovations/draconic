@@ -24,9 +24,24 @@ draconic check hello-host.drac
 draconic run hello-host.drac
 ```
 
+## processArgs
+
+`processArgs()` returns leftover user args after `draconic run file.drac` as a string array. `envGet(key)` reads a string or undefined. `envSet(key, value)` writes one. `envDelete(key)` removes one. `exit(code)` terminates. `stdinReadLine()` reads one line. Save this as `args.drac`. It builds today:
+
+```drac
+let args = processArgs();
+stdoutWrite("hello from processArgs\n");
+```
+
+```
+draconic parse args.drac
+draconic check args.drac
+draconic run args.drac
+```
+
 ## Names
 
-- Process and stdio: `stdoutWrite`, `stderrWrite`
+- Process and stdio: `processArgs()`, `envGet(key)`, `envSet(key, value)`, `envDelete(key)`, `exit(code)`, `stdinReadLine()`, `stdoutWrite`, `stderrWrite`
 - Filesystem: `readFileText(path)`, `writeFileText(path, text)`
 - TCP sockets: `tcpListen(port)`, `tcpAccept(listen)`, `tcpConnect(host, port)`, `tcpRead(connection, maxLen)`, `tcpWrite(connection, bytes)`, `closeTcp(handle)`
 - HTTP/1.1 helpers on those sockets: `httpParseRequest(raw)`, `httpWriteResponse(status, reason, headers, body)` — not a Node-shaped http module as the only entry
