@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-888-shipped-badge-contrast** — met; shipped chip light-theme contrast locks 4.5:1 at 14px; website-chrome-polish stays active
 - **task-889-shipped-badge-contrast** — completed; light-theme shipped chip meets 4.5:1 at 14px via darkened accent; dark still passes (slice-888)
 - **task-887-reference-related-footer** — completed; Reference working pages render a related-link footer along CLI, types, Dual-world rules, host I/O, and packages (slice-886)
 - **slice-884-copy-announcement** — met; Learn and Reference fence Copy controls have distinct names, announce a successful copy, and Copied clears; website-chrome-polish stays active

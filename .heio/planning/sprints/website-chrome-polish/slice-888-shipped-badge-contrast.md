@@ -2,12 +2,12 @@
 id: "slice-888-shipped-badge-contrast"
 title: "Shipped badge contrast"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:55:00Z"
 ---
 
 # Shipped badge contrast
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: shipped chip light-theme contrast locks 4.5 to 1
+- [x] O1: shipped chip light-theme contrast locks 4.5 to 1
   CHECK: pnpm --dir website exec vitest run typography-and-badge
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: Test Files  1 passed (1); Tests  1 passed (1); task-889 completed in archive
 
 ## Pool
 
