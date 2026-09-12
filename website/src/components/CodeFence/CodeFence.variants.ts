@@ -13,6 +13,11 @@ export const codeFenceButtonVariants = cva(
 );
 
 /**
+ * Polite copy confirmation, off-screen for sighted layout.
+ */
+export const codeFenceLiveVariants = cva("sr-only");
+
+/**
  * Sample body. Token roles match the article pre/code surface.
  */
 export const codeFencePreVariants = cva(

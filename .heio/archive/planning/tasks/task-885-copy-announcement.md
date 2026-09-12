@@ -2,7 +2,7 @@
 id: "task-885-copy-announcement"
 title: "Announce fence copy and distinguish controls"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-884-copy-announcement"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T21:40:00Z"
 ---
 
 # Announce fence copy and distinguish controls
@@ -68,13 +68,17 @@ Copy-the-text still works on Learn and Reference fences. Each Copy control on a 
 - Existing `code-fence-copy` lock for copy-the-text
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.fences:copy-announce` with a test pointer
-- [ ] Tests fail if every fence control is only named Copy, if there is no live announcement, or if Copied never clears
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] `public-site.fences:copy` still holds
+- [x] Contract lists `public-site.fences:copy-announce` with a test pointer
+- [x] Tests fail if every fence control is only named Copy, if there is no live announcement, or if Copied never clears
+- [x] Named vitest file passes and typecheck exits 0
+- [x] `public-site.fences:copy` still holds
 
 **Out of scope:**
 - Home sample Copy buttons; fence compile rules; playground; vault-as-site
 
 **Explain this part:**
 This sitting is allowed to assert the missing announcement promise. It must not weaken copy-the-text and must not add Copy to home samples.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run code-fence-copy` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.fences:copy-announce`; copy-the-text still holds; live-region content is locked so announcement cannot pass from the button name alone.

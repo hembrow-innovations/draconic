@@ -52,7 +52,8 @@ function takeLeadingH1(html: string): { heading: string | undefined; rest: strin
  *
  * Locks `public-site.chrome:docs-sidebar`, `public-site.chrome:docs-article-order`,
  * `public-site.chrome:on-page-toc`, `public-site.nav:learn-reference-status`,
- * `public-site.fences:copy`, and `public-site.markdown:heading-permalinks`.
+ * `public-site.fences:copy`, `public-site.fences:copy-announce`, and
+ * `public-site.markdown:heading-permalinks`.
  * Section lists live in the site side nav. Home landing stays outside this shell.
  *
  * @param props - Section kicker, status from frontmatter, optional nav from callers, optional markdown body
@@ -81,7 +82,11 @@ export function DocsShell({
         {parts !== undefined && parts.rest !== ""
           ? splitMarkdownHtml(parts.rest).map((block, index) =>
               block.kind === "fence" ? (
-                <CodeFence key={index} code={block.code} />
+                <CodeFence
+                  key={index}
+                  code={block.code}
+                  label={`sample ${index + 1}`}
+                />
               ) : (
                 <div
                   key={index}

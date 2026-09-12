@@ -2,12 +2,12 @@
 id: "slice-884-copy-announcement"
 title: "Fence copy announcement"
 kind: slice
-status: frozen
+status: active
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T20:45:00Z"
 ---
 
 # Fence copy announcement

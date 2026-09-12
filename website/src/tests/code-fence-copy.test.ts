@@ -56,11 +56,22 @@ test("code fence copy", () => {
   const lib = readFileSync(join(srcDir, "lib", "content", "index.ts"), "utf8");
 
   expect(fence).toContain("public-site.fences:copy");
+  expect(fence).toContain("public-site.fences:copy-announce");
   expect(fence).toContain('type="button"');
   expect(fence).toContain("navigator.clipboard.writeText");
   expect(fence).toContain("Copy");
   expect(fence).toContain("Copied");
   expect(fence).toContain("aria-label");
+  expect(fence).not.toContain('aria-label={copied ? "Copied" : "Copy"}');
+  expect(fence).toContain("`Copy ${label}`");
+  expect(fence).toContain("`Copied ${label}`");
+  expect(fence).toContain("{copied ? `Copied ${label}` : \"\"}");
+  expect(fence).toContain('aria-live="polite"');
+  expect(fence).toContain("setCopied(false)");
+  expect(fence).toContain("setTimeout");
+  expect(fence).toContain("clearTimeout");
+  expect(fence).toContain("useEffect");
+  expect(fence).toContain("codeFenceLiveVariants");
   expect(fence).toContain("<pre");
   expect(fence).toContain("<code");
   expect(fence).toContain("codeFenceVariants");
@@ -71,6 +82,7 @@ test("code fence copy", () => {
   expect(fence).not.toMatch(/\babsolute\b/);
 
   expect(types).toContain("code: string");
+  expect(types).toContain("label: string");
 
   expect(variants).toContain('from "class-variance-authority"');
   expect(variants).toContain("cva(");
@@ -78,6 +90,8 @@ test("code fence copy", () => {
   expect(variants).toContain("min-h-11");
   expect(variants).toContain("focus-visible:ring-2");
   expect(variants).toContain("focus-visible:ring-accent");
+  expect(variants).toContain("codeFenceLiveVariants");
+  expect(variants).toContain("sr-only");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
   expect(variants).not.toMatch(/\babsolute\b/);
@@ -85,6 +99,9 @@ test("code fence copy", () => {
   expect(shell).toContain("CodeFence");
   expect(shell).toContain("splitMarkdownHtml");
   expect(shell).toContain("public-site.fences:copy");
+  expect(shell).toContain("public-site.fences:copy-announce");
+  expect(shell).toContain("label={`sample ${index + 1}`}");
+  expect(shell).not.toContain('label="Copy"');
   expect(shell).not.toMatch(/playground/i);
 
   expect(lib).toContain("splitMarkdownHtml");

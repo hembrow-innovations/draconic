@@ -36,6 +36,9 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website_pipeline_not_yet_page_with_fence_fails
 - `public-site.fences:copy`: A visitor can copy the text of a rendered code fence on a Learn or Reference page.
   test: website/src/tests/code-fence-copy.test.ts
+- `public-site.fences:copy-announce`: Each Copy control on a Learn or Reference page has a distinct accessible name. A successful copy is announced to assistive tech. Copied does not remain for the rest of the article.
+  test: website/src/tests/code-fence-copy.test.ts
+  test: code fence copy
 - `public-site.nav:learn-reference-status`: Learn and Reference pages include Learn and Reference navigation and a visible shipped or not-yet status.
   test: website_pipeline_learn_and_reference_nav_and_status
 - `public-site.home:landing`: `/` is a language homepage with pitch and Get-started CTA, not the Learn chapter dump.

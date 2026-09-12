@@ -8,4 +8,5 @@ import type { codeFenceVariants } from "./CodeFence.variants";
 export type CodeFenceProps = HTMLAttributes<HTMLDivElement> &
   VariantProps<typeof codeFenceVariants> & {
     code: string;
+    label: string;
   };
