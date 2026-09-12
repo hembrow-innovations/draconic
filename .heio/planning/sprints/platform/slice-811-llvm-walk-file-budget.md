@@ -2,12 +2,12 @@
 id: "slice-811-llvm-walk-file-budget"
 title: "LLVM walk file budget"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T03:45:00Z"
 ---
 
 # LLVM walk file budget
@@ -34,14 +34,14 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: llvm backend rust files ≤1000 lines
+- [x] O1: llvm backend rust files ≤1000 lines
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-llvm"); bad=[]; [bad.append("%s:%d" % (p, len(p.read_text().splitlines()))) for p in sorted(root.rglob("*.rs")) if len(p.read_text().splitlines())>1000]; print("max-loc-ok" if not bad else "over:"+",".join(bad))'
   EXPECT: max-loc-ok
-  EVIDENCE: pending
-- [ ] O2: llvm backend tests green
+  EVIDENCE: python loc scan → max-loc-ok. Every draconic-backend-llvm Rust file is ≤1000 lines.
+- [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: cargo test -p draconic-backend-llvm --offline → test result: ok. 325 passed; 0 failed.
 
 ## Pool
 

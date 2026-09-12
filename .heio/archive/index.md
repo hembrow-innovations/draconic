@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met [[slice-811-llvm-walk-file-budget]]; task-812 archived; platform stays active
 - **housekeeping** — met [[slice-817-frontend-check-source-script]]; task-818 archived; platform stays active
 - **task-818-frontend-check-source-script** — completed; lock Script-only `check_source` / `compile_source` (slice-817)
 - **ticket-833-from-javascript-todo** — closed; from JavaScript names Todo with a heading and GitHub `examples/todo` link for `document` and `localStorage`
