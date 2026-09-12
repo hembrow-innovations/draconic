@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-908-js-library-esm-export** — closed; named `--library` emit landed; remainder [[ticket-913-default-js-build-no-esm]] parked; [[ticket-914-js-library-default-export]] and [[ticket-915-js-library-export-star]] promoted
+- **housekeeping** — froze [[slice-916-js-library-default-export]] and [[slice-918-js-library-export-star]] with ready [[task-917-js-library-default-export]] and [[task-919-js-library-export-star]]; js-library-esm stays active
 - **housekeeping** — filed [[ticket-913-default-js-build-no-esm]], [[ticket-914-js-library-default-export]], [[ticket-915-js-library-export-star]] as later children of [[ticket-908-js-library-esm-export]]; GitHub issue 1 remainder stays open
 - **slice-911-js-library-named-esm** — met; opt-in `build --target js --library` named ESM emit Node can import; default run stays a script; js-library-esm stays active
 - **task-912-js-library-named-esm** — completed; opt-in `build --target js --library` named ESM emit Node can import (slice-911)
