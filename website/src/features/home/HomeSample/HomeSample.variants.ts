@@ -20,7 +20,7 @@ export const homeSampleKickerVariants = cva(
 export const homeSampleLeadVariants = cva("font-body text-body text-ink");
 
 /**
- * Static hello source. Token surface matches article fences, without a copy control.
+ * Static Program source. Token surface matches article fences, without a copy control.
  */
 export const homeSamplePreVariants = cva(
   "overflow-x-auto bg-code p-4 font-mono text-mono",

@@ -2,12 +2,12 @@
 id: "ticket-830-home-typed-sample"
 title: "Home sample is untyped JavaScript"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T12:50:00Z"
-updated_at: "2026-09-12T12:50:00Z"
+updated_at: "2026-09-12T13:15:00Z"
 ---
 
 # Home sample is untyped JavaScript
@@ -30,3 +30,7 @@ Unknown until triage. In scope of `public-site.home:landing`. Keep Install hello
 ## Parent
 
 [[Public site — Contract]]
+
+## Close
+
+HomeSample keeps Install hello, then the shipped types greet fence, `draconic check greet.drac`, and a `/types` doorway. No CodeFence. `public-site.home:landing` is locked.

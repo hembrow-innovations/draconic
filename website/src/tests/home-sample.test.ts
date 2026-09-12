@@ -46,6 +46,7 @@ test("home sample", () => {
   );
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const install = readFileSync(join(websiteDir, "install.md"), "utf8");
+  const types = readFileSync(join(websiteDir, "types.md"), "utf8");
 
   expect(home).toContain("createFileRoute");
   expect(home).toContain('"/"');
@@ -68,6 +69,16 @@ test("home sample", () => {
   expect(sample).toMatch(/to=["']\/install["']/);
   expect(install).toContain("let console = globalThis.console;");
   expect(install).toContain('console.log("hello from Draconic")');
+
+  expect(sample).toContain("greet.drac");
+  expect(sample).toContain("function greet(name: string): string");
+  expect(sample).toContain('console.log(greet("from Draconic"))');
+  expect(sample).toContain("draconic check greet.drac");
+  expect(sample).toMatch(/to=["']\/types["']/);
+  expect(sample).toContain(">types<");
+  expect(types).toContain("function greet(name: string): string");
+  expect(types).toContain("draconic check greet.drac");
+  expect(sample.match(/<pre/g)?.length).toBeGreaterThanOrEqual(2);
 
   expect(sample).not.toContain("DocsShell");
   expect(sample).not.toMatch(/playground/i);

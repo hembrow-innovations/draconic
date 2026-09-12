@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-830-home-typed-sample** — closed; home shows typed greet sample, draconic check, and types doorway
 - **ticket-831-learn-packages-ship** — closed; Learn packages shipped with compiling package-root fence and get/tidy argv
 - **ticket-829-install-from-source** — closed; Install teaches clone-build from source when GitHub Releases has no artifact
 - **public-site heading deep-links** — Learn and Reference h2+ headings get ids; search heading hits link to the section
