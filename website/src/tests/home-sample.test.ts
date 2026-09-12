@@ -47,6 +47,10 @@ test("home sample", () => {
   const home = readFileSync(join(srcDir, "routes", "index.tsx"), "utf8");
   const install = readFileSync(join(websiteDir, "content", "install.md"), "utf8");
   const types = readFileSync(join(websiteDir, "content", "types.md"), "utf8");
+  const nativeTypes = readFileSync(
+    join(websiteDir, "content", "native-types.md"),
+    "utf8",
+  );
 
   expect(home).toContain("createFileRoute");
   expect(home).toContain('"/"');
@@ -78,7 +82,18 @@ test("home sample", () => {
   expect(sample).toContain(">types<");
   expect(types).toContain("function greet(name: string): string");
   expect(types).toContain("draconic check greet.drac");
-  expect(sample.match(/<pre/g)?.length).toBeGreaterThanOrEqual(2);
+
+  expect(sample).toContain("width.drac");
+  expect(sample).toContain("let count: i32 = 41");
+  expect(sample).toContain("let wide: i64 = 42");
+  expect(sample).toContain("console.log(count as number, wide as number)");
+  expect(sample).toContain("draconic build --target native width.drac -o width");
+  expect(sample).toMatch(/to=["']\/native-types["']/);
+  expect(sample).toContain(">native types<");
+  expect(nativeTypes).toContain("let count: i32 = 41");
+  expect(nativeTypes).toContain("let wide: i64 = 42");
+  expect(nativeTypes).toContain("console.log(count as number, wide as number)");
+  expect(sample.match(/<pre/g)?.length).toBeGreaterThanOrEqual(4);
 
   expect(sample).not.toContain("DocsShell");
   expect(sample).not.toMatch(/playground/i);
