@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-823-dual-world-rules-lookup** — closed; Dual-world rules Reference shipped with compiling as and try/catch fences
 - **ticket-822-types-reference-lookup** — closed; types Reference shipped with compiling JS-value, i32, and as fences
 - **ticket-819-from-systems-first-program** — closed; from-systems Learn landing shipped with compiling hello and i32 add Programs
 - **housekeeping** — promoted tickets 807–810 into frozen platform slices [[slice-811-llvm-walk-file-budget]], [[slice-813-host-name-catalog]], [[slice-815-llvm-walker-native-date-stdlib]], [[slice-817-frontend-check-source-script]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active

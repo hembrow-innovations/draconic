@@ -38,7 +38,7 @@ const referencePages = [
   {
     slug: "dual-world-rules",
     title: "Dual-world rules",
-    status: "not-yet",
+    status: "shipped",
     copy: "with explicit boundaries at the type and lowering level.",
   },
   {
@@ -376,6 +376,21 @@ test("reference hub pages", () => {
   expect(types).toContain("count");
   expect(types).toContain("<pre>");
   expect(types).toContain("<code>");
+  const dualWorldRulesPage = loadMarkdownPage("dual-world-rules");
+  expect(dualWorldRulesPage.body).toContain("```drac");
+  expect(dualWorldRulesPage.body).toContain("as i32");
+  expect(dualWorldRulesPage.body).toContain("try {");
+  expect(dualWorldRulesPage.body).toContain("catch (err)");
+  expect(dualWorldRulesPage.body).toContain("draconic check");
+  expect(dualWorldRulesPage.body).toContain("## Crossing");
+  expect(dualWorldRulesPage.body).toContain("## Backend fit");
+  expect(dualWorldRulesPage.body).toContain("## Catchable versus abort");
+  expect(dualWorldRulesPage.body).toContain("It builds today");
+  expect(dualWorldRulesPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(dualWorldRules).toContain("nativeCount");
+  expect(dualWorldRules).toContain("caught");
+  expect(dualWorldRules).toContain("<pre>");
+  expect(dualWorldRules).toContain("<code>");
   expect(dualWorldRules).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(dualWorldRules).toContain('<a href="/types">types</a>');
   expect(hostIo).toContain('<a href="/host-io">host I/O</a>');
