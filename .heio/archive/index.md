@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — met [[slice-813-host-name-catalog]]; task-814 archived; platform stays active
 - **task-814-host-name-catalog** — completed; LLVM walker host dispatch uses catalog notes, not host_has name lists (slice-813)
 - **ticket-836-learn-host-io-listen-fence** — closed; Learn host I/O ships a compiling tcpListen fence with check and native-build commands
 - **housekeeping** — met [[slice-811-llvm-walk-file-budget]]; task-812 archived; platform stays active

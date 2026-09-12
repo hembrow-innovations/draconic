@@ -2,12 +2,12 @@
 id: "slice-813-host-name-catalog"
 title: "LLVM walker host names from catalog"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: ["slice-811-llvm-walk-file-budget"]
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T20:00:00Z"
 ---
 
 # LLVM walker host names from catalog
@@ -35,22 +35,22 @@ The LLVM walker routes host calls through catalog lookup, not independent host-n
 
 ## Oracle checklist
 
-- [ ] O1: walker has no host_has string-list cascade
+- [x] O1: walker has no host_has string-list cascade
   CHECK: python3 -c 'from pathlib import Path; root=Path("crates/draconic-backend-llvm"); hits=[p.name for p in root.rglob("*.rs") if "host_has(&[" in p.read_text()]; print("catalog-route" if not hits else "shotgun:"+ ",".join(sorted(hits)))'
   EXPECT: catalog-route
-  EVIDENCE: pending
-- [ ] O2: llvm backend tests green
+  EVIDENCE: python host_has scan → catalog-route. Walker host dispatch uses catalog notes, not host_has name lists.
+- [x] O2: llvm backend tests green
   CHECK: cargo test -p draconic-backend-llvm --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O3: catalog_sync stays green
+  EVIDENCE: cargo test -p draconic-backend-llvm --offline → test result: ok. 326 passed; 0 failed.
+- [x] O3: catalog_sync stays green
   CHECK: cargo test -p draconic-check --offline catalog_sync
   EXPECT: test result: ok.
-  EVIDENCE: pending
-- [ ] O4: existing native host fixtures stay green
+  EVIDENCE: cargo test -p draconic-check --offline catalog_sync → test result: ok. 1 passed; 0 failed.
+- [x] O4: existing native host fixtures stay green
   CHECK: cargo test -p draconic-conformance --test host_fs --test host_process --test host_stdio --test host_path --test host_tcp --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: cargo test -p draconic-conformance --test host_fs --test host_process --test host_stdio --test host_path --test host_tcp --offline → test result: ok. 112 passed; 0 failed.
 
 ## Pool
 
