@@ -38,9 +38,6 @@ examples/types/types-bin.dSYM
 **/fuzz/coverage
 **/*_seed_corpus.zip
 
-# Zed clones tree-sitter grammars here when compiling the dev extension
-editors/zed/grammars/
-
 .stitch
 .playwright-cli
 docs/99_scribble
