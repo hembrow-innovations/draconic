@@ -15,6 +15,7 @@ Load the matching skill before the work it covers.
 - **diagnose**: hard bugs and performance regressions
 - **behaviour-contracts**: intended behaviour under `docs/`
 - **codebase-design**: module seams and interfaces
+- **website**: public Learn and Reference under `website/`
 
 ## Domain docs
 
