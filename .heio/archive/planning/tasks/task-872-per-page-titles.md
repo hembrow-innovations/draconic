@@ -2,7 +2,7 @@
 id: "task-872-per-page-titles"
 title: "Name the open page in the document title"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-871-per-page-titles"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T17:58:00Z"
 ---
 
 # Name the open page in the document title
@@ -67,13 +67,18 @@ Each page's document title names the open page so two tabs are distinguishable. 
 - Existing page titles from teaching markdown and hub headings
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.chrome:document-title` with a test pointer
-- [ ] Tests fail if Learn, Reference, and an article page all share only the title Draconic
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Page h1 copy is not rewritten
+- [x] Contract lists `public-site.chrome:document-title` with a test pointer
+- [x] Tests fail if Learn, Reference, and an article page all share only the title Draconic
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Page h1 copy is not rewritten
 
 **Out of scope:**
 - Favicon ([[task-864-favicon]]); meta description; playground
 
 **Explain this part:**
 This sitting is allowed to assert the missing title promise. It is not a copy rewrite.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run document-title` — lose on tsc. Vitest passed; `loaderData` possibly undefined.
+- **Round 2**: `pnpm --dir website exec vitest run document-title` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.chrome:document-title`; Learn, Reference, and articles use markdown title plus Draconic; home stays Draconic; h1 copy unchanged.

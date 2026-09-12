@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-872-per-page-titles** — completed; each public page document title names the open page; home may remain Draconic (slice-871)
 - **slice-869-distinct-nav-labels** — met; Learn and Reference host I/O and packages links have distinct accessible names; website-chrome-polish stays active
 - **task-870-distinct-nav-labels** — completed; Learn and Reference host I/O and packages links have distinct accessible names (slice-869)
 - **slice-867-current-page-contrast** — met; current-page nav ink meets 4.5:1 on canvas via darkened accent-2; website-chrome-polish stays active

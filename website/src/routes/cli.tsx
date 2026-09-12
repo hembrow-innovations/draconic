@@ -4,11 +4,21 @@ import { loadMarkdownPage } from "../lib/content";
 
 export const Route = createFileRoute("/cli")({
   loader: () => loadMarkdownPage("cli"),
+  head: ({ loaderData }) => ({
+    meta: [
+      {
+        title: loaderData
+          ? `${loaderData.title} · Draconic`
+          : "Draconic",
+      },
+    ],
+  }),
   component: CliRoute,
 });
 
 /**
- * CLI working page. Locks `public-site.ia:reference-walkable`.
+ * CLI working page. Locks `public-site.ia:reference-walkable`
+ * and `public-site.chrome:document-title`.
  */
 function CliRoute() {
   const page = Route.useLoaderData();

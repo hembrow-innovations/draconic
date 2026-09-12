@@ -6,11 +6,21 @@ import { loadMarkdownPage } from "../lib/content";
 
 export const Route = createFileRoute("/reference")({
   loader: () => loadMarkdownPage("reference"),
+  head: ({ loaderData }) => ({
+    meta: [
+      {
+        title: loaderData
+          ? `${loaderData.title} · Draconic`
+          : "Draconic",
+      },
+    ],
+  }),
   component: ReferenceHubRoute,
 });
 
 /**
- * Reference hub in handbook chrome. Locks `public-site.ia:reference-walkable`.
+ * Reference hub in handbook chrome. Locks `public-site.ia:reference-walkable`
+ * and `public-site.chrome:document-title`.
  *
  * Teaching copy stays in `website/reference.md`.
  */

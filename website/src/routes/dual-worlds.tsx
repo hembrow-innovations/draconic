@@ -4,11 +4,21 @@ import { loadMarkdownPage } from "../lib/content";
 
 export const Route = createFileRoute("/dual-worlds")({
   loader: () => loadMarkdownPage("dual-worlds"),
+  head: ({ loaderData }) => ({
+    meta: [
+      {
+        title: loaderData
+          ? `${loaderData.title} · Draconic`
+          : "Draconic",
+      },
+    ],
+  }),
   component: DualWorldsRoute,
 });
 
 /**
- * Dual worlds join. Locks `public-site.ia:learn-walkable`.
+ * Dual worlds join. Locks `public-site.ia:learn-walkable`
+ * and `public-site.chrome:document-title`.
  */
 function DualWorldsRoute() {
   const page = Route.useLoaderData();

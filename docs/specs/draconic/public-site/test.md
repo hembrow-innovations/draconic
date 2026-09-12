@@ -19,6 +19,8 @@ Purpose: [[Public site purpose]]. Contract: [[Public site — Contract]].
 
 Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-site.markdown:subset`, `public-site.ia:learn-walkable`, `public-site.ia:reference-walkable`, `public-site.fences:shipped-must-build`, `public-site.fences:forbid-not-yet-fences`, and `public-site.nav:learn-reference-status`. Related fence cases in the same file support those locks. `website/src/tests/learn-hub-nav.test.ts` also locks `public-site.ia:learn-walkable` for the Start Learn hub and aside sequence, `public-site.chrome:current-page` for Learn chapter current-page chrome, and `public-site.a11y:distinct-nav-names` for host I/O and packages accessible names. `website/src/tests/learn-pages.test.ts` locks `public-site.ia:learn-walkable` for one Start route per Learn chapter, teaching copy, frontmatter Badge status, and `.html` hrefs rewritten to app routes. `website/src/tests/learn-prev-next.test.ts` locks `public-site.ia:learn-walkable` for article-footer prev/next that follows `learn.md`, with both landings continuing to Dual worlds. `website/src/tests/reference-hub-pages.test.ts` locks `public-site.ia:reference-walkable` for the Start Reference hub, aside sequence, and working-page routes from `website/content/*.md`, `public-site.chrome:current-page` for Reference chapter current-page chrome, and `public-site.a11y:distinct-nav-names` for host I/O and packages accessible names. `website/src/tests/mobile-a11y.test.ts` locks `public-site.a11y:keyboard-small` for stacked wrap, visible focus, and skip-link order. `website/src/tests/docs-shell.test.ts` locks `public-site.chrome:docs-sidebar` for handbook aside, article, and status Badge chrome that is not the home hero, `public-site.chrome:docs-article-order` for kicker then heading then badge then on-page outline, and `public-site.chrome:on-page-toc` for in-article heading links. `website/src/tests/search.test.ts` locks `public-site.search:titles-headings` for a title and heading index whose Dual worlds query reaches the Learn chapter. `website/src/tests/site-header-primary-nav.test.ts` locks `public-site.chrome:primary-nav` and `public-site.chrome:odm-shell` for sticky side-nav wordmark, Learn, Reference, and GitHub, `public-site.chrome:current-page` for hub current-page chrome, and `public-site.chrome:favicon` for a served `/favicon.ico` plus a document icon link. `website/src/tests/site-footer-and-skip-link.test.ts` locks `public-site.chrome:odm-shell` for skip-to-content, sticky side nav, and main column. Asserted with no test yet: `public-site.home:landing`, `public-site.forbid-vault-as-site`, `public-site.forbid-playground`.
 
+`website/src/tests/document-title.test.ts` locks `public-site.chrome:document-title` for per-page document titles. Home may remain Draconic.
+
 ## Tests
 
 - **tests/integration/tests/website_pipeline.rs** — `website_pipeline_renders_markdown_subset`
@@ -87,6 +89,9 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
 - **website/src/tests/home-features.test.ts** — `home features`
   - **How:** `/` feature grid names JavaScript, LLVM, and Dual worlds. No extra product claims.
   - **Why:** Locks `public-site.home:landing`.
+- **website/src/tests/document-title.test.ts** — `document title`
+  - **How:** Learn, Reference, and an article route do not all share only the title Draconic; each names the open page from existing markdown title; home may remain Draconic; route files do not rewrite page h1 copy.
+  - **Why:** Locks `public-site.chrome:document-title`.
 
 ## Gaps
 
