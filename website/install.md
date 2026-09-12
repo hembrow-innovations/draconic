@@ -73,6 +73,18 @@ draconic build --target native hello.drac -o hello
 ./hello
 ```
 
+## Zed editor
+
+`.drac` files are Programs. Zed can highlight them. The in-repo extension is not in the Zed marketplace. Install it as a Zed dev extension from [editors/zed](https://github.com/hembrow-innovations/draconic/tree/main/editors/zed).
+
+- Open the Extensions view (`zed: extensions`)
+- Choose Install Dev Extension
+- Pick `editors/zed`, the directory that contains `extension.toml`. Do not pick the repo root.
+
+Reopen a `.drac` file. The status bar language should read Draconic.
+
+While you write, `draconic check` and `draconic fmt` are the CLI loop. See [CLI](cli.html).
+
 Learn assumes you can already parse and build.
 
 Next: pick a landing. Use [from JavaScript](from-javascript.html) if you already think in ECMAScript. Use [from systems](from-systems.html) if you already think in Rust, Go, or C. Those landings join at [Dual worlds](dual-worlds.html).

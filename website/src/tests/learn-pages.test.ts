@@ -204,6 +204,27 @@ test("learn pages", () => {
   expect(install).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic">repository README</a>',
   );
+  expect(installPage.body).toContain("## Zed editor");
+  expect(installPage.body).toContain("`.drac`");
+  expect(installPage.body).toContain("dev extension");
+  expect(installPage.body).toContain("extension.toml");
+  expect(installPage.body).toContain("draconic check");
+  expect(installPage.body).toContain("draconic fmt");
+  expect(installPage.body).not.toContain("language server");
+  expect(installPage.body).not.toContain("LSP");
+  expect(installPage.body).not.toContain("VS Code");
+  expect(install).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/editors/zed">editors/zed</a>',
+  );
+  expect(install).toContain('<a href="/cli">CLI</a>');
+  const zedIdx = installPage.body.indexOf("## Zed editor");
+  const nativeIdx = installPage.body.indexOf("draconic build --target native hello.drac");
+  const nextIdx = installPage.body.indexOf("Learn assumes you can already parse and build.");
+  expect(zedIdx).toBeGreaterThan(-1);
+  expect(nativeIdx).toBeGreaterThan(-1);
+  expect(nextIdx).toBeGreaterThan(-1);
+  expect(nativeIdx).toBeLessThan(zedIdx);
+  expect(zedIdx).toBeLessThan(nextIdx);
   expect(dualWorlds).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(dualWorlds).toContain('<a href="/from-systems">from systems</a>');
   expect(dualWorlds).toContain('<a href="/modules">modules</a>');

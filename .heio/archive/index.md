@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **task-812-llvm-walk-file-budget** — completed; split LLVM walker under 1000-line budget (slice-811)
+- **ticket-834-install-zed-editor** — closed; Install teaches Zed highlighting for `.drac` files, GitHub `editors/zed`, and the check/fmt write loop
 - **ticket-830-home-typed-sample** — closed; home shows typed greet sample, draconic check, and types doorway
 - **ticket-831-learn-packages-ship** — closed; Learn packages shipped with compiling package-root fence and get/tidy argv
 - **ticket-829-install-from-source** — closed; Install teaches clone-build from source when GitHub Releases has no artifact
