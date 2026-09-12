@@ -9,7 +9,7 @@ blocked_by: []
 sprint: "global-object-followup"
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T07:03:42Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:40:00Z"
 ---
 
 # How does Test262 treat absent globalThis?
@@ -26,6 +26,7 @@ Promoted to [[slice-898-test262-absent-globalthis]] / [[task-899-test262-absent-
 
 - Native `globalThis.console.log` lowering already shipped; free host `console` is decided ([[ticket-855-free-console-builtin]]). How lowering moves is a later planning sitting, not this ticket.
 - Do not write ADR wording here ([[ticket-878-adr-0004-global-wording]]).
+- Answer: honest-fail-and-allowlist. Round 4 framed Test262 as honesty treating `globalThis` as absent, not rewrite. [[0007-test262-staged-roll-in]] keeps official Test262 as the external bar with allowlist and baseline failures; rewriting `globalThis` to `global` would hide the language divergence. Harness `fnGlobalObject` still names `globalThis`; that stays until a later sitting.
 
 ## Parent
 

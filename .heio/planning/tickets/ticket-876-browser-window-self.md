@@ -9,7 +9,7 @@ blocked_by: []
 sprint: "global-object-followup"
 references: ["rounds-842-global-object-identifier"]
 created_at: "2026-09-12T07:03:42Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:40:00Z"
 ---
 
 # Does a Program see window or self?
@@ -28,6 +28,7 @@ Promoted to [[slice-896-browser-window-self]] / [[task-897-browser-window-self]]
 - Todo example binds `document` and `localStorage` from the global object, not `window`.
 - Do not decide Test262 allowlists here ([[ticket-877-test262-absent-globalthis]]).
 - Do not write ADR wording here ([[ticket-878-adr-0004-global-wording]]).
+- Answer: window: no; self: no. Extra browser names are host aliases beyond the one Program-visible identifier `global`, same class as the dropped Node extra alias ([[ticket-845-node-global-alias]]). Vault text does not require them: [[0004-full-ecma-262-and-embed]] is eval, `new Function`, and `with`, not a browser engine; intent will not ship a full browser engine or bit-identical Node or V8. Teaching todo already binds `document` and `localStorage` from the global object, not `window`. Checker builtin install has no `window` or `self`.
 
 ## Parent
 
