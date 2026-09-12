@@ -2,6 +2,11 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — promoted tickets 807–810 into frozen platform slices [[slice-811-llvm-walk-file-budget]], [[slice-813-host-name-catalog]], [[slice-815-llvm-walker-native-date-stdlib]], [[slice-817-frontend-check-source-script]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
+- **task-812-llvm-walk-file-budget** — ready AFK; LLVM walk file budget (slice-811)
+- **task-814-host-name-catalog** — ready AFK; walker host names from catalog (slice-813); blocked by task-812
+- **task-816-llvm-walker-native-date-stdlib** — ready AFK; native Date and stdlib emit (slice-815); blocked by task-814
+- **task-818-frontend-check-source-script** — ready AFK; lock Script-only check_source (slice-817)
 - **housekeeping** — filed [[ticket-807-llvm-walker-native-date-stdlib]], [[ticket-808-frontend-check-source-script-only]], [[ticket-809-llvm-walk-over-file-budget]], [[ticket-810-host-name-shotgun]] from dragons-audit; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
 - **housekeeping** — met slice-805; archived ticket-802; 2 tickets remain parked; platform and opt-in-bench stay active
 - **task-806-llvm-host-emit-bodies** — deleted 26 dead LLVM `walk_host_*` fingerprint adapters; host calls stay catalog-driven on the one walker (slice-805)
