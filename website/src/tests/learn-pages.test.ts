@@ -270,10 +270,26 @@ test("learn pages", () => {
   expect(nativeTypesPage.body).toContain("./width");
   expect(nativeTypesPage.body).toContain("draconic check point.drac");
   expect(nativeTypesPage.body).toContain("## i32 and i64");
+  expect(nativeTypesPage.body).toContain("## i8, u8, f32, and bool");
+  expect(nativeTypesPage.body).toContain("let tiny: i8");
+  expect(nativeTypesPage.body).toContain("let byte: u8");
+  expect(nativeTypesPage.body).toContain("let single: f32");
+  expect(nativeTypesPage.body).toContain("let flag: bool");
+  expect(nativeTypesPage.body).toContain("draconic check widths.drac");
   expect(nativeTypesPage.body).toContain("## Fixed structs");
-  expect(nativeTypesPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(nativeTypesPage.body).toContain("## Fixed arrays");
+  expect(nativeTypesPage.body).toContain("type Vec3 = [i32, i32, i32]");
+  expect(nativeTypesPage.body).toContain("draconic check vec.drac");
+  expect(nativeTypesPage.body).toContain("## Pointers");
+  expect(nativeTypesPage.body).toContain("let p: *i32 = &x");
+  expect(nativeTypesPage.body).not.toMatch(/```drac\nlet x: i32 = 41;/);
+  expect(nativeTypesPage.body.match(/```drac/g)?.length).toBe(4);
   expect(nativeTypes).toContain("count");
   expect(nativeTypes).toContain("Point");
+  expect(nativeTypes).toContain("Vec3");
+  expect(nativeTypes).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/types">examples/types</a>',
+  );
   expect(nativeTypes).toContain('<a href="/host-io">host I/O</a>');
   expect(nativeTypes).toContain('<a href="/types">types</a>');
   expect(nativeTypes).toContain("<pre>");
@@ -309,6 +325,27 @@ test("learn pages", () => {
   expect(hostIoPage.body).toContain("draconic run args.drac");
   expect(hostIoPage.body).toContain("writeFileText(");
   expect(hostIoPage.body).toContain("readFileText(");
+  expect(hostIoPage.body).toContain("## pathJoin");
+  expect(hostIoPage.body).toContain('pathJoin("foo", "bar")');
+  expect(hostIoPage.body).toContain("pathNormalize");
+  expect(hostIoPage.body).toContain("pathDirname");
+  expect(hostIoPage.body).toContain("pathBasename");
+  expect(hostIoPage.body).toContain("pathExtname");
+  expect(hostIoPage.body).toContain("pathIsAbsolute");
+  expect(hostIoPage.body).toContain("pathResolve");
+  expect(hostIoPage.body).toContain("draconic check join.drac");
+  expect(hostIoPage.body).toContain("draconic run join.drac");
+  expect(hostIoPage.body).toContain("## mkdir");
+  expect(hostIoPage.body).toContain('mkdir("notes")');
+  expect(hostIoPage.body).toContain('exists("notes")');
+  expect(hostIoPage.body).toContain("mkdirAll");
+  expect(hostIoPage.body).toContain("readdir");
+  expect(hostIoPage.body).toContain("rmdir");
+  expect(hostIoPage.body).toContain("removeFile");
+  expect(hostIoPage.body).toContain("renameFile");
+  expect(hostIoPage.body).toContain("copyFile");
+  expect(hostIoPage.body).toContain("draconic check dirs.drac");
+  expect(hostIoPage.body).toContain("draconic run dirs.drac");
   expect(hostIoPage.body).toContain("tcpListen");
   expect(hostIoPage.body).toContain("httpParseRequest");
   expect(hostIoPage.body).toContain("It builds today");
@@ -339,7 +376,7 @@ test("learn pages", () => {
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(5);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(7);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',

@@ -53,8 +53,11 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website/src/tests/reference-hub-pages.test.ts
 - `public-site.chrome:docs-sidebar`: Learn and Reference article pages have a section sidebar and a shipped or not-yet badge from frontmatter.
   test: website/src/tests/docs-shell.test.ts
-- `public-site.chrome:docs-article-order`: Learn and Reference article columns render a section kicker, then the page heading, then a shipped or not-yet badge, then remaining markdown, then a related-link footer.
+- `public-site.chrome:docs-article-order`: Learn and Reference article columns render a section kicker, then the page heading, then a shipped or not-yet badge, then an on-page outline when the body has section headings, then remaining markdown, then a related-link footer.
   test: website/src/tests/docs-shell.test.ts
+- `public-site.chrome:on-page-toc`: A Learn or Reference page with section headings below the title lists those headings as in-article links to the heading fragment ids.
+  test: docs shell
+  test: page outline
 - `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title or heading text.
   test: website/src/tests/search.test.ts
 - `public-site.a11y:keyboard-small`: Primary nav and article reading work with keyboard and at a small viewport.

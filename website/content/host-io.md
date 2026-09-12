@@ -6,7 +6,7 @@ status: shipped
 
 # host I/O
 
-Host I/O is how a Program talks to the machine: process, stdio, filesystem, sockets, then thin HTTP.
+Host I/O is how a Program talks to the machine: process, stdio, path, filesystem, sockets, then thin HTTP.
 
 Host APIs are free identifiers on the global object. They are not ESM imports. Call `stdoutWrite` directly.
 
@@ -45,9 +45,27 @@ draconic check args.drac
 draconic run args.drac
 ```
 
+## pathJoin
+
+Path helpers join and inspect path strings. They do not do I/O. `pathJoin("foo", "bar")` joins segments. `pathNormalize`, `pathDirname`, `pathBasename`, `pathExtname`, `pathIsAbsolute`, and `pathResolve` complete that set. Save this as `join.drac`. It builds today:
+
+```drac
+let joined = pathJoin("foo", "bar");
+stdoutWrite(joined);
+stdoutWrite("\n");
+```
+
+Parse it, typecheck it, or run it:
+
+```
+draconic parse join.drac
+draconic check join.drac
+draconic run join.drac
+```
+
 ## Filesystem
 
-`readFileText` reads a whole file as text. `writeFileText` writes one. Those names are portable: both backends accept them. Save this as `note.drac`. It builds today:
+`readFileText` reads a whole file as text. `writeFileText` writes one. `readFileBytes`, `writeFileBytes`, `appendFileText`, and `appendFileBytes` are the byte and append variants. Those names are portable: both backends accept them. Save this as `note.drac`. It builds today:
 
 ```drac
 writeFileText("note.txt", "hello from Draconic\n");
@@ -61,6 +79,26 @@ Parse it, typecheck it, or run it:
 draconic parse note.drac
 draconic check note.drac
 draconic run note.drac
+```
+
+## mkdir
+
+`mkdir("notes")` creates one directory. `exists("notes")` is true when that path is there. `stat` returns size, isFile, isDir, and mtime. `mkdirAll` is recursive. `readdir` lists a directory. `rmdir` and `removeFile` delete. `renameFile` and `copyFile` take from and to. Save this as `dirs.drac`. It builds today:
+
+```drac
+mkdir("notes");
+let ok = exists("notes");
+writeFileText(pathJoin("notes", "note.txt"), "hello from Draconic\n");
+let text = readFileText(pathJoin("notes", "note.txt"));
+stdoutWrite(text);
+```
+
+Parse it, typecheck it, or run it:
+
+```
+draconic parse dirs.drac
+draconic check dirs.drac
+draconic run dirs.drac
 ```
 
 ## Sockets then HTTP

@@ -25,10 +25,11 @@ Give someone writing a Program a public language homepage, a Learn path, and wor
 - **Shipped or not-yet badges**: Each teaching page shows its status.
 - **In-site search**: A visitor finds a Learn or Reference page by title or heading.
 - **Site chrome**: Two-column shell on every page: skip link, sticky side nav, main column. Side nav has wordmark, Learn, Reference, and GitHub. Search stays in that nav.
-- **Docs article**: Learn and Reference pages share that shell. The article column has a section kicker, heading, status badge, and related-link footer. Side nav groups list the Learn path and Reference pages.
+- **Docs article**: Learn and Reference pages share that shell. The article column has a section kicker, heading, status badge, an on-page outline of section headings when those headings exist, remaining markdown, and a related-link footer. Side nav groups list the Learn path and Reference pages.
 - **Keyboard and small-viewport use**: Primary nav and article reading remain usable. At a small viewport the side nav stacks and wraps; no separate marketing top bar.
 - **Copyable fences**: A visitor can copy the text of a rendered code fence on a Learn or Reference page.
 - **Heading permalinks**: A section heading on a Learn or Reference page links to its fragment id.
+- **On-page outline**: A Learn or Reference page with section headings below the title lists those headings as in-article links to the heading fragment ids.
 
 ## Out of scope
 

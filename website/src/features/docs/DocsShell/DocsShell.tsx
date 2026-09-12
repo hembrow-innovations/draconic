@@ -1,6 +1,7 @@
 import { Badge } from "../../../components/Badge";
 import { CodeFence } from "../../../components/CodeFence";
 import { renderMarkdown, splitMarkdownHtml } from "../../../lib/content";
+import { OnThisPage } from "../OnThisPage";
 import {
   docsShellArticleVariants,
   docsShellFooterVariants,
@@ -47,11 +48,11 @@ function takeLeadingH1(html: string): { heading: string | undefined; rest: strin
 }
 
 /**
- * Handbook article chrome: kicker, heading, shipped or not-yet Badge, and related-link footer.
+ * Handbook article chrome: kicker, heading, shipped or not-yet Badge, on-page outline, and related-link footer.
  *
  * Locks `public-site.chrome:docs-sidebar`, `public-site.chrome:docs-article-order`,
- * `public-site.nav:learn-reference-status`, `public-site.fences:copy`,
- * and `public-site.markdown:heading-permalinks`.
+ * `public-site.chrome:on-page-toc`, `public-site.nav:learn-reference-status`,
+ * `public-site.fences:copy`, and `public-site.markdown:heading-permalinks`.
  * Section lists live in the site side nav. Home landing stays outside this shell.
  *
  * @param props - Section kicker, status from frontmatter, optional nav from callers, optional markdown body
@@ -76,6 +77,7 @@ export function DocsShell({
           <h1 dangerouslySetInnerHTML={{ __html: parts.heading }} />
         ) : null}
         <Badge variant={status}>{statusLabel(status)}</Badge>
+        {body !== undefined ? <OnThisPage body={body} /> : null}
         {parts !== undefined && parts.rest !== ""
           ? splitMarkdownHtml(parts.rest).map((block, index) =>
               block.kind === "fence" ? (

@@ -101,4 +101,4 @@ Conformance fixtures under `tests/conformance/types` lock T01–T07.05 and dual-
 
 ## Consequences
 
-[[architecture-frontend]] must pass Module goal into `check_module` so top-level await matches parse. Lowering ([[architecture-ir]]) consumes `CheckedProgram`. Dual-world `as` must remain a type-level boundary, not a JS `as` keyword with runtime meaning. If a new type feature is needed, it belongs on [[ROADMAP]] first.
+[[architecture-frontend]] must pass Module goal into `check_module` so top-level await matches parse. Lowering ([[architecture-ir]]) consumes `CheckedProgram`. Dual-world `as` must remain a type-level boundary, not a JS `as` keyword with runtime meaning. If a new type feature is needed, it belongs on [[ROADMAP]] first. A reading catalog of TypeScript surfaces this Checker does not have is [[guides-typescript-gaps]].

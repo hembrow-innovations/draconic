@@ -39,12 +39,55 @@ draconic check args.drac
 draconic run args.drac
 ```
 
+## pathJoin
+
+`pathJoin(...)` joins path segments. No I/O. Save this as `join.drac`. It builds today:
+
+```drac
+let joined = pathJoin("foo", "bar");
+stdoutWrite(joined);
+stdoutWrite("\n");
+```
+
+```
+draconic parse join.drac
+draconic check join.drac
+draconic run join.drac
+```
+
+`pathNormalize(path)` collapses `.`, `..`, and duplicate separators. `pathDirname(path)` is the parent. `pathBasename(path)` is the last segment. `pathExtname(path)` is the extension. `pathIsAbsolute(path)` is true for an absolute path. `pathResolve(...)` resolves relative to cwd.
+
+## exists
+
+`exists(path)` is true when that path is there. `stat(path)` returns size, isFile, isDir, and mtime.
+
+## mkdir
+
+`mkdir(path)` creates one directory. `mkdirAll(path)` is recursive. `readdir(path)` lists names. `rmdir(path)` and `removeFile(path)` delete. `renameFile(from, to)` and `copyFile(from, to)` take two paths. Save this as `dirs.drac`. It builds today:
+
+```drac
+mkdir("notes");
+let ok = exists("notes");
+writeFileText(pathJoin("notes", "note.txt"), "hello from Draconic\n");
+let text = readFileText(pathJoin("notes", "note.txt"));
+stdoutWrite(text);
+```
+
+```
+draconic parse dirs.drac
+draconic check dirs.drac
+draconic run dirs.drac
+```
+
 ## Names
 
-- Process and stdio: `processArgs()`, `envGet(key)`, `envSet(key, value)`, `envDelete(key)`, `exit(code)`, `stdinReadLine()`, `stdoutWrite`, `stderrWrite`
-- Filesystem: `readFileText(path)`, `writeFileText(path, text)`
+- Process and stdio: `processArgs()`, `envGet(key)`, `envSet(key, value)`, `envDelete(key)`, `exit(code)`, `stdinReadLine()`, `stdinReadBytes()`, `stdoutWrite`, `stderrWrite`
+- Path: `pathJoin(...)`, `pathNormalize(path)`, `pathDirname(path)`, `pathBasename(path)`, `pathExtname(path)`, `pathIsAbsolute(path)`, `pathResolve(...)`
+- Filesystem: `readFileText(path)`, `readFileBytes(path)`, `writeFileText(path, text)`, `writeFileBytes(path, bytes)`, `appendFileText(path, text)`, `appendFileBytes(path, bytes)`, `exists(path)`, `stat(path)`, `mkdir(path)`, `mkdirAll(path)`, `readdir(path)`, `rmdir(path)`, `removeFile(path)`, `renameFile(from, to)`, `copyFile(from, to)`
 - TCP sockets: `tcpListen(port)`, `tcpAccept(listen)`, `tcpConnect(host, port)`, `tcpRead(connection, maxLen)`, `tcpWrite(connection, bytes)`, `closeTcp(handle)`
 - HTTP/1.1 helpers on those sockets: `httpParseRequest(raw)`, `httpWriteResponse(status, reason, headers, body)` — not a Node-shaped http module as the only entry
+
+File handles `openFile`, `fileRead`, `fileWrite`, `fileSeek`, and `closeFile` are native-only. They hard-error on js.
 
 `httpParseRequest` returns a request with `method`, `path`, `version`, and `body`. `tcpRead` reads up to `maxLen` bytes.
 

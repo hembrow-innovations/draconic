@@ -2,10 +2,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { loadMarkdownPage, renderMarkdown } from "../lib/content";
+import {
+  extractPageOutline,
+  loadMarkdownPage,
+  renderMarkdown,
+} from "../lib/content";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const shellDir = join(srcDir, "features", "docs", "DocsShell");
+const outlineDir = join(srcDir, "features", "docs", "OnThisPage");
 
 function walkProductFiles(dir: string): string[] {
   const out: string[] = [];
@@ -38,10 +43,24 @@ test("docs shell", () => {
   ]) {
     expect(statSync(join(shellDir, name)).isFile()).toBe(true);
   }
+  expect(statSync(outlineDir).isDirectory()).toBe(true);
+  for (const name of [
+    "index.ts",
+    "OnThisPage.tsx",
+    "OnThisPage.types.ts",
+    "OnThisPage.variants.ts",
+  ]) {
+    expect(statSync(join(outlineDir, name)).isFile()).toBe(true);
+  }
 
   const shell = readFileSync(join(shellDir, "DocsShell.tsx"), "utf8");
   const types = readFileSync(join(shellDir, "DocsShell.types.ts"), "utf8");
   const variants = readFileSync(join(shellDir, "DocsShell.variants.ts"), "utf8");
+  const outline = readFileSync(join(outlineDir, "OnThisPage.tsx"), "utf8");
+  const outlineVariants = readFileSync(
+    join(outlineDir, "OnThisPage.variants.ts"),
+    "utf8",
+  );
   const learnPage = readFileSync(
     join(srcDir, "features", "learn", "LearnPage", "LearnPage.tsx"),
     "utf8",
@@ -82,17 +101,36 @@ test("docs shell", () => {
   expect(shell).toContain("not-yet");
   expect(shell).toContain("public-site.chrome:docs-sidebar");
   expect(shell).toContain("public-site.chrome:docs-article-order");
+  expect(shell).toContain("public-site.chrome:on-page-toc");
+  expect(shell).toContain("OnThisPage");
+  expect(shell).toContain("<OnThisPage body={body}");
 
   const article = shell.slice(shell.indexOf("<article"));
   const kickerAt = article.indexOf("docsShellKickerVariants");
   const headingAt = article.indexOf("<h1");
   const badgeAt = article.indexOf("<Badge");
+  const outlineAt = article.indexOf("OnThisPage");
   const footerAt = article.indexOf("<footer");
   expect(kickerAt).toBeGreaterThan(-1);
   expect(headingAt).toBeGreaterThan(kickerAt);
   expect(badgeAt).toBeGreaterThan(headingAt);
-  expect(footerAt).toBeGreaterThan(badgeAt);
-  expect(article.slice(badgeAt, footerAt)).toContain("dangerouslySetInnerHTML");
+  expect(outlineAt).toBeGreaterThan(badgeAt);
+  expect(footerAt).toBeGreaterThan(outlineAt);
+  expect(article.slice(outlineAt, footerAt)).toContain("dangerouslySetInnerHTML");
+
+  expect(outline).toContain("public-site.chrome:on-page-toc");
+  expect(outline).toContain("extractPageOutline");
+  expect(outline).toContain("items.length === 0");
+  expect(outline).toContain('aria-label="On this page"');
+  expect(outline).toContain("On this page");
+  expect(outline).toContain("href={`#${item.id}`}");
+  expect(outline).not.toMatch(/playground/i);
+  expect(outlineVariants).toContain('from "class-variance-authority"');
+  expect(outlineVariants).toContain("cva(");
+  expect(outlineVariants).toContain("text-muted");
+  expect(outlineVariants).toContain("focus-visible:ring-accent");
+  expect(outlineVariants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+  expect(outlineVariants).not.toMatch(/\bmax-w-sm\b/);
   expect(shell).not.toContain("HomeHero");
   expect(shell).not.toContain("JavaScript you already know");
   expect(shell).not.toMatch(/playground/i);
@@ -159,4 +197,47 @@ test("docs shell", () => {
     expect(source, file).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
     expect(source, file).not.toMatch(/\bmax-w-sm\b/);
   }
+});
+
+test("page outline", () => {
+  const install = loadMarkdownPage("install");
+  const html = renderMarkdown(install.body);
+  const outline = extractPageOutline(install.body);
+  expect(outline.map((item) => item.id)).toEqual([
+    "from-source",
+    "zed-editor",
+    "reproducibility",
+  ]);
+  expect(outline.map((item) => item.text)).toEqual([
+    "From source",
+    "Zed editor",
+    "Reproducibility",
+  ]);
+  for (const item of outline) {
+    expect(html).toContain(
+      `<h2 id="${item.id}"><a href="#${item.id}">${item.text}</a></h2>`,
+    );
+  }
+
+  expect(extractPageOutline(loadMarkdownPage("dual-worlds").body)).toEqual([]);
+
+  const cli = extractPageOutline(loadMarkdownPage("cli").body);
+  expect(cli.map((item) => item.text)).toEqual([
+    "parse",
+    "extract",
+    "check",
+    "fmt",
+    "doc",
+    "build",
+    "run",
+    "repl",
+    "test",
+    "version",
+    "help",
+    "bindgen",
+    "Permissions",
+    "Shebang",
+  ]);
+  expect(cli.map((item) => item.id)).toContain("shebang");
+  expect(cli.every((item) => item.level === 2)).toBe(true);
 });

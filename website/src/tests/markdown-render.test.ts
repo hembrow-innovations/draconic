@@ -49,7 +49,16 @@ test("markdown render install subset", () => {
     '<h2 id="i32-and-i64"><a href="#i32-and-i64">i32 and i64</a></h2>',
   );
   expect(nativeHtml).toContain(
+    '<h2 id="i8-u8-f32-and-bool"><a href="#i8-u8-f32-and-bool">i8, u8, f32, and bool</a></h2>',
+  );
+  expect(nativeHtml).toContain(
     '<h2 id="fixed-structs"><a href="#fixed-structs">Fixed structs</a></h2>',
+  );
+  expect(nativeHtml).toContain(
+    '<h2 id="fixed-arrays"><a href="#fixed-arrays">Fixed arrays</a></h2>',
+  );
+  expect(nativeHtml).toContain(
+    '<h2 id="pointers"><a href="#pointers">Pointers</a></h2>',
   );
   expect(nativeHtml).toContain("<h1>native types</h1>");
 
@@ -89,7 +98,16 @@ test("markdown render heading permalinks", () => {
     '<h2 id="i32-and-i64"><a href="#i32-and-i64">i32 and i64</a></h2>',
   );
   expect(nativeHtml).toContain(
+    '<h2 id="i8-u8-f32-and-bool"><a href="#i8-u8-f32-and-bool">i8, u8, f32, and bool</a></h2>',
+  );
+  expect(nativeHtml).toContain(
     '<h2 id="fixed-structs"><a href="#fixed-structs">Fixed structs</a></h2>',
+  );
+  expect(nativeHtml).toContain(
+    '<h2 id="fixed-arrays"><a href="#fixed-arrays">Fixed arrays</a></h2>',
+  );
+  expect(nativeHtml).toContain(
+    '<h2 id="pointers"><a href="#pointers">Pointers</a></h2>',
   );
   expect(nativeHtml).toContain("<h1>native types</h1>");
   expect(fromJsHtml).toContain(

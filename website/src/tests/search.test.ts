@@ -172,6 +172,76 @@ test("search", () => {
   );
   expect(searchHitHref(nativePage!, "native types")).toBe("/native-types");
   expect(searchHitHref(nativePage!, "i32")).toBe("/native-types#i32-and-i64");
+  expect(nativePage?.headings).toContain("i8, u8, f32, and bool");
+  expect(nativePage?.headings).toContain("Fixed arrays");
+  expect(nativePage?.headings).toContain("Pointers");
+  expect(searchHitHref(nativePage!, "i8")).toBe(
+    "/native-types#i8-u8-f32-and-bool",
+  );
+  expect(searchHitLabel(nativePage!, "i8")).toBe(
+    "Learn · native types · i8, u8, f32, and bool",
+  );
+  expect(searchHitHref(nativePage!, "Fixed arrays")).toBe(
+    "/native-types#fixed-arrays",
+  );
+  expect(searchHitLabel(nativePage!, "Fixed arrays")).toBe(
+    "Learn · native types · Fixed arrays",
+  );
+  expect(searchHitHref(nativePage!, "Pointers")).toBe("/native-types#pointers");
+  expect(searchHitLabel(nativePage!, "Pointers")).toBe(
+    "Learn · native types · Pointers",
+  );
+
+  const typesObject = querySearchIndex(index, "Object types").find(
+    (hit) => hit.href === "/types",
+  );
+  expect(typesObject?.headings).toContain("Object types");
+  expect(typesObject?.headings).toContain("Unions and intersections");
+  expect(typesObject?.headings).toContain("Generics");
+  expect(typesObject?.headings).toContain("Fixed structs");
+  expect(searchHitHref(typesObject!, "Object types")).toBe(
+    "/types#object-types",
+  );
+  expect(searchHitLabel(typesObject!, "Object types")).toBe(
+    "Reference · types · Object types",
+  );
+  expect(searchHitHref(typesObject!, "Unions and intersections")).toBe(
+    "/types#unions-and-intersections",
+  );
+  expect(searchHitLabel(typesObject!, "Unions and intersections")).toBe(
+    "Reference · types · Unions and intersections",
+  );
+  expect(searchHitHref(typesObject!, "Generics")).toBe("/types#generics");
+  expect(searchHitLabel(typesObject!, "Generics")).toBe(
+    "Reference · types · Generics",
+  );
+  const typesFixed = querySearchIndex(index, "Fixed structs").find(
+    (hit) => hit.href === "/types",
+  );
+  expect(typesFixed?.headings).toContain("Fixed structs");
+  expect(searchHitHref(typesFixed!, "Fixed structs")).toBe(
+    "/types#fixed-structs",
+  );
+  expect(searchHitLabel(typesFixed!, "Fixed structs")).toBe(
+    "Reference · types · Fixed structs",
+  );
+  expect(typesObject?.headings).toContain("i8, u8, f32, and bool");
+  expect(typesObject?.headings).toContain("Fixed arrays");
+  expect(typesObject?.headings).toContain("Pointers");
+  expect(searchHitHref(typesObject!, "i8")).toBe("/types#i8-u8-f32-and-bool");
+  expect(searchHitLabel(typesObject!, "i8")).toBe(
+    "Reference · types · i8, u8, f32, and bool",
+  );
+  expect(searchHitHref(typesObject!, "Fixed arrays")).toBe(
+    "/types#fixed-arrays",
+  );
+  expect(searchHitLabel(typesObject!, "Fixed arrays")).toBe(
+    "Reference · types · Fixed arrays",
+  );
+  expect(searchHitHref(typesObject!, "Pointers")).toBe("/types#pointers");
+  expect(searchHitLabel(typesObject!, "Pointers")).toBe(
+    "Reference · types · Pointers",
+  );
 
   const packageHits = querySearchIndex(index, "packages");
   const learnPackages = packageHits.find((hit) => hit.href === "/packages");
@@ -262,31 +332,82 @@ test("search", () => {
     "Reference · CLI · bindgen",
   );
 
-  const learnProcessArgs = querySearchIndex(index, "processArgs").find(
-    (hit) => hit.href === "/host-io",
-  );
-  expect(learnProcessArgs?.headings).toContain("processArgs");
-  expect(searchHitHref(learnProcessArgs!, "processArgs")).toBe(
-    "/host-io#processargs",
-  );
-  expect(searchHitLabel(learnProcessArgs!, "processArgs")).toBe(
-    "Learn · host I/O · processArgs",
-  );
+    const learnProcessArgs = querySearchIndex(index, "processArgs").find(
+      (hit) => hit.href === "/host-io",
+    );
+    expect(learnProcessArgs?.headings).toContain("processArgs");
+    expect(searchHitHref(learnProcessArgs!, "processArgs")).toBe(
+      "/host-io#processargs",
+    );
+    expect(searchHitLabel(learnProcessArgs!, "processArgs")).toBe(
+      "Learn · host I/O · processArgs",
+    );
 
-  const referenceProcessArgs = querySearchIndex(index, "processArgs").find(
-    (hit) => hit.href === "/reference-host-io",
-  );
-  expect(referenceProcessArgs?.headings).toContain("processArgs");
-  expect(searchHitHref(referenceProcessArgs!, "processArgs")).toBe(
-    "/reference-host-io#processargs",
-  );
-  expect(searchHitLabel(referenceProcessArgs!, "processArgs")).toBe(
-    "Reference · host I/O · processArgs",
-  );
+    const referenceProcessArgs = querySearchIndex(index, "processArgs").find(
+      (hit) => hit.href === "/reference-host-io",
+    );
+    expect(referenceProcessArgs?.headings).toContain("processArgs");
+    expect(searchHitHref(referenceProcessArgs!, "processArgs")).toBe(
+      "/reference-host-io#processargs",
+    );
+    expect(searchHitLabel(referenceProcessArgs!, "processArgs")).toBe(
+      "Reference · host I/O · processArgs",
+    );
 
-  const tcpListen = querySearchIndex(index, "tcpListen").find(
-    (hit) => hit.href === "/host-io",
-  );
+    const learnPathJoin = querySearchIndex(index, "pathJoin").find(
+      (hit) => hit.href === "/host-io",
+    );
+    expect(learnPathJoin?.headings).toContain("pathJoin");
+    expect(searchHitHref(learnPathJoin!, "pathJoin")).toBe("/host-io#pathjoin");
+    expect(searchHitLabel(learnPathJoin!, "pathJoin")).toBe(
+      "Learn · host I/O · pathJoin",
+    );
+
+    const referencePathJoin = querySearchIndex(index, "pathJoin").find(
+      (hit) => hit.href === "/reference-host-io",
+    );
+    expect(referencePathJoin?.headings).toContain("pathJoin");
+    expect(searchHitHref(referencePathJoin!, "pathJoin")).toBe(
+      "/reference-host-io#pathjoin",
+    );
+    expect(searchHitLabel(referencePathJoin!, "pathJoin")).toBe(
+      "Reference · host I/O · pathJoin",
+    );
+
+    const learnMkdir = querySearchIndex(index, "mkdir").find(
+      (hit) => hit.href === "/host-io",
+    );
+    expect(learnMkdir?.headings).toContain("mkdir");
+    expect(searchHitHref(learnMkdir!, "mkdir")).toBe("/host-io#mkdir");
+    expect(searchHitLabel(learnMkdir!, "mkdir")).toBe(
+      "Learn · host I/O · mkdir",
+    );
+
+    const referenceMkdir = querySearchIndex(index, "mkdir").find(
+      (hit) => hit.href === "/reference-host-io",
+    );
+    expect(referenceMkdir?.headings).toContain("mkdir");
+    expect(searchHitHref(referenceMkdir!, "mkdir")).toBe(
+      "/reference-host-io#mkdir",
+    );
+    expect(searchHitLabel(referenceMkdir!, "mkdir")).toBe(
+      "Reference · host I/O · mkdir",
+    );
+
+    const referenceExists = querySearchIndex(index, "exists").find(
+      (hit) => hit.href === "/reference-host-io",
+    );
+    expect(referenceExists?.headings).toContain("exists");
+    expect(searchHitHref(referenceExists!, "exists")).toBe(
+      "/reference-host-io#exists",
+    );
+    expect(searchHitLabel(referenceExists!, "exists")).toBe(
+      "Reference · host I/O · exists",
+    );
+
+    const tcpListen = querySearchIndex(index, "tcpListen").find(
+      (hit) => hit.href === "/host-io",
+    );
   expect(tcpListen?.headings).toContain("tcpListen");
   expect(searchHitHref(tcpListen!, "tcpListen")).toBe("/host-io#tcplisten");
   expect(searchHitLabel(tcpListen!, "tcpListen")).toBe(
