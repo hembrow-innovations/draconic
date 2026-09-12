@@ -37,6 +37,7 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
         <div className={siteHeaderClusterVariants()}>
           <SiteSearch />
           <ThemeToggle />
+          <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
           <div className={siteHeaderGroupVariants()}>
             <Link to="/learn" className={siteHeaderLinkVariants()} activeProps={currentPage}>Learn</Link>
             <LearnNav />
@@ -45,7 +46,6 @@ export function SiteHeader({ className, ...props }: SiteHeaderProps) {
             <Link to="/reference" className={siteHeaderLinkVariants()} activeProps={currentPage}>Reference</Link>
             <ReferenceNav />
           </div>
-          <a href="https://github.com/hembrow-innovations/draconic" className={siteHeaderLinkVariants()}>GitHub</a>
         </div>
       </nav>
     </aside>

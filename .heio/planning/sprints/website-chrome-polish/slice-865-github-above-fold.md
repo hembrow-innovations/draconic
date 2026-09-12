@@ -2,12 +2,12 @@
 id: "slice-865-github-above-fold"
 title: "GitHub above the nav fold"
 kind: slice
-status: frozen
+status: active
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T17:30:00Z"
 ---
 
 # GitHub above the nav fold

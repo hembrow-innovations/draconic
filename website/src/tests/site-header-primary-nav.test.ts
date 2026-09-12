@@ -108,6 +108,16 @@ test("site header primary nav", () => {
   expect(header.indexOf("<ThemeToggle")).toBeLessThan(
     header.indexOf("<ReferenceNav"),
   );
+  expect(header.indexOf(`href="${githubUrl}"`)).toBeLessThan(
+    header.indexOf("<LearnNav"),
+  );
+  expect(header.indexOf(`href="${githubUrl}"`)).toBeLessThan(
+    header.indexOf("<ReferenceNav"),
+  );
+  expect(header.indexOf(">GitHub<")).toBeLessThan(header.indexOf("<LearnNav"));
+  expect(header.indexOf(">GitHub<")).toBeLessThan(
+    header.indexOf("<ReferenceNav"),
+  );
 
   expect(header).not.toMatch(/playground/i);
   expect(header).not.toContain("docs/");

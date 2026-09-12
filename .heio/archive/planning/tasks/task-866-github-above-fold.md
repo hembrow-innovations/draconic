@@ -2,7 +2,7 @@
 id: "task-866-github-above-fold"
 title: "Keep GitHub above the side-nav fold"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-865-github-above-fold"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T18:15:00Z"
 ---
 
 # Keep GitHub above the side-nav fold
@@ -67,10 +67,14 @@ At that desktop height, GitHub sits inside the sticky aside's visible box withou
 - GitHub as a child of that nav, not after the chapter groups
 
 **Acceptance criteria:**
-- [ ] Tests fail if GitHub is ordered after LearnNav and ReferenceNav
-- [ ] GitHub still renders in the side nav with the existing repo href
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Promise ids listed above still hold
+- [x] Tests fail if GitHub is ordered after LearnNav and ReferenceNav
+- [x] GitHub still renders in the side nav with the existing repo href
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Promise ids listed above still hold
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav` — win. Test Files 1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff keeps `public-site.chrome:primary-nav` and `public-site.chrome:odm-shell`; GitHub stays in the side nav with the same href, ordered before LearnNav and ReferenceNav.
 
 **Out of scope:**
 - Tall mobile hit ([[task-879-github-mobile-hit]]); dropping search or theme; playground
