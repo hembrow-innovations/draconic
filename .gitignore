@@ -1,6 +1,4 @@
 .pi/git/
-.heio/logs/
-.hivemind-last-run
 
 /target
 **/*.rs.bk
@@ -16,8 +14,6 @@
 *.dylib
 *.exe
 /tmp
-.loop/worktrees/
-.loop/logs/
 .scratch/**/claim.lock
 examples/todo/server/server
 examples/types/types-bin
@@ -38,6 +34,5 @@ examples/types/types-bin.dSYM
 **/fuzz/coverage
 **/*_seed_corpus.zip
 
-.stitch
 .playwright-cli
 docs/99_scribble
