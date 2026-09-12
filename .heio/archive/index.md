@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-869-distinct-nav-labels** — met; Learn and Reference host I/O and packages links have distinct accessible names; website-chrome-polish stays active
 - **task-870-distinct-nav-labels** — completed; Learn and Reference host I/O and packages links have distinct accessible names (slice-869)
 - **slice-867-current-page-contrast** — met; current-page nav ink meets 4.5:1 on canvas via darkened accent-2; website-chrome-polish stays active
 - **task-868-current-page-contrast** — completed; current-page nav text meets 4.5:1 against canvas (slice-867)

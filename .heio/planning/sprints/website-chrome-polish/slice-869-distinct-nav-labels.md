@@ -2,12 +2,12 @@
 id: "slice-869-distinct-nav-labels"
 title: "Distinct Learn and Reference chapter names"
 kind: slice
-status: active
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T17:30:00Z"
+updated_at: "2026-09-12T17:55:00Z"
 ---
 
 # Distinct Learn and Reference chapter names
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: Learn and Reference chapter links that share a CONTEXT term have distinct accessible names
+- [x] O1: Learn and Reference chapter links that share a CONTEXT term have distinct accessible names
   CHECK: pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: 2026-09-12 `pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages` → Test Files  2 passed (2)
 
 ## Pool
 
