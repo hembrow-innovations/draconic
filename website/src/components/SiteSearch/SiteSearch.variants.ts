@@ -25,3 +25,10 @@ export const siteSearchResultsVariants = cva(
 export const siteSearchLinkVariants = cva(
   "flex min-h-11 items-center px-3 font-body text-body text-muted no-underline hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
 );
+
+/**
+ * Miss copy when a query hits no title or heading.
+ */
+export const siteSearchEmptyVariants = cva(
+  "mt-1 flex min-h-11 items-center border border-line bg-canvas px-3 font-body text-body text-muted",
+);

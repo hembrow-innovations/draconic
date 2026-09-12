@@ -6,5 +6,6 @@ export {
   buildSearchIndex,
   extractHeadings,
   querySearchIndex,
+  searchHitLabel,
 } from "./searchIndex";
 export type { SearchEntry } from "./searchIndex";

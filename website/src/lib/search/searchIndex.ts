@@ -8,6 +8,7 @@ import { listMarkdownPages, type MarkdownPage } from "../content";
 export type SearchEntry = {
   href: string;
   title: string;
+  section: string;
   headings: string[];
 };
 
@@ -67,12 +68,46 @@ export function querySearchIndex(
   return index.filter((entry) => matchesEntry(entry, needle));
 }
 
+/**
+ * Visible result label: Learn or Reference, page title, and a matching heading.
+ *
+ * @param entry - Indexed page
+ * @param query - Visitor search text
+ * @returns Label that tells the two packages pages apart
+ */
+export function searchHitLabel(entry: SearchEntry, query: string): string {
+  const sectionLabel = sectionDisplayName(entry.section);
+  const needle = query.trim().toLowerCase();
+  if (needle === "" || entry.title.toLowerCase().includes(needle)) {
+    return `${sectionLabel} · ${entry.title}`;
+  }
+  const heading = entry.headings.find((text) =>
+    text.toLowerCase().includes(needle),
+  );
+  if (heading !== undefined && heading !== entry.title) {
+    return `${sectionLabel} · ${entry.title} · ${heading}`;
+  }
+  return `${sectionLabel} · ${entry.title}`;
+}
+
 function toSearchEntry(page: MarkdownPage): SearchEntry {
   return {
     href: `/${page.slug}`,
     title: page.title,
+    section: page.section,
     headings: extractHeadings(page.body),
   };
+}
+
+function sectionDisplayName(section: string): string {
+  switch (section) {
+    case "learn":
+      return "Learn";
+    case "reference":
+      return "Reference";
+    default:
+      return section;
+  }
 }
 
 function matchesEntry(entry: SearchEntry, needle: string): boolean {

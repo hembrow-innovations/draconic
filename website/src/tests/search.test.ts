@@ -2,7 +2,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
-import { buildSearchIndex, querySearchIndex } from "../lib/search";
+import {
+  buildSearchIndex,
+  querySearchIndex,
+  searchHitLabel,
+} from "../lib/search";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
@@ -66,9 +70,12 @@ test("search", () => {
   expect(search).toContain("public-site.search:titles-headings");
   expect(search).toContain('type="search"');
   expect(search).toContain("querySearchIndex");
+  expect(search).toContain("searchHitLabel");
+  expect(search).toContain("No matching pages");
   expect(search).toContain("from \"@tanstack/react-router\"");
   expect(search).toContain("Link");
   expect(search).toContain("siteSearchVariants");
+  expect(search).toContain("siteSearchEmptyVariants");
   expect(search).not.toMatch(/playground/i);
   expect(search).not.toContain("docs/");
   expect(search).not.toMatch(/account/i);
@@ -81,6 +88,7 @@ test("search", () => {
   expect(variants).toContain('from "class-variance-authority"');
   expect(variants).toContain("cva(");
   expect(variants).toContain("font-body");
+  expect(variants).toContain("siteSearchEmptyVariants");
   expect(variants).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   expect(variants).not.toMatch(/\bmax-w-sm\b/);
   expect(variants).not.toMatch(/\babsolute\b/);
@@ -107,6 +115,8 @@ test("search", () => {
     );
     expect(entry).toHaveProperty("title");
     expect(entry).toHaveProperty("headings");
+    expect(entry).toHaveProperty("section");
+    expect(["learn", "reference"]).toContain(entry.section);
     expect(entry).not.toHaveProperty("body");
     expect(JSON.stringify(entry)).not.toMatch(/playground/i);
     expect(JSON.stringify(entry)).not.toContain("docs/");
@@ -117,6 +127,28 @@ test("search", () => {
   expect(dualWorlds.some((hit) => hit.title === "Dual worlds")).toBe(true);
   const dualPage = dualWorlds.find((hit) => hit.href === "/dual-worlds");
   expect(dualPage?.headings).toContain("Dual worlds");
+
+  const nativeTypes = querySearchIndex(index, "Fixed structs");
+  expect(nativeTypes.some((hit) => hit.href === "/native-types")).toBe(true);
+  const nativePage = nativeTypes.find((hit) => hit.href === "/native-types");
+  expect(nativePage?.section).toBe("learn");
+  expect(nativePage?.headings).toContain("i32 and i64");
+  expect(nativePage?.headings).toContain("Fixed structs");
+  expect(searchHitLabel(nativePage!, "Fixed structs")).toBe(
+    "Learn · native types · Fixed structs",
+  );
+
+  const packageHits = querySearchIndex(index, "packages");
+  const learnPackages = packageHits.find((hit) => hit.href === "/packages");
+  const referencePackages = packageHits.find(
+    (hit) => hit.href === "/reference-packages",
+  );
+  expect(learnPackages?.section).toBe("learn");
+  expect(referencePackages?.section).toBe("reference");
+  expect(searchHitLabel(learnPackages!, "packages")).toBe("Learn · packages");
+  expect(searchHitLabel(referencePackages!, "packages")).toBe(
+    "Reference · packages",
+  );
 
   const learnHits = querySearchIndex(index, "Dual worlds").filter(
     (hit) => hit.href === "/learn",
