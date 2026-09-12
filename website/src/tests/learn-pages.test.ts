@@ -295,11 +295,18 @@ test("learn pages", () => {
   expect(hostIoPage.body).toContain("It builds today");
   expect(hostIoPage.body).toContain("draconic check hello-host.drac");
   expect(hostIoPage.body).toContain("draconic check note.drac");
+  expect(hostIoPage.body).toContain("## tcpListen");
+  expect(hostIoPage.body).toContain("tcpListen(8080)");
+  expect(hostIoPage.body).toContain("closeTcp(s)");
+  expect(hostIoPage.body).toContain("draconic check listen.drac");
+  expect(hostIoPage.body).toContain(
+    "draconic build --target native listen.drac -o listen",
+  );
   expect(hostIoPage.body).toContain("free identifiers");
   expect(hostIoPage.body).not.toContain(
     "hard-errors unsupported host APIs until an explicit bridge exists",
   );
-  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(3);
   expect(hostIo).toContain("stdoutWrite");
   expect(hostIo).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',

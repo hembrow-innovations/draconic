@@ -54,6 +54,25 @@ Listen and server paths started native-first. The JS backend now bridges those n
 
 v1 HTTP is plaintext HTTP/1.1. TLS, HTTP/2, and WebSocket are later.
 
-A listen loop binds a port. Copy [HTTP echo](https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo) when you want `tcpListen` plus `httpParseRequest` in one Program.
+## tcpListen
+
+`tcpListen` binds a TCP port. `closeTcp` releases it. Save this as `listen.drac`. It builds today:
+
+```drac
+let s = tcpListen(8080);
+stdoutWrite("listening on 8080\n");
+closeTcp(s);
+```
+
+Parse it, typecheck it, or emit a native binary:
+
+```
+draconic parse listen.drac
+draconic check listen.drac
+draconic build --target native listen.drac -o listen
+./listen
+```
+
+A listen loop accepts connections on that socket. Copy [HTTP echo](https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo) when you want `tcpListen` plus `httpParseRequest` in one Program.
 
 Continue to [packages](packages.html). Lookup: [host I/O](reference-host-io.html).

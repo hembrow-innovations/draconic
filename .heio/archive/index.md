@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-836-learn-host-io-listen-fence** — closed; Learn host I/O ships a compiling tcpListen fence with check and native-build commands
 - **housekeeping** — met [[slice-811-llvm-walk-file-budget]]; task-812 archived; platform stays active
 - **housekeeping** — met [[slice-817-frontend-check-source-script]]; task-818 archived; platform stays active
 - **task-818-frontend-check-source-script** — completed; lock Script-only `check_source` / `compile_source` (slice-817)

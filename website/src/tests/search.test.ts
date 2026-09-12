@@ -215,6 +215,15 @@ test("search", () => {
   expect(searchHitHref(cliRepl!, "repl")).toBe("/cli#repl");
   expect(searchHitLabel(cliRepl!, "repl")).toBe("Reference · CLI · repl");
 
+  const tcpListen = querySearchIndex(index, "tcpListen").find(
+    (hit) => hit.href === "/host-io",
+  );
+  expect(tcpListen?.headings).toContain("tcpListen");
+  expect(searchHitHref(tcpListen!, "tcpListen")).toBe("/host-io#tcplisten");
+  expect(searchHitLabel(tcpListen!, "tcpListen")).toBe(
+    "Learn · host I/O · tcpListen",
+  );
+
   const learnHits = querySearchIndex(index, "Dual worlds").filter(
     (hit) => hit.href === "/learn",
   );
