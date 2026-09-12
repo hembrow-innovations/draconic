@@ -168,6 +168,12 @@ test("learn pages", () => {
   expect(fromJs).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz">FizzBuzz</a>',
   );
+  expect(fromJsPage.body).toContain("## Todo");
+  expect(fromJsPage.body).toContain("`document`");
+  expect(fromJsPage.body).toContain("`localStorage`");
+  expect(fromJs).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/todo">Todo</a>',
+  );
   expect(fromJs).toContain('<a href="/dual-worlds">Dual worlds</a>');
   const fromSystemsPage = loadMarkdownPage("from-systems");
   expect(fromSystemsPage.body).toContain("```drac");

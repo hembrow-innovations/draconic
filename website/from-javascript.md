@@ -49,6 +49,10 @@ draconic run greet.drac
 
 A longer portable Program with `for`, `if`, and the same host console lives in the repository as [FizzBuzz](https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz).
 
+## Todo
+
+The same `globalThis` bind works in a browser. Copy [Todo](https://github.com/hembrow-innovations/draconic/tree/main/examples/todo) when you want `document` and `localStorage`, not only Node-shaped `draconic run`.
+
 Native types such as `i32` and `i64` are the extra, not a typed-JS-only story. You do not need them on this landing. A Program that stays in JavaScript values is a portable program: both backends can accept it with equivalent observable behavior after documented polyfills.
 
 When you need unboxed systems types and the LLVM path, continue at [Dual worlds](dual-worlds.html). That is the join. The rest of Learn is one path from there.
