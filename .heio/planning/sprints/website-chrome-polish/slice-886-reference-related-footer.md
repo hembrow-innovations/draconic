@@ -2,12 +2,12 @@
 id: "slice-886-reference-related-footer"
 title: "Reference related-link footer"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:50:00Z"
 ---
 
 # Reference related-link footer
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: Reference working pages lock a related-link footer
+- [x] O1: Reference working pages lock a related-link footer
   CHECK: pnpm --dir website exec vitest run reference-prev-next docs-shell
   EXPECT: Test Files  2 passed
-  EVIDENCE: pending
+  EVIDENCE: Test Files  2 passed (2); Tests  3 passed (3); task-887 completed in archive
 
 ## Pool
 
