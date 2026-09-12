@@ -149,6 +149,15 @@ test("search", () => {
     "Learn · from JavaScript · Todo",
   );
 
+  const modulesEntry = querySearchIndex(index, "Entry").find(
+    (hit) => hit.href === "/modules",
+  );
+  expect(modulesEntry?.headings).toContain("Entry");
+  expect(searchHitHref(modulesEntry!, "Entry")).toBe("/modules#entry");
+  expect(searchHitLabel(modulesEntry!, "Entry")).toBe(
+    "Learn · modules · Entry",
+  );
+
   const nativeTypes = querySearchIndex(index, "Fixed structs");
   expect(nativeTypes.some((hit) => hit.href === "/native-types")).toBe(true);
   const nativePage = nativeTypes.find((hit) => hit.href === "/native-types");

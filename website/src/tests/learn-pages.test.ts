@@ -278,6 +278,10 @@ test("learn pages", () => {
   expect(modulesPage.body).toContain('from "./greet.drac"');
   expect(modulesPage.body).toContain("It builds today");
   expect(modulesPage.body).toContain("draconic check greet.drac");
+  expect(modulesPage.body).toContain("## Entry");
+  expect(modulesPage.body).toContain('console.log(greet("from the entry"));');
+  expect(modulesPage.body).toContain("draconic check main.drac");
+  expect(modulesPage.body).toContain("draconic run main.drac");
   expect(modulesPage.body.match(/```drac/g)?.length).toBe(1);
   expect(modulesHtml).toContain("greet");
   expect(modulesHtml).toContain('<a href="/native-types">native types</a>');

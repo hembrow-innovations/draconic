@@ -30,13 +30,23 @@ draconic check greet.drac
 draconic run greet.drac
 ```
 
+## Entry
+
 A second file imports named exports with a static relative specifier that ends in `.drac`. There is no extensionless import and no bare specifier on this page. Save `main.drac` next to `greet.drac`:
 
 ```
 import { greet } from "./greet.drac";
+
+let console = globalThis.console;
+console.log(greet("from the entry"));
 ```
 
-Build the entry. The Frontend links the graph. Relative specifiers must exist on disk.
+Typecheck the entry, then run it. Default `draconic run` target is js. The Frontend links the graph from `main.drac`. Relative specifiers must exist on disk:
+
+```
+draconic check main.drac
+draconic run main.drac
+```
 
 Packages resolve to ESM files inside a git-backed tree. A bare specifier such as `github.com/org/pkg` is the join to [packages](packages.html): a module path is not a new language, it is how an import finds a file.
 
