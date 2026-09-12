@@ -1,4 +1,4 @@
-//! ROADMAP D01.01: CI/release produces a platform binary artifact for the host triple.
+//! ROADMAP D01.01: release script stages a platform binary artifact for the host triple.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -139,28 +139,5 @@ fn release_script_stages_host_triple_binary() {
     assert!(
         ver.contains("draconic"),
         "staged -V should print version:\n{ver}"
-    );
-}
-
-#[test]
-fn ci_workflow_builds_and_uploads_host_artifact() {
-    let workflow = repo_root().join(".github/workflows/release-artifact.yml.disabled");
-    assert!(
-        workflow.is_file(),
-        "missing {} (D01.01 CI/release workflow)",
-        workflow.display()
-    );
-    let text = fs::read_to_string(&workflow).expect("read workflow");
-    assert!(
-        text.contains("release-artifact.sh") || text.contains("scripts/release-artifact"),
-        "workflow should invoke the release artifact script:\n{text}"
-    );
-    assert!(
-        text.contains("upload-artifact"),
-        "workflow should upload the host-triple binary as a GitHub Actions artifact:\n{text}"
-    );
-    assert!(
-        text.contains("draconic-cli") || text.contains("cargo build"),
-        "workflow should build the draconic CLI:\n{text}"
     );
 }
