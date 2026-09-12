@@ -50,7 +50,7 @@ const learnChapters = [
   {
     slug: "host-io",
     title: "host I/O",
-    status: "not-yet",
+    status: "shipped",
     copy: "Host I/O is how a Program talks to the machine",
   },
   {
@@ -236,6 +236,32 @@ test("learn pages", () => {
   expect(modulesHtml).toContain('<a href="/packages">packages</a>');
   expect(modulesHtml).toContain("<pre>");
   expect(modulesHtml).toContain("<code>");
+
+  const hostIoPage = loadMarkdownPage("host-io");
+  const hostIo = renderMarkdown(hostIoPage.body);
+  expect(hostIoPage.body).toContain("```drac");
+  expect(hostIoPage.body).toContain("stdoutWrite");
+  expect(hostIoPage.body).toContain("writeFileText(");
+  expect(hostIoPage.body).toContain("readFileText(");
+  expect(hostIoPage.body).toContain("tcpListen");
+  expect(hostIoPage.body).toContain("httpParseRequest");
+  expect(hostIoPage.body).toContain("It builds today");
+  expect(hostIoPage.body).toContain("draconic check hello-host.drac");
+  expect(hostIoPage.body).toContain("draconic check note.drac");
+  expect(hostIoPage.body).toContain("free identifiers");
+  expect(hostIoPage.body).not.toContain(
+    "hard-errors unsupported host APIs until an explicit bridge exists",
+  );
+  expect(hostIoPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(hostIo).toContain("stdoutWrite");
+  expect(hostIo).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',
+  );
+  expect(hostIo).toContain('<a href="/packages">packages</a>');
+  expect(hostIo).toContain('<a href="/reference-host-io">host I/O</a>');
+  expect(hostIo).toContain('<a href="/cli">CLI</a>');
+  expect(hostIo).toContain("<pre>");
+  expect(hostIo).toContain("<code>");
 
   const extra = ["tutorial", "getting-started", "beginner", "vault"];
   for (const slug of extra) {

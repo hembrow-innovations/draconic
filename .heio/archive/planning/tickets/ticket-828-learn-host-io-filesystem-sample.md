@@ -2,19 +2,19 @@
 id: "ticket-828-learn-host-io-filesystem-sample"
 title: "Learn host I/O names filesystem APIs with no compiling sample"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T11:42:00Z"
-updated_at: "2026-09-12T11:42:00Z"
+updated_at: "2026-09-12T11:53:00Z"
 ---
 
 # Learn host I/O names filesystem APIs with no compiling sample
 
 ## Signal
 
-Website swarm 2026-09-12. `website/host-io.md` ships a compiling `stdoutWrite` fence. Filesystem is a heading that names `readFileText` and `writeFileText` as portable, with no sample. Sockets already point at the GitHub HTTP echo example. A visitor cannot copy a Program that reads or writes a file without leaving the page.
+Closed. Website swarm shipped a compiling write-then-read `writeFileText`/`readFileText` fence on `website/host-io.md`, plus `draconic check note.drac`. `website/src/tests/learn-pages.test.ts` locks two `drac` fences. Remaining not-yet pages stay prose-only.
 
 ## Fit
 

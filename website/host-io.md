@@ -1,19 +1,59 @@
 ---
 title: host I/O
 section: learn
-status: not-yet
+status: shipped
 ---
 
 # host I/O
 
 Host I/O is how a Program talks to the machine: process, stdio, filesystem, sockets, then thin HTTP.
 
+Host APIs are free identifiers on the global object. They are not ESM imports. Call `stdoutWrite` directly.
+
 Default permission policy is permissive. A Program with no explicit grant subset may read and write the filesystem and listen and connect TCP on the targets that already expose those APIs. This is not a Deno deny-by-default. Opt-in `--allow-*` flags on `draconic run` install a grant subset when you want one. See [CLI](cli.html).
 
-Networking is sockets-first. TCP listen, accept, connect, read, and write land on native. HTTP/1.1 helpers sit on those sockets. The designed surface is not a Node-shaped `http` module as the only entry. Listen and server paths are native first. The JS backend hard-errors unsupported host APIs until an explicit bridge exists.
+## stdoutWrite
+
+`stdoutWrite` writes text or bytes to standard output. There is no automatic newline. Save this as `hello-host.drac`. It builds today:
+
+```drac
+stdoutWrite("hello from Draconic\n");
+```
+
+Parse it, typecheck it, or run it. Default `draconic run` target is js:
+
+```
+draconic parse hello-host.drac
+draconic check hello-host.drac
+draconic run hello-host.drac
+```
+
+## Filesystem
+
+`readFileText` reads a whole file as text. `writeFileText` writes one. Those names are portable: both backends accept them. Save this as `note.drac`. It builds today:
+
+```drac
+writeFileText("note.txt", "hello from Draconic\n");
+let text = readFileText("note.txt");
+stdoutWrite(text);
+```
+
+Parse it, typecheck it, or run it:
+
+```
+draconic parse note.drac
+draconic check note.drac
+draconic run note.drac
+```
+
+## Sockets then HTTP
+
+Networking is sockets-first. `tcpListen`, `tcpAccept`, `tcpConnect`, `tcpRead`, `tcpWrite`, and `closeTcp` land on both backends. HTTP/1.1 helpers `httpParseRequest` and `httpWriteResponse` sit on those sockets. The designed surface is not a Node-shaped `http` module as the only entry.
+
+Listen and server paths started native-first. The JS backend now bridges those names, so a Program that uses `tcpListen` builds on js and on native. Host APIs that remain native-only still hard-error on js.
 
 v1 HTTP is plaintext HTTP/1.1. TLS, HTTP/2, and WebSocket are later.
 
-The public site generator itself is a native Program that reads and writes files.
+A listen loop binds a port. Copy [HTTP echo](https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo) when you want `tcpListen` plus `httpParseRequest` in one Program.
 
 Continue to [packages](packages.html). Lookup: [host I/O](reference-host-io.html).

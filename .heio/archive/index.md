@@ -2,7 +2,9 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-828-learn-host-io-filesystem-sample** — closed; Learn host I/O shipped a compiling write-then-read filesystem fence
 - **ticket-827-install-node-prerequisite** — closed; Install names Node on PATH before the first draconic run command
+- **ticket-825-host-io-working-pages** — closed; Learn and Reference host I/O shipped with compiling stdoutWrite fence and named portable APIs
 - **ticket-824-learn-modules-ship** — closed; Learn modules shipped with compiling named export fence and relative import prose
 - **ticket-823-dual-world-rules-lookup** — closed; Dual-world rules Reference shipped with compiling as and try/catch fences
 - **ticket-822-types-reference-lookup** — closed; types Reference shipped with compiling JS-value, i32, and as fences
