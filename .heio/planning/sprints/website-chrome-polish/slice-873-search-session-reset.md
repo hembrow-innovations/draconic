@@ -2,12 +2,12 @@
 id: "slice-873-search-session-reset"
 title: "Search session reset"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T18:10:00Z"
 ---
 
 # Search session reset
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: search query and results reset on navigation and Escape
+- [x] O1: search query and results reset on navigation and Escape
   CHECK: pnpm --dir website exec vitest run search
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: pnpm --dir website exec vitest run search → Test Files  1 passed (1). task-874 archived.
 
 ## Pool
 
