@@ -459,8 +459,8 @@ fn website_pipeline_not_yet_page_without_fence_generates() {
         "expected modules title in HTML, got:\n{modules}"
     );
     assert!(
-        modules.contains("not-yet"),
-        "expected modules status not-yet in HTML, got:\n{modules}"
+        modules.contains("shipped"),
+        "expected modules status shipped in HTML, got:\n{modules}"
     );
 }
 

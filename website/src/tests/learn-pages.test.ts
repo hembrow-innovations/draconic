@@ -38,13 +38,13 @@ const learnChapters = [
   {
     slug: "modules",
     title: "modules",
-    status: "not-yet",
+    status: "shipped",
     copy: "A Program may be one file or an ECMAScript Module graph.",
   },
   {
     slug: "native-types",
     title: "native types",
-    status: "not-yet",
+    status: "shipped",
     copy: "A native type is a static, unboxed systems type.",
   },
   {
@@ -198,6 +198,38 @@ test("learn pages", () => {
   expect(dualWorlds).toContain("jsCount");
   expect(dualWorlds).toContain("<pre>");
   expect(dualWorlds).toContain("<code>");
+
+  const nativeTypesPage = loadMarkdownPage("native-types");
+  const nativeTypes = renderMarkdown(nativeTypesPage.body);
+  expect(nativeTypesPage.body).toContain("```drac");
+  expect(nativeTypesPage.body).toContain("let count: i32");
+  expect(nativeTypesPage.body).toContain("let wide: i64");
+  expect(nativeTypesPage.body).toContain("type Point = { x: i32; y: i32 }");
+  expect(nativeTypesPage.body).toContain("as number");
+  expect(nativeTypesPage.body).toContain("It builds today");
+  expect(nativeTypesPage.body).toContain("## i32 and i64");
+  expect(nativeTypesPage.body).toContain("## Fixed structs");
+  expect(nativeTypesPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(nativeTypes).toContain("count");
+  expect(nativeTypes).toContain("Point");
+  expect(nativeTypes).toContain('<a href="/host-io">host I/O</a>');
+  expect(nativeTypes).toContain('<a href="/types">types</a>');
+  expect(nativeTypes).toContain("<pre>");
+  expect(nativeTypes).toContain("<code>");
+
+  const modulesPage = loadMarkdownPage("modules");
+  const modulesHtml = renderMarkdown(modulesPage.body);
+  expect(modulesPage.body).toContain("```drac");
+  expect(modulesPage.body).toContain("export function greet");
+  expect(modulesPage.body).toContain('from "./greet.drac"');
+  expect(modulesPage.body).toContain("It builds today");
+  expect(modulesPage.body).toContain("draconic check greet.drac");
+  expect(modulesPage.body.match(/```drac/g)?.length).toBe(1);
+  expect(modulesHtml).toContain("greet");
+  expect(modulesHtml).toContain('<a href="/native-types">native types</a>');
+  expect(modulesHtml).toContain('<a href="/packages">packages</a>');
+  expect(modulesHtml).toContain("<pre>");
+  expect(modulesHtml).toContain("<code>");
 
   const extra = ["tutorial", "getting-started", "beginner", "vault"];
   for (const slug of extra) {

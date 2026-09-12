@@ -44,8 +44,8 @@ Reference path (from `website/reference.md`): CLI, types, Dual-world rules, host
 
 Status in `website/*.md` as of this note:
 
-- **shipped**: Learn, Reference, Install, from JavaScript, from systems, Dual worlds, CLI
-- **not-yet**: modules, native types, host I/O, packages, types, Dual-world rules, Reference host I/O, Reference packages
+- **shipped**: Learn, Reference, Install, from JavaScript, from systems, Dual worlds, modules, native types, CLI, types, Dual-world rules
+- **not-yet**: host I/O, packages, Reference host I/O, Reference packages
 
 Shipped pages may include copy-paste fences. Not-yet pages stay prose.
 

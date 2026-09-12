@@ -31,7 +31,7 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
   - **How:** Learn hub file route loads `website/learn.md` in DocsShell; aside lists Install through packages in hub order; the two landings join at Dual worlds; current chapter chrome uses an existing token with aria-current, not muted ink alone.
   - **Why:** Locks `public-site.ia:learn-walkable` for the Start hub and aside, and `public-site.chrome:current-page` for Learn chapter links.
 - **website/src/tests/learn-pages.test.ts** — `learn pages`
-  - **How:** Each existing Learn markdown file has a Start file route that loads teaching copy in LearnPage and DocsShell; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`. from JavaScript also locks the unresolved `console` bind, a second compiling `greet` fence, and a GitHub FizzBuzz example link. from systems locks a compiling hello Program, a compiling `i32` `add` fence, native build commands, and a GitHub HTTP echo example link.
+   - **How:** Each existing Learn markdown file has a Start file route that loads teaching copy in LearnPage and DocsShell; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`. from JavaScript also locks the unresolved `console` bind, a second compiling `greet` fence, and a GitHub FizzBuzz example link. from systems locks a compiling hello Program, a compiling `i32` `add` fence, native build commands, and a GitHub HTTP echo example link. Dual worlds locks a compiling `as i32` boundary fence. modules is shipped and locks a compiling named `export function greet` fence, `draconic check`, and a relative `./greet.drac` import in prose. native types is shipped and locks compiling `i32`/`i64` and fixed-struct fences.
   - **Why:** Locks `public-site.ia:learn-walkable` for chapter routes.
 - **website/src/tests/learn-prev-next.test.ts** — `learn prev next`
   - **How:** Sequence helper neighbors match `website/learn.md`; both landings next to Dual worlds; LearnPage article footer renders LearnPager; no extra stops.
@@ -40,7 +40,7 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
   - **How:** Repo Reference pages generate; CLI, types, Dual-world rules, host I/O, and packages are linked.
   - **Why:** Locks `public-site.ia:reference-walkable`.
 - **website/src/tests/reference-hub-pages.test.ts** — `reference hub pages`
-  - **How:** Reference hub file route loads `website/reference.md` in DocsShell; aside lists CLI, types, Dual-world rules, host I/O, and packages in hub order; each working markdown file has a Start file route that loads teaching copy in ReferencePage; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`; current working-page chrome uses an existing token with aria-current, not muted ink alone.
+   - **How:** Reference hub file route loads `website/reference.md` in DocsShell; aside lists CLI, types, Dual-world rules, host I/O, and packages in hub order; each working markdown file has a Start file route that loads teaching copy in ReferencePage; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`; current working-page chrome uses an existing token with aria-current, not muted ink alone. types is shipped and locks compiling JS-value, `i32`, and `as` fences plus `draconic check`. Dual-world rules is shipped and locks compiling `as` and `try`/`catch` fences plus `draconic check`.
   - **Why:** Locks `public-site.ia:reference-walkable` for the Start hub, aside, and working pages, and `public-site.chrome:current-page` for Reference chapter links.
 - **tests/integration/tests/website_pipeline.rs** — `website_pipeline_shipped_drac_fence_builds`
   - **How:** A shipped `drac` fence is extracted and `draconic build` writes an artifact.
@@ -64,7 +64,7 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
   - **How:** DocsShell is aside plus article plus Badge from shipped or not-yet; article children are kicker, then heading, then Badge, then remaining markdown, then footer; home and root do not use that chrome; tokens and CVA, no hex.
   - **Why:** Locks `public-site.chrome:docs-sidebar` and `public-site.chrome:docs-article-order`.
 - **website/src/tests/search.test.ts** — `search`
-  - **How:** Static index of routed `website/*.md` titles and headings; query Dual worlds hits `/dual-worlds`; body-only and vault phrases miss; SiteSearch in site chrome links to Start routes.
+   - **How:** Static index of routed `website/*.md` titles and headings; query Dual worlds hits `/dual-worlds`; query Fixed structs hits `/native-types`; body-only and vault phrases miss; SiteSearch in site chrome links to Start routes.
   - **Why:** Locks `public-site.search:titles-headings`.
 - **website/src/tests/site-header-primary-nav.test.ts** — `site header primary nav`
   - **How:** Root layout is skip then sticky side nav then main; side nav source has wordmark, Learn, Reference, GitHub, search, and theme toggle; home and Learn routes do not remount that chrome; current hub chrome uses an existing token with aria-current, not muted ink alone.

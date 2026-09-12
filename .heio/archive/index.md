@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **ticket-824-learn-modules-ship** — closed; Learn modules shipped with compiling named export fence and relative import prose
 - **ticket-823-dual-world-rules-lookup** — closed; Dual-world rules Reference shipped with compiling as and try/catch fences
 - **ticket-822-types-reference-lookup** — closed; types Reference shipped with compiling JS-value, i32, and as fences
 - **ticket-819-from-systems-first-program** — closed; from-systems Learn landing shipped with compiling hello and i32 add Programs
