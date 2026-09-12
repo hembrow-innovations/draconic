@@ -2,12 +2,12 @@
 id: "slice-817-frontend-check-source-script"
 title: "Frontend check_source stays Script"
 kind: slice
-status: frozen
+status: met
 sprint: "platform"
 blocked_by: []
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T16:40:00Z"
 ---
 
 # Frontend check_source stays Script
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: frontend tests lock Script-only string check
+- [x] O1: frontend tests lock Script-only string check
   CHECK: cargo test -p draconic-frontend --offline
   EXPECT: test result: ok.
-  EVIDENCE: pending
+  EVIDENCE: cargo test -p draconic-frontend --offline → test result: ok. 17 passed; 0 failed. Script string APIs reject export and TLA; Module string APIs accept TLA; parse_source still retries Module.
 
 ## Pool
 
