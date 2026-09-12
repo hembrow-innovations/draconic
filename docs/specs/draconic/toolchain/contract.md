@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [contract]
 created_at: "2026-09-06"
-updated_at: "2026-09-08"
+updated_at: "2026-09-12"
 ---
 
 # Toolchain — Contract
@@ -40,6 +40,15 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: default_output_paths
   test: build_js_default_output_next_to_source
   test: build_native_default_output_next_to_source
+- `toolchain.cli:build-js-library-esm`: `draconic build --target js --library` writes a JS artifact Node can `import { name } from` for entry named exports, including a two-file re-export under the public name; `--library` with `--target native` is a parse/usage error; without `--library`, default build and run stay scripts and do not emit `export {}` for an empty named-export table.
+  test: build_js_library_named_export_imports
+  test: build_js_library_reexport_imports_public_name
+  test: build_js_library_alias_imports_public_name
+  test: build_native_library_flag_is_js_only
+  test: help_lists_library
+  test: build_js_without_library_stays_script
+  test: run_module_named_export_stays_script
+  test: build_js_library_empty_exports_omits_export_braces
 - `toolchain.cli:run-execute`: `draconic run` builds and executes a Program; default target is js; `--target native` runs a native binary; remaining tokens are program argv; a shebang-shaped path invokes run.
   test: help_lists_run
   test: parse_run_args_defaults_js_and_forwards

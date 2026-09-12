@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use draconic_backend_js::emit_js;
+use draconic_backend_js::{emit_js, emit_js_library};
 use draconic_backend_llvm::{build_native_binary_with_lto, emit_llvm_ir_with_debug, SourceDebug};
 use draconic_diagnostics::Diagnostic;
 use draconic_frontend::{compile_path, compile_path_for_target, CompileTarget};
@@ -28,6 +28,8 @@ struct BuildArgs {
     strip: bool,
     /// D05.02: LTO (size-opt) native link.
     lto: bool,
+    /// Opt-in named ESM exports on JS emit (`toolchain.cli:build-js-library-esm`).
+    library: bool,
 }
 
 pub fn cmd_build(args: &[String]) -> ExitCode {
@@ -36,7 +38,7 @@ pub fn cmd_build(args: &[String]) -> ExitCode {
         Err(msg) => {
             eprintln!("{msg}");
             eprintln!(
-                "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]"
+                "usage: draconic build --target js|native [--watch] [--offline] [--library] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]"
             );
             return ExitCode::from(2);
         }
@@ -60,6 +62,7 @@ pub fn cmd_build(args: &[String]) -> ExitCode {
                 parsed.offline,
                 &parsed.link_libs,
                 parsed.lto,
+                parsed.library,
             )
             .map_err(|d| d.to_string())?;
             if parsed.strip {
@@ -76,6 +79,7 @@ pub fn cmd_build(args: &[String]) -> ExitCode {
         parsed.offline,
         &parsed.link_libs,
         parsed.lto,
+        parsed.library,
     ) {
         eprintln!("error: {d}");
         return ExitCode::from(1);
@@ -98,6 +102,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     let mut offline = false;
     let mut strip = false;
     let mut lto = false;
+    let mut library = false;
     let mut link_libs: Vec<PathBuf> = Vec::new();
 
     let mut i = 0;
@@ -131,6 +136,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             "--offline" => offline = true,
             "--strip" | "--strip-symbols" => strip = true,
             "--lto" => lto = true,
+            "--library" => library = true,
             "--link" => {
                 i += 1;
                 let val = args
@@ -146,7 +152,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
             }
             "-h" | "--help" => {
                 return Err(
-                    "usage: draconic build --target js|native [--watch] [--offline] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]".into(),
+                    "usage: draconic build --target js|native [--watch] [--offline] [--library] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]".into(),
                 );
             }
             other if other.starts_with('-') => {
@@ -170,6 +176,9 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
     if lto && target != Target::Native {
         return Err("--lto is only valid with --target native".to_string());
     }
+    if library && target != Target::Js {
+        return Err("--library is only valid with --target js".to_string());
+    }
     Ok(BuildArgs {
         target,
         input,
@@ -179,6 +188,7 @@ fn parse_build_args(args: &[String]) -> Result<BuildArgs, String> {
         link_libs,
         strip,
         lto,
+        library,
     })
 }
 
@@ -206,6 +216,7 @@ pub(crate) fn build_program(
     offline: bool,
     link_libs: &[PathBuf],
     lto: bool,
+    library: bool,
 ) -> Result<(), Diagnostic> {
     // K07: auto-fetch missing locked package checkouts before link/compile.
     // K07.01: materialise missing pins. K07.02: `--offline` → cache only; miss → fixit.
@@ -230,7 +241,11 @@ pub(crate) fn build_program(
                     draconic_diagnostics::Span::dummy(),
                 ));
             }
-            let js = emit_js(&module)?;
+            let js = if library {
+                emit_js_library(&module)?
+            } else {
+                emit_js(&module)?
+            };
             if let Some(parent) = out.parent() {
                 if !parent.as_os_str().is_empty() {
                     fs::create_dir_all(parent).map_err(|e| {
@@ -304,6 +319,33 @@ mod tests {
     }
 
     #[test]
+    fn parse_build_args_library_js() {
+        let args = vec![
+            "--target".into(),
+            "js".into(),
+            "--library".into(),
+            "a.drac".into(),
+        ];
+        let p = parse_build_args(&args).unwrap();
+        assert!(p.library);
+        assert_eq!(p.target, Target::Js);
+        assert_eq!(p.input, PathBuf::from("a.drac"));
+    }
+
+    #[test]
+    fn parse_build_args_library_rejects_native() {
+        let args = vec![
+            "--target".into(),
+            "native".into(),
+            "--library".into(),
+            "a.drac".into(),
+        ];
+        let err = parse_build_args(&args).unwrap_err();
+        assert!(err.contains("library"), "{err}");
+        assert!(err.contains("js"), "{err}");
+    }
+
+    #[test]
     fn parse_build_args_link_static() {
         let args = vec![
             "--target".into(),
@@ -342,7 +384,7 @@ mod tests {
         let out = dir.join("t.js");
         let input = dir.join("t.drac");
         fs::write(&input, "let x = 1;").unwrap();
-        build_program(&input, Target::Js, &out, false, &[], false).unwrap();
+        build_program(&input, Target::Js, &out, false, &[], false, false).unwrap();
         let js = fs::read_to_string(&out).unwrap();
         assert!(js.contains("let x"));
         let _ = fs::remove_dir_all(&dir);

@@ -2,17 +2,16 @@
 id: "task-912-js-library-named-esm"
 title: "Opt-in JS named ESM library emit"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by:
   - task-910-entry-export-table
 sprint: "js-library-esm"
 slice: "slice-911-js-library-named-esm"
-tags: [js, linker, distribution]
+tags: [ js, linker, distribution ]
 created_at: "2026-09-12T11:05:00Z"
-updated_at: "2026-09-12T11:05:00Z"
+updated_at: "2026-09-12T22:20:00Z"
 ---
-
 # Opt-in JS named ESM library emit
 
 ## Blocked by
@@ -80,12 +79,12 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - Node verification must `import` the file (`--input-type=module` or `.mjs`). Do not lock emit shape with `js.check` alone.
 
 **Acceptance criteria:**
-- [ ] Slice O1 CHECK prints `named-ok` and exits 0
-- [ ] Slice O2 CHECK prints `reexport-ok` and exits 0
-- [ ] Slice O3 CHECK prints `script-ok` and exits 0
-- [ ] `toolchain.cli:build-js-library-esm` is on [[Toolchain — Contract]] with a `test:` pointer, and [[Toolchain tests]] names that test
-- [ ] `cargo test -p draconic-cli --offline` prints `test result: ok.`
-- [ ] Promise ids listed above still hold (or were deliberately edited)
+- [x] Slice O1 CHECK prints `named-ok` and exits 0
+- [x] Slice O2 CHECK prints `reexport-ok` and exits 0
+- [x] Slice O3 CHECK prints `script-ok` and exits 0
+- [x] `toolchain.cli:build-js-library-esm` is on [[Toolchain — Contract]] with a `test:` pointer, and [[Toolchain tests]] names that test
+- [x] `cargo test -p draconic-cli --offline` prints `test result: ok.`
+- [x] Promise ids listed above still hold (or were deliberately edited)
 
 **Out of scope:**
 - default export and `export *` (later children of [[ticket-908-js-library-esm-export]])
@@ -96,3 +95,7 @@ If any `blocked_by` task is not `completed`, stop. Drain uses `blocked_by`.
 - Consumer workarounds
 - LLVM library emit
 - `cargo test --workspace` as the unit oracle
+
+## Gauntlet
+
+- **round 1**: slice O1–O3 CHECK plus `cargo test -p draconic-cli --offline` — win. O1 `named-ok` exit 0. O2 `reexport-ok` exit 0. O3 `script-ok` exit 0. Crate `test result: ok.` Promise `toolchain.cli:build-js-library-esm` locked. Review: dropped emit-text reexport assertion; Node import remains the oracle.

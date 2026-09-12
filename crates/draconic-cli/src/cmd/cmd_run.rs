@@ -35,7 +35,15 @@ pub fn cmd_run(args: &[String]) -> ExitCode {
         Target::Native => work.join("out"),
     };
 
-    if let Err(d) = build_program(&parsed.input, parsed.target, &artifact, false, &[], false) {
+    if let Err(d) = build_program(
+        &parsed.input,
+        parsed.target,
+        &artifact,
+        false,
+        &[],
+        false,
+        false,
+    ) {
         let _ = fs::remove_dir_all(&work);
         eprintln!("error: {d}");
         return ExitCode::from(1);

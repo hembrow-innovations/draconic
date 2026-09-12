@@ -196,7 +196,7 @@ Usage:
   draconic fmt [--check] <file>                  Format a Program in-place (or check only)
   draconic doc [--format md|html] [-o <out>] <file>
                                                  Extract /** doc comments */ to markdown or HTML
-  draconic build --target js|native [--watch] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]
+  draconic build --target js|native [--watch] [--library] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]
                                                   Compile a Program to JS or a native binary
   draconic run [--target js|native] [--allow-fs-read] [--allow-fs-write]
                [--allow-net-listen] [--allow-net-connect] <file> [args...]

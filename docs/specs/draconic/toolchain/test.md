@@ -8,7 +8,7 @@ domain: draconic
 area: toolchain
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-08"
+updated_at: "2026-09-12"
 ---
 
 # Toolchain tests
@@ -17,7 +17,7 @@ Purpose: [[Toolchain purpose]]. Contract: [[Toolchain — Contract]].
 
 ## Coverage
 
-These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:build-scratch-name`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
+These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `toolchain.cli:build-targets`, `toolchain.cli:build-scratch-name`, `toolchain.cli:build-js-library-esm`, `toolchain.cli:run-execute`, `toolchain.cli:repl`, `toolchain.cli:fmt`, `toolchain.frontend:facade`, `toolchain.embed:eval`, and `toolchain.lsp:analysis`. Asserted: `toolchain.cli:forbid-learn-site-content`.
 
 ## Tests
 
@@ -57,6 +57,30 @@ These tests lock `toolchain.cli:parse-ast`, `toolchain.cli:check-no-emit`, `tool
 - **crates/draconic-cli/tests/build.rs** — `build_js_default_output_next_to_source` / `build_native_default_output_next_to_source`
   - **How:** `build` without `-o` writes those names beside the Program.
   - **Why:** Same promise through the CLI binary.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_named_export_imports`
+  - **How:** `build --target js --library` of `export const view = "view"`; Node `import { view }` yields `"view"`.
+  - **Why:** Locks `toolchain.cli:build-js-library-esm` at the Node import seam (not emit-text).
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_reexport_imports_public_name`
+  - **How:** Entry `export { view } from "./dep.drac"`; Node `import { view }` yields the dependency value, not a mangled local.
+  - **Why:** Same promise; public name survives flatten.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_alias_imports_public_name`
+  - **How:** `export { local as publicName }`; Node `import { publicName }` yields the local value.
+  - **Why:** Same promise; alias uses the public name.
+- **crates/draconic-cli/tests/library.rs** — `build_native_library_flag_is_js_only`
+  - **How:** `build --target native --library` exits non-zero; message names `--library` as js-only, not unknown.
+  - **Why:** Same class as native-only flags on js.
+- **crates/draconic-cli/tests/library.rs** — `help_lists_library`
+  - **How:** `draconic help` stdout contains `--library`.
+  - **Why:** The flag is on the usage surface.
+- **crates/draconic-cli/tests/library.rs** — `build_js_without_library_stays_script`
+  - **How:** Default `build --target js` of a named-export Module runs as a Node script (no `export`).
+  - **Why:** Opt-in only; keeps `toolchain.cli:build-targets` script emit.
+- **crates/draconic-cli/tests/library.rs** — `run_module_named_export_stays_script`
+  - **How:** `draconic run --target js` of a Module with named exports prints and exits 0.
+  - **Why:** Default run stays a script; keeps `toolchain.cli:run-execute`.
+- **crates/draconic-cli/tests/library.rs** — `build_js_library_empty_exports_omits_export_braces`
+  - **How:** `--library` on a Script with an empty named-export table does not emit `export {}`.
+  - **Why:** Empty `export {}` would SyntaxError a script host.
 - **crates/draconic-cli/tests/run.rs** — `run_target_js_executes_console_log` / `run_defaults_to_js` / `run_target_native_executes_scalar`
   - **How:** `run` executes js (default) and native Programs.
   - **Why:** Locks `toolchain.cli:run-execute` (U14).

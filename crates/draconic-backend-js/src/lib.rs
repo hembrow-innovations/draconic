@@ -14,7 +14,7 @@ pub use source_map::{
 use std::collections::HashMap;
 
 use draconic_diagnostics::{Diagnostic, Span};
-use draconic_ir::{LocalId, Module, Stmt};
+use draconic_ir::{LocalId, Module, NamedExport, Stmt};
 use source_map::SourceMapBuilder;
 
 /// JS emit result with optional Source Map v3 (U03).
@@ -33,6 +33,36 @@ pub struct EmittedJs {
 /// - `extern "C"` / FFI (`module.has_extern_ffi`): hard-error (F08.01).
 pub fn emit_js(module: &Module) -> Result<String, Diagnostic> {
     Ok(emit_js_full(module, None)?.code)
+}
+
+/// Emit a script body, then named ESM exports from IR metadata (`export { local as public }`).
+///
+/// Empty `named_exports` does not emit `export {}`. Default [`emit_js`] stays a script.
+pub fn emit_js_library(module: &Module) -> Result<String, Diagnostic> {
+    let mut code = emit_js(module)?;
+    append_named_esm_exports(&mut code, &module.named_exports);
+    Ok(code)
+}
+
+fn append_named_esm_exports(out: &mut String, exports: &[NamedExport]) {
+    if exports.is_empty() {
+        return;
+    }
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str("export { ");
+    for (i, exp) in exports.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&exp.local_name);
+        if exp.local_name != exp.public_name {
+            out.push_str(" as ");
+            out.push_str(&exp.public_name);
+        }
+    }
+    out.push_str(" };\n");
 }
 
 /// Emit ECMAScript plus a Source Map v3 mapping generated positions back to the Program.

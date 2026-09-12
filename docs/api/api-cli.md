@@ -8,7 +8,7 @@ area: api
 tags: [api, cli]
 source: crates/draconic-cli/src/main.rs
 created_at: "2026-09-06"
-updated_at: "2026-09-08"
+updated_at: "2026-09-12"
 ---
 
 # draconic CLI
@@ -31,7 +31,7 @@ Endpoints below are commands. Global: `draconic help` / `-h` / `--help` print us
 
 - **doc `[--format md|html] [-o <out>] <file>`**: extract `/** doc comments */` to markdown (default) or HTML. `-o` / `--output` writes a file; otherwise stdout. Unknown `--format` exits 2.
 
-- **build `--target js|native` `[--watch] [--offline] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]`**: compile to JS or a native binary. `--target` is required (`js` or `native`). `parse_build_args` also accepts `--target=`, `-o` / `--out` / `--output` / `--out=` / `--output=`, `--watch`, `--offline` (cache-only package ensure; miss is a hard error), `--strip` / `--strip-symbols` (native only), `--lto` (native only), `--link` / `--link=` extra `.a` (native only). `print_usage` omits `--offline`; the parser accepts it. `--strip` or `--lto` with `--target js` is an error. When `-o` is omitted, JS is `{stem}.out.js` and native is `{stem}.out` beside the input (gitignored scratch names; [[architecture-cli]]).
+- **build `--target js|native` `[--watch] [--offline] [--library] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]`**: compile to JS or a native binary. `--target` is required (`js` or `native`). `parse_build_args` also accepts `--target=`, `-o` / `--out` / `--output` / `--out=` / `--output=`, `--watch`, `--offline` (cache-only package ensure; miss is a hard error), `--library` (js only: named ESM exports from IR metadata), `--strip` / `--strip-symbols` (native only), `--lto` (native only), `--link` / `--link=` extra `.a` (native only). `print_usage` omits `--offline`; the parser accepts it. `--strip` or `--lto` with `--target js` is an error. `--library` with `--target native` is an error. When `-o` is omitted, JS is `{stem}.out.js` and native is `{stem}.out` beside the input (gitignored scratch names; [[architecture-cli]]).
 
 - **run `[--target js|native] [--allow-fs-read] [--allow-fs-write] [--allow-net-listen] [--allow-net-connect] <file> [args...]`**: build and execute. Default target `js`. `parse_run_args`: `--target` / `--target=`, the four `--allow-*` flags, `--` then program argv, then remaining tokens after the file as program argv. Non-empty grants set `DRACONIC_PERMISSIONS` on the child. Unflagged run is permissive ([[security]]).
 
