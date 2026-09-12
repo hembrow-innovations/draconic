@@ -6,7 +6,7 @@ import {
 } from "../content";
 
 /**
- * One public page in the title and heading finder.
+ * One public page in the title, heading, and teaching-body finder.
  *
  * Locks `public-site.search:titles-headings`.
  */
@@ -15,6 +15,7 @@ export type SearchEntry = {
   title: string;
   section: string;
   headings: string[];
+  body: string;
 };
 
 /**
@@ -47,7 +48,7 @@ export function extractHeadings(source: string): string[] {
 }
 
 /**
- * Build the static title and heading index from routed `website/content/*.md` pages.
+ * Build the static title, heading, and teaching-body index from routed `website/content/*.md` pages.
  *
  * @returns Finder entries for existing Start routes
  */
@@ -56,9 +57,9 @@ export function buildSearchIndex(): SearchEntry[] {
 }
 
 /**
- * Find Learn or Reference pages whose title or heading contains the query.
+ * Find Learn or Reference pages whose title, heading, or teaching body contains the query.
  *
- * @param index - Static title and heading entries
+ * @param index - Static title, heading, and teaching-body entries
  * @param query - Visitor search text
  * @returns Matching pages in index order
  */
@@ -123,6 +124,7 @@ function toSearchEntry(page: MarkdownPage): SearchEntry {
     title: page.title,
     section: page.section,
     headings: extractHeadings(page.body),
+    body: page.body,
   };
 }
 
@@ -141,5 +143,8 @@ function matchesEntry(entry: SearchEntry, needle: string): boolean {
   if (entry.title.toLowerCase().includes(needle)) {
     return true;
   }
-  return entry.headings.some((heading) => heading.toLowerCase().includes(needle));
+  if (entry.headings.some((heading) => heading.toLowerCase().includes(needle))) {
+    return true;
+  }
+  return entry.body.toLowerCase().includes(needle);
 }

@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-895-search-body-terms** — completed; teaching-page body terms find their Learn or Reference page; vault-only phrases still miss (slice-894)
 - **slice-892-outline-current-section** — met; On this page marks the heading in view; website-chrome-polish stays active
 - **task-893-outline-current-section** — completed; On this page marks the heading in view with aria-current that is not page; siblings stay unmarked (slice-892)
 - **slice-890-meta-description** — met; page-specific description, canonical, and Open Graph lock from existing copy; website-chrome-polish stays active

@@ -2,7 +2,7 @@
 id: "task-895-search-body-terms"
 title: "Index teaching-page body terms"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-search-index"
@@ -10,7 +10,7 @@ slice: "slice-894-search-body-terms"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T19:30:00Z"
 ---
 
 # Index teaching-page body terms
@@ -68,11 +68,11 @@ A visitor can find a routed Learn or Reference page by a term that appears in th
 - Hit href and label. Title and heading hits keep current page and section-hash behaviour. A body-only hit may land on the page without a new fragment rule.
 
 **Acceptance criteria:**
-- [ ] Purpose in-scope search line and `public-site.search:titles-headings` include teaching-page body terms
-- [ ] Tests fail if a current body-only teaching term such as FizzBuzz, localStorage, or u64 does not hit its page
-- [ ] Vault phrases still miss, including tracing GC, Ownership-only, Public site purpose, and Give someone writing a Program
-- [ ] Dual worlds, heading hashes, miss copy, and Learn versus Reference labels still hold
-- [ ] Named vitest file passes and typecheck exits 0
+- [x] Purpose in-scope search line and `public-site.search:titles-headings` include teaching-page body terms
+- [x] Tests fail if a current body-only teaching term such as FizzBuzz, localStorage, or u64 does not hit its page
+- [x] Vault phrases still miss, including tracing GC, Ownership-only, Public site purpose, and Give someone writing a Program
+- [x] Dual worlds, heading hashes, miss copy, and Learn versus Reference labels still hold
+- [x] Named vitest file passes and typecheck exits 0
 
 **Out of scope:**
 - Keyboard and live-region wiring ([[ticket-857-search-keyboard-live]])
@@ -81,3 +81,7 @@ A visitor can find a routed Learn or Reference page by a term that appears in th
 
 **Explain this part:**
 This sitting is the match set. It is allowed to edit the existing search promise. It is not a chrome or session sitting.
+
+## Gauntlet
+
+- **Round 1:** `pnpm --dir website exec vitest run search` and `pnpm --dir website exec tsc --noEmit`. Win. Vitest printed `Test Files  1 passed`. tsc exited 0. Gap: none. Stale vault-miss examples tracing GC and Ownership-only now appear in teaching copy; filed [[ticket-902-stale-vault-search-misses]].

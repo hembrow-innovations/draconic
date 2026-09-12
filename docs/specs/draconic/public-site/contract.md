@@ -74,7 +74,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.chrome:on-page-toc`: A Learn or Reference page with section headings below the title lists those headings as in-article links to the heading fragment ids. The outline marks the heading in view with aria-current that is not page; sibling outline links stay unmarked.
   test: docs shell
   test: page outline
-- `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title or heading text.
+- `public-site.search:titles-headings`: A visitor can find a Learn or Reference page by title, heading, or teaching-page body text.
   test: website/src/tests/search.test.ts
 - `public-site.search:keyboard-live`: Keyboard users can move through visible search hits with Arrow Down and Arrow Up and activate the selected hit, including the first hit on Enter; screen-reader users hear that results or No matching pages appeared.
   test: website/src/tests/search.test.ts

@@ -144,8 +144,10 @@ test("search", () => {
     expect(entry).toHaveProperty("title");
     expect(entry).toHaveProperty("headings");
     expect(entry).toHaveProperty("section");
+    expect(entry).toHaveProperty("body");
+    expect(typeof entry.body).toBe("string");
+    expect(entry.body.length).toBeGreaterThan(0);
     expect(["learn", "reference"]).toContain(entry.section);
-    expect(entry).not.toHaveProperty("body");
     expect(JSON.stringify(entry)).not.toMatch(/playground/i);
     expect(JSON.stringify(entry)).not.toContain("docs/");
   }
@@ -458,14 +460,59 @@ test("search", () => {
     "Reference · host I/O · HTTP echo",
   );
 
-  const learnHits = querySearchIndex(index, "Dual worlds").filter(
-    (hit) => hit.href === "/learn",
+  const fizzBuzz = querySearchIndex(index, "FizzBuzz").find(
+    (hit) => hit.href === "/from-javascript",
   );
-  expect(learnHits).toEqual([]);
+  expect(fizzBuzz?.title).toBe("from JavaScript");
+  expect(fizzBuzz?.headings.some((heading) => /fizzbuzz/i.test(heading))).toBe(
+    false,
+  );
+  expect(searchHitHref(fizzBuzz!, "FizzBuzz")).toBe("/from-javascript");
+  expect(searchHitLabel(fizzBuzz!, "FizzBuzz")).toBe("Learn · from JavaScript");
 
-  expect(querySearchIndex(index, "tracing GC")).toEqual([]);
-  expect(querySearchIndex(index, "Ownership-only")).toEqual([]);
-  expect(querySearchIndex(index, "JavaScript you already know")).toEqual([]);
+  const localStorageHit = querySearchIndex(index, "localStorage").find(
+    (hit) => hit.href === "/from-javascript",
+  );
+  expect(localStorageHit?.title).toBe("from JavaScript");
+  expect(
+    localStorageHit?.headings.some((heading) => /localstorage/i.test(heading)),
+  ).toBe(false);
+  expect(searchHitHref(localStorageHit!, "localStorage")).toBe(
+    "/from-javascript",
+  );
+  expect(searchHitLabel(localStorageHit!, "localStorage")).toBe(
+    "Learn · from JavaScript",
+  );
+
+  const nativeU64 = querySearchIndex(index, "u64").find(
+    (hit) => hit.href === "/native-types",
+  );
+  const typesU64 = querySearchIndex(index, "u64").find(
+    (hit) => hit.href === "/types",
+  );
+  expect(nativeU64?.section).toBe("learn");
+  expect(typesU64?.section).toBe("reference");
+  expect(nativeU64?.headings.some((heading) => heading.includes("u64"))).toBe(
+    false,
+  );
+  expect(typesU64?.headings.some((heading) => heading.includes("u64"))).toBe(
+    false,
+  );
+  expect(searchHitHref(nativeU64!, "u64")).toBe("/native-types");
+  expect(searchHitLabel(nativeU64!, "u64")).toBe("Learn · native types");
+  expect(searchHitHref(typesU64!, "u64")).toBe("/types");
+  expect(searchHitLabel(typesU64!, "u64")).toBe("Reference · types");
+
+  expect(
+    querySearchIndex(index, "tracing GC").some(
+      (hit) => hit.href === "/dual-worlds",
+    ),
+  ).toBe(true);
+  expect(
+    querySearchIndex(index, "Ownership-only").some(
+      (hit) => hit.href === "/dual-worlds",
+    ),
+  ).toBe(true);
   expect(querySearchIndex(index, "Public site purpose")).toEqual([]);
   expect(querySearchIndex(index, "Give someone writing a Program")).toEqual([]);
 

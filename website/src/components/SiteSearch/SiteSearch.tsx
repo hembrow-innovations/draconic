@@ -17,7 +17,7 @@ import {
 } from "./SiteSearch.variants";
 
 /**
- * Client finder for Learn and Reference titles and headings.
+ * Client finder for Learn and Reference titles, headings, and teaching-page body.
  *
  * Locks `public-site.search:titles-headings`, `public-site.search:session`,
  * and `public-site.search:keyboard-live`.
