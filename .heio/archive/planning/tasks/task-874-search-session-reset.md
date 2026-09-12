@@ -2,7 +2,7 @@
 id: "task-874-search-session-reset"
 title: "Clear search on navigation and Escape"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-873-search-session-reset"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T18:20:00Z"
 ---
 
 # Clear search on navigation and Escape
@@ -68,13 +68,17 @@ Following a result navigates and clears the query and list. Escape clears the qu
 - Keyboard Escape on the search field
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.search:session` with a test pointer
-- [ ] Tests fail if SiteSearch has no navigation reset and no Escape handler
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Title and heading index behaviour is unchanged
+- [x] Contract lists `public-site.search:session` with a test pointer
+- [x] Tests fail if SiteSearch has no navigation reset and no Escape handler
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Title and heading index behaviour is unchanged
 
 **Out of scope:**
 - Body-term indexing ([[ticket-821-search-body-terms]]); result clipping; moving search out of the nav
 
 **Explain this part:**
 This sitting is session lifecycle. It does not change what a query matches.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run search` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.search:session`; titles-headings index unchanged; leftover hits unmount on location change and Escape so they cannot keep aria-current.

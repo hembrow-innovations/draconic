@@ -70,6 +70,15 @@ test("search", () => {
   expect(root).toContain("SearchIndexProvider");
 
   expect(search).toContain("public-site.search:titles-headings");
+  expect(search).toContain("public-site.search:session");
+  expect(search).toContain("useLocation");
+  expect(search).toContain("useEffect");
+  expect(search).toContain("location.pathname");
+  expect(search).toContain("location.hash");
+  expect(search).toContain('setQuery("")');
+  expect(search).toContain("onKeyDown");
+  expect(search).toContain("Escape");
+  expect(search).not.toContain("aria-current");
   expect(search).toContain('type="search"');
   expect(search).toContain("querySearchIndex");
   expect(search).toContain("searchHitLabel");

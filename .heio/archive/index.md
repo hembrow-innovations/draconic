@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **task-874-search-session-reset** — completed; search query and results clear on navigation and Escape so leftover hits cannot keep aria-current (slice-873)
 - **slice-871-per-page-titles** — met; each public page document title names the open page; home may remain Draconic; website-chrome-polish stays active
 - **task-872-per-page-titles** — completed; each public page document title names the open page; home may remain Draconic (slice-871)
 - **slice-869-distinct-nav-labels** — met; Learn and Reference host I/O and packages links have distinct accessible names; website-chrome-polish stays active

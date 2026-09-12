@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
   querySearchIndex,
   searchHitHref,
@@ -18,16 +18,21 @@ import {
 /**
  * Client finder for Learn and Reference titles and headings.
  *
- * Locks `public-site.search:titles-headings`.
+ * Locks `public-site.search:titles-headings` and `public-site.search:session`.
  *
  * @param props - Native element attributes
  * @returns Search field and result links
  */
 export function SiteSearch({ className, ...props }: SiteSearchProps) {
   const index = useSearchIndex();
+  const location = useLocation();
   const [query, setQuery] = useState("");
   const results = querySearchIndex(index, query);
   const miss = query.trim() !== "" && results.length === 0;
+
+  useEffect(() => {
+    setQuery("");
+  }, [location.pathname, location.hash]);
 
   return (
     <div className={siteSearchVariants({ className })} {...props}>
@@ -35,6 +40,11 @@ export function SiteSearch({ className, ...props }: SiteSearchProps) {
         type="search"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setQuery("");
+          }
+        }}
         aria-label="Search"
         className={siteSearchInputVariants()}
       />
