@@ -2,9 +2,12 @@
 
 One-liners of what landed. Newest first.
 
+- **housekeeping** — filed [[ticket-841-use-global-not-globalthis]]; remainder [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked; platform and opt-in-bench stay active
+- **ticket-832-learn-native-build-typed** — closed; Dual worlds and native types ship native-build commands for boundary.drac and width.drac
 - **ticket-840-home-native-sample** — closed; home shows native width.drac with i32/i64, Dual-world as, --target native, and a native-types doorway
 - **ticket-839-reference-host-io-process** — closed; Learn and Reference host I/O ship a compiling `processArgs` fence plus env/stdin/exit lookup; CLI run names leftover args; search hits processArgs
 - **ticket-838-learn-modules-entry** — closed; Learn modules ships a complete `main.drac` entry, check/run on that entry, and search for Entry
+- **ticket-835-types-reference-fixed-struct** — closed; types Reference ships compiling object-type, union, generic, and fixed-struct fences plus JS-value, i32, and as lookup
 - **website host I/O HTTP echo** — Learn and Reference host I/O ship a compiling HTTP echo fence plus write-time call shapes (`tcpRead(connection, maxLen)`, `httpParseRequest` fields, `httpWriteResponse`)
 - **website CLI reference** — teaching markdown lives in `website/content/`; CLI Reference names extract, doc, bindgen, default `{stem}.out.js`, `--coverage`, and `.exit`
 - **housekeeping** — met [[slice-815-llvm-walker-native-date-stdlib]]; task-816 archived; platform stays active
