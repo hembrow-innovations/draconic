@@ -6,7 +6,7 @@ sitting_kind: wayfinder
 status: awaiting-answers
 tags: [wayfinder]
 created_at: "2026-09-12T05:45:00Z"
-updated_at: "2026-09-12T06:54:19Z"
+updated_at: "2026-09-12T06:59:47Z"
 ---
 
 # Global object identifier
@@ -43,6 +43,16 @@ updated_at: "2026-09-12T06:54:19Z"
 
 1. Yes. Free `console` is the host print object per target. `createLogger` stays separate.
 
+## Round 4
+
+### Questions
+
+1. Does the global object still expose a `globalThis` property (`global.globalThis`) for ECMA-262 interop?
+
+### Answers
+
+1. No. No identifier and no property. Reopen [[0004-full-ecma-262-and-embed]] and rewrite E15.01 plus `language.ecma:builtins`. Test262 honesty treats `globalThis` as absent.
+
 ## Confirm
 
 ## Objectives
@@ -54,12 +64,13 @@ Decide the Program-visible identifier for the global object: keep ECMA-262 `glob
 - [[ticket-843-ecma-host-global-names|What do ECMA-262 and hosts name the global object?]]. ECMA-262 is `globalThis`; Node `global` is legacy.
 - [[ticket-844-program-visible-globalthis|Does a Program still see globalThis?]]. No. Programs see `global`. Reopen ADR-0004 and rewrite E15.01 plus builtins.
 - [[ticket-855-free-console-builtin|Does a Program see free console?]]. Yes. Host print object per target; `createLogger` stays separate.
+- [[ticket-854-globalthis-property|Does the global object still expose globalThis?]]. No. No identifier and no property.
 
 ## Not yet specified
 
 - Browser `window` / `self` host aliases.
-- How Test262 and native console lowering move off Program-visible `globalThis` (waits on [[ticket-854-globalthis-property]]).
-- What [[0004-full-ecma-262-and-embed]] and [[location-218-conformance]] say after the property decision.
+- How Test262 and native console lowering move off `globalThis` now that the property is gone.
+- Exact wording of reopened [[0004-full-ecma-262-and-embed]] and [[location-218-conformance]].
 
 ## Out of scope
 
