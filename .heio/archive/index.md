@@ -2,6 +2,8 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-867-current-page-contrast** — met; current-page nav ink meets 4.5:1 on canvas via darkened accent-2; website-chrome-polish stays active
+- **task-868-current-page-contrast** — completed; current-page nav text meets 4.5:1 against canvas (slice-867)
 - **slice-865-github-above-fold** — met; GitHub sits above LearnNav and ReferenceNav in the sticky side nav; website-chrome-polish stays active
 - **task-866-github-above-fold** — completed; GitHub sits above LearnNav and ReferenceNav in the sticky side nav (slice-865)
 - **ROADMAP.md** — archived language completeness checklist to `docs/overview/ROADMAP.md`; root stub is empty-board; remainder E17.02 / E18.44 stay parked as [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]]

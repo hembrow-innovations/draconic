@@ -2,7 +2,7 @@
 id: "task-868-current-page-contrast"
 title: "Give current-page nav text sufficient contrast"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-867-current-page-contrast"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T20:30:00Z"
 ---
 
 # Give current-page nav text sufficient contrast
@@ -67,13 +67,17 @@ Current-page nav text meets 4.5:1 against canvas at body size. It stays visually
 - Existing semantic tokens; optional value tweak of the current-page token, not a new name
 
 **Acceptance criteria:**
-- [ ] Contract `public-site.chrome:current-page` requires sufficient contrast, not only a distinct token
-- [ ] Tests fail if current-page ink is still the 3:1 accent-2-on-canvas pair
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] No new color token name
+- [x] Contract `public-site.chrome:current-page` requires sufficient contrast, not only a distinct token
+- [x] Tests fail if current-page ink is still the 3:1 accent-2-on-canvas pair
+- [x] Named vitest files pass and typecheck exits 0
+- [x] No new color token name
 
 **Out of scope:**
 - Changing which page is current; ODM product copy; playground
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages` — win. Test Files  3 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff keeps `public-site.chrome:current-page` with aria-current and existing `accent-2`; light `--color-accent-2` darkened to `#1f7a54` so body-size ink meets 4.5:1 on canvas.
 
 **Explain this part:**
 Color already exists. This sitting is contrast, not a second current-page invention.

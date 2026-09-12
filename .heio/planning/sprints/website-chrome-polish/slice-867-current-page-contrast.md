@@ -2,12 +2,12 @@
 id: "slice-867-current-page-contrast"
 title: "Current-page nav contrast"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T20:30:00Z"
 ---
 
 # Current-page nav contrast
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: current-page treatment is locked and no longer the 3:1 accent-2-on-canvas pair
+- [x] O1: current-page treatment is locked and no longer the 3:1 accent-2-on-canvas pair
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages
   EXPECT: Test Files  3 passed
-  EVIDENCE: pending
+  EVIDENCE: 2026-09-12 `pnpm --dir website exec vitest run site-header-primary-nav learn-hub-nav reference-hub-pages` → Test Files  3 passed (3)
 
 ## Pool
 

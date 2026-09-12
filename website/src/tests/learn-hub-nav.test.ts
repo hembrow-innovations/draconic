@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { loadMarkdownPage, renderMarkdown } from "../lib/content";
+import { assertCurrentPageInkContrast } from "./current-page-contrast";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
@@ -124,10 +125,10 @@ test("learn hub nav", () => {
   expect(header).toContain('from "../../features/learn/LearnNav"');
   assertOrder(header, [
     'to="/"',
+    ">GitHub<",
     'to="/learn"',
     "LearnNav",
     'to="/reference"',
-    ">GitHub<",
   ]);
   expect(shell).not.toContain("from JavaScript");
   expect(shell).not.toContain("from systems");
@@ -141,6 +142,8 @@ test("learn hub nav", () => {
   expect(variants).toContain("aria-[current=page]:text-accent-2");
   expect(variants).toContain("text-muted");
   expect(variants).not.toMatch(/aria-\[current=page\]:text-muted/);
+  const theme = readFileSync(join(srcDir, "styles", "theme.css"), "utf8");
+  assertCurrentPageInkContrast(theme, variants);
   expect(nav).not.toContain(".html");
   expect(nav).not.toMatch(/playground/i);
   expect(nav).not.toContain("docs/");

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
+import { assertCurrentPageInkContrast } from "./current-page-contrast";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 const websiteDir = join(srcDir, "..");
@@ -98,6 +99,8 @@ test("site header primary nav", () => {
   expect(
     variants.match(/aria-\[current=page\]:text-accent-2/g)?.length,
   ).toBeGreaterThanOrEqual(2);
+  const theme = readFileSync(join(srcDir, "styles", "theme.css"), "utf8");
+  assertCurrentPageInkContrast(theme, variants);
   expect(header).toContain("<SiteSearch");
   expect(header).toContain("<ThemeToggle");
   expect(header.indexOf("<SiteSearch")).toBeLessThan(header.indexOf("<LearnNav"));

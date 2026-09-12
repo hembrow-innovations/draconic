@@ -49,7 +49,7 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:primary-nav`: Every page's side nav has wordmark plus Learn, Reference, and GitHub.
   test: website/src/tests/site-header-primary-nav.test.ts
-- `public-site.chrome:current-page`: The side-nav item for the open page is visually distinct from sibling links using an existing semantic token, and still uses aria-current="page".
+- `public-site.chrome:current-page`: The side-nav item for the open page is visually distinct from sibling links using an existing semantic token whose body-size text meets 4.5:1 contrast against the canvas, and still uses aria-current="page".
   test: website/src/tests/site-header-primary-nav.test.ts
   test: website/src/tests/learn-hub-nav.test.ts
   test: website/src/tests/reference-hub-pages.test.ts
