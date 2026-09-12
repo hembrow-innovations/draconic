@@ -2,12 +2,12 @@
 id: "slice-880-empty-404"
 title: "Unknown URL recovery"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T18:23:01Z"
 ---
 
 # Unknown URL recovery
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: unknown-URL recovery locks a heading and a way back
+- [x] O1: unknown-URL recovery locks a heading and a way back
   CHECK: pnpm --dir website exec vitest run not-found
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: pnpm --dir website exec vitest run not-found → Test Files  1 passed (1). task-881 archived.
 
 ## Pool
 

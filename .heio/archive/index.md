@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-880-empty-404** — met; unknown URLs keep chrome with a heading and a way back; website-chrome-polish stays active
 - **task-881-empty-404** — completed; unknown URLs keep chrome with a heading and a way back (slice-880)
 - **slice-875-github-mobile-hit** — met; small-viewport GitHub is a compact control, not a stretched column; website-chrome-polish stays active
 - **task-879-github-mobile-hit** — completed; small-viewport GitHub stays a compact tap target instead of a stretched column (slice-875)
