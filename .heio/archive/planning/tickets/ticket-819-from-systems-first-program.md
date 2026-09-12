@@ -2,19 +2,19 @@
 id: "ticket-819-from-systems-first-program"
 title: "from-systems landing has no first Program"
 kind: ticket
-status: open
+status: closed
 ticket_type: observation
 tags: [website, public-site]
 blocked_by: []
 created_at: "2026-09-12T10:45:00Z"
-updated_at: "2026-09-12T10:45:00Z"
+updated_at: "2026-09-12T10:50:00Z"
 ---
 
 # from-systems landing has no first Program
 
 ## Signal
 
-Website swarm 2026-09-12. Learn is walkable as Install, from JavaScript, from systems, Dual worlds, and the rest. `website/from-javascript.md` teaches two compiling Programs and a Dual worlds next step. `website/from-systems.md` is not-yet and is a five-bullet concept map. It does not tell a systems programmer what to write today, that Install's hello Program still counts, or that Dual worlds has the shipped `as i32` sample.
+Closed. Website swarm shipped `website/from-systems.md` with a compiling hello Program, a compiling `i32` `add` fence, native build commands, and an HTTP echo example link. Dual worlds remains the join. Not-yet fence forbid still holds on remaining not-yet chapters.
 
 ## Fit
 

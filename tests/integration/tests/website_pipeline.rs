@@ -305,7 +305,7 @@ fn assert_markdown_subset(html: &str) {
         "expected list item linux/amd64 in HTML, got:\n{html}"
     );
     assert!(
-        html.contains("<pre>") && html.contains("<code>") && html.contains("hello.drac"),
+        html.contains("<pre") && html.contains("<code") && html.contains("hello.drac"),
         "expected fenced code hello.drac in HTML, got:\n{html}"
     );
     assert!(
@@ -327,8 +327,8 @@ fn website_pipeline_renders_markdown_subset() {
     let (_, from_systems) = published_page("from-systems");
     assert_nav(&from_systems);
     assert!(
-        from_systems.contains("not-yet"),
-        "expected from-systems status not-yet in HTML, got:\n{from_systems}"
+        from_systems.contains("shipped"),
+        "expected from-systems status shipped in HTML, got:\n{from_systems}"
     );
 }
 
@@ -452,15 +452,15 @@ fn website_pipeline_not_yet_page_without_fence_generates() {
 
     check_fences(&website).expect("pipeline");
 
-    let (_, reference) = published_page("from-systems");
-    assert_nav(&reference);
+    let (_, modules) = published_page("modules");
+    assert_nav(&modules);
     assert!(
-        reference.contains("from systems"),
-        "expected from systems title in HTML, got:\n{reference}"
+        modules.contains("modules"),
+        "expected modules title in HTML, got:\n{modules}"
     );
     assert!(
-        reference.contains("not-yet"),
-        "expected reference status not-yet in HTML, got:\n{reference}"
+        modules.contains("not-yet"),
+        "expected modules status not-yet in HTML, got:\n{modules}"
     );
 }
 

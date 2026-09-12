@@ -26,7 +26,7 @@ const learnChapters = [
   {
     slug: "from-systems",
     title: "from systems",
-    status: "not-yet",
+    status: "shipped",
     copy: "This landing assumes you already write Rust, Go, or C.",
   },
   {
@@ -168,6 +168,17 @@ test("learn pages", () => {
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz">FizzBuzz</a>',
   );
   expect(fromJs).toContain('<a href="/dual-worlds">Dual worlds</a>');
+  const fromSystemsPage = loadMarkdownPage("from-systems");
+  expect(fromSystemsPage.body).toContain("```drac");
+  expect(fromSystemsPage.body).toContain("globalThis.console");
+  expect(fromSystemsPage.body).toContain("function add(x: i32, y: i32): i32");
+  expect(fromSystemsPage.body).toContain("as number");
+  expect(fromSystemsPage.body).toContain("--target native");
+  expect(fromSystemsPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(fromSystems).toContain("add");
+  expect(fromSystems).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/http-echo">HTTP echo</a>',
+  );
   expect(fromSystems).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(install).toContain('<a href="/from-javascript">from JavaScript</a>');
   expect(install).toContain('<a href="/from-systems">from systems</a>');
