@@ -11,7 +11,7 @@ const currentPage = { "aria-current": "page" as const };
  * Learn sequence matching `website/learn.md`, grouped in the site side nav.
  *
  * Locks `public-site.ia:learn-walkable`, `public-site.nav:learn-reference-status`,
- * and `public-site.chrome:current-page`.
+ * `public-site.chrome:current-page`, and `public-site.a11y:distinct-nav-names`.
  * Two landings join at Dual worlds. The open page gets aria-current.
  *
  * @param props - Native list attributes
@@ -39,10 +39,10 @@ export function LearnNav({ className, ...props }: LearnNavProps) {
         <Link to="/native-types" className={learnNavLinkVariants()} activeProps={currentPage}>native types</Link>
       </li>
       <li>
-        <Link to="/host-io" className={learnNavLinkVariants()} activeProps={currentPage}>host I/O</Link>
+        <Link to="/host-io" className={learnNavLinkVariants()} activeProps={currentPage} aria-label="Learn · host I/O">host I/O</Link>
       </li>
       <li>
-        <Link to="/packages" className={learnNavLinkVariants()} activeProps={currentPage}>packages</Link>
+        <Link to="/packages" className={learnNavLinkVariants()} activeProps={currentPage} aria-label="Learn · packages">packages</Link>
       </li>
     </ul>
   );

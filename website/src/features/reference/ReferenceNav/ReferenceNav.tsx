@@ -11,7 +11,7 @@ const currentPage = { "aria-current": "page" as const };
  * Reference sequence matching `website/reference.md`, grouped in the site side nav.
  *
  * Locks `public-site.ia:reference-walkable`, `public-site.nav:learn-reference-status`,
- * and `public-site.chrome:current-page`.
+ * `public-site.chrome:current-page`, and `public-site.a11y:distinct-nav-names`.
  * Working pages kept open while writing a Program. The open page gets aria-current.
  *
  * @param props - Native list attributes
@@ -30,10 +30,10 @@ export function ReferenceNav({ className, ...props }: ReferenceNavProps) {
         <Link to="/dual-world-rules" className={referenceNavLinkVariants()} activeProps={currentPage}>Dual-world rules</Link>
       </li>
       <li>
-        <Link to="/reference-host-io" className={referenceNavLinkVariants()} activeProps={currentPage}>host I/O</Link>
+        <Link to="/reference-host-io" className={referenceNavLinkVariants()} activeProps={currentPage} aria-label="Reference · host I/O">host I/O</Link>
       </li>
       <li>
-        <Link to="/reference-packages" className={referenceNavLinkVariants()} activeProps={currentPage}>packages</Link>
+        <Link to="/reference-packages" className={referenceNavLinkVariants()} activeProps={currentPage} aria-label="Reference · packages">packages</Link>
       </li>
     </ul>
   );

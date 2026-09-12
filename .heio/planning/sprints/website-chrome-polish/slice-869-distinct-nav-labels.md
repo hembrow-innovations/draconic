@@ -2,12 +2,12 @@
 id: "slice-869-distinct-nav-labels"
 title: "Distinct Learn and Reference chapter names"
 kind: slice
-status: frozen
+status: active
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T17:30:00Z"
 ---
 
 # Distinct Learn and Reference chapter names

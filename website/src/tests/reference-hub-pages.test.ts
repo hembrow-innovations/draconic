@@ -87,6 +87,23 @@ function assertOrder(source: string, needles: readonly string[]): void {
   }
 }
 
+/** Accessible name is aria-label when present, otherwise the visible CONTEXT term. */
+function linkAccessibleName(
+  source: string,
+  href: string,
+  visibleLabel: string,
+): string {
+  const marker = `to="${href}"`;
+  const start = source.indexOf(marker);
+  expect(start, href).toBeGreaterThan(-1);
+  const after = source.slice(start);
+  const close = after.indexOf(`>${visibleLabel}<`);
+  expect(close, `${href} ${visibleLabel}`).toBeGreaterThan(-1);
+  const opening = after.slice(0, close);
+  const aria = /aria-label="([^"]*)"/.exec(opening);
+  return aria?.[1] ?? visibleLabel;
+}
+
 test("reference hub pages", () => {
   expect(statSync(navDir).isDirectory()).toBe(true);
   for (const name of [
@@ -175,6 +192,7 @@ test("reference hub pages", () => {
   expect(shell).not.toContain("api-cli");
 
   expect(nav).toContain("public-site.chrome:current-page");
+  expect(nav).toContain("public-site.a11y:distinct-nav-names");
   expect(nav).toContain("from \"@tanstack/react-router\"");
   expect(nav).toContain("Link");
   expect(nav).toContain("activeProps");
@@ -216,6 +234,21 @@ test("reference hub pages", () => {
     cards,
     referencePath.flatMap((entry) => [entry.href, `>${entry.label}<`]),
   );
+
+  const learnHostIo = linkAccessibleName(learnNav, "/host-io", "host I/O");
+  const referenceHostIo = linkAccessibleName(nav, "/reference-host-io", "host I/O");
+  const learnPackages = linkAccessibleName(learnNav, "/packages", "packages");
+  const referencePackages = linkAccessibleName(
+    nav,
+    "/reference-packages",
+    "packages",
+  );
+  expect(learnHostIo).not.toBe(referenceHostIo);
+  expect(learnPackages).not.toBe(referencePackages);
+  expect(learnHostIo).toBe("Learn · host I/O");
+  expect(referenceHostIo).toBe("Reference · host I/O");
+  expect(learnPackages).toBe("Learn · packages");
+  expect(referencePackages).toBe("Reference · packages");
 
   expect(page.title).toBe("Reference");
   expect(page.section).toBe("reference");

@@ -64,5 +64,8 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
   test: website/src/tests/search.test.ts
 - `public-site.a11y:keyboard-small`: Primary nav and article reading work with keyboard and at a small viewport.
   test: website/src/tests/mobile-a11y.test.ts
+- `public-site.a11y:distinct-nav-names`: Chapter links that share a CONTEXT term have distinct accessible names for Learn versus Reference; visible CONTEXT terms stay.
+  test: website/src/tests/learn-hub-nav.test.ts
+  test: website/src/tests/reference-hub-pages.test.ts
 - `public-site.forbid-vault-as-site`: The public site does not publish `docs/` notes.
 - `public-site.forbid-playground`: This area does not ship a playground or in-page runner.

@@ -54,6 +54,23 @@ function assertOrder(source: string, needles: readonly string[]): void {
   }
 }
 
+/** Accessible name is aria-label when present, otherwise the visible CONTEXT term. */
+function linkAccessibleName(
+  source: string,
+  href: string,
+  visibleLabel: string,
+): string {
+  const marker = `to="${href}"`;
+  const start = source.indexOf(marker);
+  expect(start, href).toBeGreaterThan(-1);
+  const after = source.slice(start);
+  const close = after.indexOf(`>${visibleLabel}<`);
+  expect(close, `${href} ${visibleLabel}`).toBeGreaterThan(-1);
+  const opening = after.slice(0, close);
+  const aria = /aria-label="([^"]*)"/.exec(opening);
+  return aria?.[1] ?? visibleLabel;
+}
+
 test("learn hub nav", () => {
   expect(statSync(navDir).isDirectory()).toBe(true);
   for (const name of [
@@ -77,6 +94,10 @@ test("learn hub nav", () => {
 
   const route = readFileSync(learnRoute, "utf8");
   const nav = readFileSync(join(navDir, "LearnNav.tsx"), "utf8");
+  const referenceNav = readFileSync(
+    join(srcDir, "features", "reference", "ReferenceNav", "ReferenceNav.tsx"),
+    "utf8",
+  );
   const variants = readFileSync(join(navDir, "LearnNav.variants.ts"), "utf8");
   const cards = readFileSync(join(cardsDir, "LearnHubCards.tsx"), "utf8");
   const cardVariants = readFileSync(
@@ -135,6 +156,7 @@ test("learn hub nav", () => {
   expect(shell).not.toContain("Dual worlds");
 
   expect(nav).toContain("public-site.chrome:current-page");
+  expect(nav).toContain("public-site.a11y:distinct-nav-names");
   expect(nav).toContain("from \"@tanstack/react-router\"");
   expect(nav).toContain("Link");
   expect(nav).toContain("activeProps");
@@ -165,6 +187,25 @@ test("learn hub nav", () => {
     cards,
     learnPath.flatMap((chapter) => [chapter.href, `>${chapter.label}<`]),
   );
+
+  const learnHostIo = linkAccessibleName(nav, "/host-io", "host I/O");
+  const referenceHostIo = linkAccessibleName(
+    referenceNav,
+    "/reference-host-io",
+    "host I/O",
+  );
+  const learnPackages = linkAccessibleName(nav, "/packages", "packages");
+  const referencePackages = linkAccessibleName(
+    referenceNav,
+    "/reference-packages",
+    "packages",
+  );
+  expect(learnHostIo).not.toBe(referenceHostIo);
+  expect(learnPackages).not.toBe(referencePackages);
+  expect(learnHostIo).toBe("Learn · host I/O");
+  expect(referenceHostIo).toBe("Reference · host I/O");
+  expect(learnPackages).toBe("Learn · packages");
+  expect(referencePackages).toBe("Reference · packages");
 
   const fromJs = nav.indexOf("/from-javascript");
   const fromSystems = nav.indexOf("/from-systems");

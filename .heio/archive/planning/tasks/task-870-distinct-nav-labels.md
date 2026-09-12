@@ -2,7 +2,7 @@
 id: "task-870-distinct-nav-labels"
 title: "Distinguish Learn and Reference chapter accessible names"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-869-distinct-nav-labels"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T17:50:00Z"
 ---
 
 # Distinguish Learn and Reference chapter accessible names
@@ -67,13 +67,17 @@ Each shared CONTEXT term has distinct accessible names for the Learn link versus
 - Search hit labels already show the Learn versus Reference prefix; reuse that distinction, do not invent new chapter names
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.a11y:distinct-nav-names` with a test pointer
-- [ ] Tests fail if both host I/O links (and both packages links) share one accessible name
-- [ ] Named vitest files pass and typecheck exits 0
-- [ ] Visible CONTEXT terms are not renamed
+- [x] Contract lists `public-site.a11y:distinct-nav-names` with a test pointer
+- [x] Tests fail if both host I/O links (and both packages links) share one accessible name
+- [x] Named vitest files pass and typecheck exits 0
+- [x] Visible CONTEXT terms are not renamed
 
 **Out of scope:**
 - Body-term search ([[ticket-821-search-body-terms]]); changing hrefs; playground
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run learn-hub-nav reference-hub-pages` — win. Test Files  2 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.a11y:distinct-nav-names`; host I/O and packages keep visible CONTEXT terms and gain `Learn ·` versus `Reference ·` aria-labels; hrefs stay.
 
 **Explain this part:**
 The terms stay. Only the accessible name must tell Learn from Reference.
