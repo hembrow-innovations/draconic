@@ -2,6 +2,7 @@
 
 One-liners of what landed. Newest first.
 
+- **slice-884-copy-announcement** — met; Learn and Reference fence Copy controls have distinct names, announce a successful copy, and Copied clears; website-chrome-polish stays active
 - **task-885-copy-announcement** — completed; Learn and Reference fence Copy controls have distinct names, announce a successful copy, and Copied clears (slice-884)
 - **slice-882-search-keyboard-live** — met; search hits are keyboard-reachable and announced; Dual worlds still hits; a miss still shows No matching pages; website-chrome-polish stays active
 - **task-883-search-keyboard-live** — completed; search hits are keyboard-reachable and announced; Dual worlds still hits; a miss still shows No matching pages (slice-882)

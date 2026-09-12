@@ -2,12 +2,12 @@
 id: "slice-884-copy-announcement"
 title: "Fence copy announcement"
 kind: slice
-status: active
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T20:45:00Z"
+updated_at: "2026-09-12T18:40:00Z"
 ---
 
 # Fence copy announcement
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: fence copy announcement locks distinct names and a live confirmation
+- [x] O1: fence copy announcement locks distinct names and a live confirmation
   CHECK: pnpm --dir website exec vitest run code-fence-copy
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: pnpm --dir website exec vitest run code-fence-copy → Test Files  1 passed (1). task-885 archived.
 
 ## Pool
 
