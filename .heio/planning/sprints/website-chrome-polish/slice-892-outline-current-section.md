@@ -2,12 +2,12 @@
 id: "slice-892-outline-current-section"
 title: "Outline current section"
 kind: slice
-status: active
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [ website, public-site ]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T19:10:00Z"
+updated_at: "2026-09-12T21:20:00Z"
 ---
 # Outline current section
 
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: on-page outline marks the heading in view
+- [x] O1: on-page outline marks the heading in view
   CHECK: pnpm --dir website exec vitest run docs-shell
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: Test Files  1 passed (1); Tests  2 passed (2); task-893 completed in archive
 
 ## Pool
 
