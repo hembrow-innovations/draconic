@@ -8,7 +8,7 @@ domain: draconic
 area: public-site
 tags: [test]
 created_at: "2026-09-06"
-updated_at: "2026-09-07"
+updated_at: "2026-09-12"
 ---
 
 # Public site tests
@@ -31,7 +31,7 @@ Existing cases in `tests/integration/tests/website_pipeline.rs` lock `public-sit
   - **How:** Learn hub file route loads `website/learn.md` in DocsShell; aside lists Install through packages in hub order; the two landings join at Dual worlds; current chapter chrome uses an existing token with aria-current, not muted ink alone.
   - **Why:** Locks `public-site.ia:learn-walkable` for the Start hub and aside, and `public-site.chrome:current-page` for Learn chapter links.
 - **website/src/tests/learn-pages.test.ts** — `learn pages`
-  - **How:** Each existing Learn markdown file has a Start file route that loads teaching copy in LearnPage and DocsShell; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`.
+  - **How:** Each existing Learn markdown file has a Start file route that loads teaching copy in LearnPage and DocsShell; Badge status matches frontmatter; rendered in-site links are app routes, not `.html`. from JavaScript also locks the unresolved `console` bind, a second compiling `greet` fence, and a GitHub FizzBuzz example link.
   - **Why:** Locks `public-site.ia:learn-walkable` for chapter routes.
 - **website/src/tests/learn-prev-next.test.ts** — `learn prev next`
   - **How:** Sequence helper neighbors match `website/learn.md`; both landings next to Dual worlds; LearnPage article footer renders LearnPager; no extra stops.

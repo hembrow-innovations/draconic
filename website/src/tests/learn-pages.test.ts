@@ -152,11 +152,21 @@ test("learn pages", () => {
     expect(html).not.toContain("docs/");
   }
 
-  const fromJs = renderMarkdown(loadMarkdownPage("from-javascript").body);
+  const fromJsPage = loadMarkdownPage("from-javascript");
+  const fromJs = renderMarkdown(fromJsPage.body);
   const fromSystems = renderMarkdown(loadMarkdownPage("from-systems").body);
   const dualWorlds = renderMarkdown(loadMarkdownPage("dual-worlds").body);
   const install = renderMarkdown(loadMarkdownPage("install").body);
 
+  expect(fromJsPage.body).toContain("```drac");
+  expect(fromJsPage.body).toContain("globalThis.console");
+  expect(fromJsPage.body).toContain("unresolved");
+  expect(fromJsPage.body).toContain("function greet(name: string): string");
+  expect(fromJsPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(fromJs).toContain("greet");
+  expect(fromJs).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz">FizzBuzz</a>',
+  );
   expect(fromJs).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(fromSystems).toContain('<a href="/dual-worlds">Dual worlds</a>');
   expect(install).toContain('<a href="/from-javascript">from JavaScript</a>');

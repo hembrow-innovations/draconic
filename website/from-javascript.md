@@ -15,6 +15,8 @@ let console = globalThis.console;
 console.log("hello from Draconic");
 ```
 
+A free `console` is unresolved. Bind the host object from `globalThis.console` before you log. That is why every copy-paste sample on this path starts that way.
+
 Parse it, emit JavaScript, or let the toolchain run it. Default `draconic run` target is js:
 
 ```
@@ -24,6 +26,25 @@ draconic run hello.drac
 ```
 
 The JS backend emits JavaScript, not TypeScript. You do not get a `.ts` file out. Types are TypeScript-inspired: the surface is familiar, but the Checker is not tsc and does not aim to compile existing TypeScript projects. Drop-in migration of a TypeScript repo is out of scope.
+
+You can still write functions and annotations on JS values. Save this as `greet.drac`. It builds today:
+
+```drac
+let console = globalThis.console;
+
+function greet(name: string): string {
+  return "hello " + name;
+}
+
+console.log(greet("from Draconic"));
+```
+
+```
+draconic parse greet.drac
+draconic run greet.drac
+```
+
+A longer portable Program with `for`, `if`, and the same host console lives in the repository as [FizzBuzz](https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz).
 
 Native types such as `i32` and `i64` are the extra, not a typed-JS-only story. You do not need them on this landing. A Program that stays in JavaScript values is a portable program: both backends can accept it with equivalent observable behavior after documented polyfills.
 
