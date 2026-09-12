@@ -2,12 +2,12 @@
 id: "slice-890-meta-description"
 title: "Page meta description"
 kind: slice
-status: frozen
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T21:10:00Z"
 ---
 
 # Page meta description
@@ -33,10 +33,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: page-specific share meta locks description, canonical, and Open Graph
+- [x] O1: page-specific share meta locks description, canonical, and Open Graph
   CHECK: pnpm --dir website exec vitest run meta-description
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: Test Files  1 passed (1); Tests  1 passed (1); task-891 completed in archive
 
 ## Pool
 

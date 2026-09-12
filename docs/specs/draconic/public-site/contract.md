@@ -58,6 +58,9 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.chrome:document-title`: Each public page's document title names the open page so tabs distinguish destinations. Home may remain Draconic. Article titles use the page's existing heading or markdown title, not a new slogan.
   test: website/src/tests/document-title.test.ts
   test: document title
+- `public-site.chrome:meta-description`: Each public page exposes a page-specific meta description, a canonical URL, and Open Graph tags that summarize that page. Descriptions use existing page copy (heading, lead, or first paragraph), not a new slogan. Site name Draconic may still appear with the page name in og:title. Home may use the existing homepage pitch.
+  test: website/src/tests/meta-description.test.ts
+  test: meta description
 - `public-site.chrome:primary-nav`: Every page's side nav has wordmark plus Learn, Reference, and GitHub.
   test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:current-page`: The side-nav item for the open page is visually distinct from sibling links using an existing semantic token whose body-size text meets 4.5:1 contrast against the canvas, and still uses aria-current="page".

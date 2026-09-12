@@ -2,7 +2,7 @@
 id: "task-891-meta-description"
 title: "Expose page-specific meta description and share tags"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-890-meta-description"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T21:10:00Z"
 ---
 
 # Expose page-specific meta description and share tags
@@ -67,13 +67,17 @@ Each public page exposes a page-specific meta description, a canonical URL, and 
 - Existing teaching titles and leads; no required new frontmatter field
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.chrome:meta-description` with a test pointer
-- [ ] Tests fail if home, Learn, and an article omit description, canonical, and og tags
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Page h1 copy is not rewritten
+- [x] Contract lists `public-site.chrome:meta-description` with a test pointer
+- [x] Tests fail if home, Learn, and an article omit description, canonical, and og tags
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Page h1 copy is not rewritten
 
 **Out of scope:**
 - Document titles ([[task-872-per-page-titles]]); theme-color; Twitter cards; og:image; playground
 
 **Explain this part:**
 This sitting is allowed to assert the missing share-meta promise. It is not a title rewrite and not a copy rewrite. If [[task-872-per-page-titles]] is in flight, do not collide on route heads without reading it first.
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run meta-description` — win. Test Files  1 passed. `pnpm --dir website exec tsc --noEmit` exits 0. Diff locks `public-site.chrome:meta-description`; home uses the existing homepage pitch; articles use the first markdown paragraph; no Twitter cards, og:image, or theme-color; page h1 copy unchanged.

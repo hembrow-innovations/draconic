@@ -2,25 +2,28 @@ import { createFileRoute } from "@tanstack/react-router";
 import { DocsShell } from "../features/docs/DocsShell";
 import { LearnHubCards } from "../features/learn/LearnHubCards";
 import { LearnNav } from "../features/learn/LearnNav";
-import { loadMarkdownPage } from "../lib/content";
+import {
+  loadMarkdownPage,
+  pageDescriptionFromBody,
+  pageShareHead,
+} from "../lib/content";
 
 export const Route = createFileRoute("/learn")({
   loader: () => loadMarkdownPage("learn"),
-  head: ({ loaderData }) => ({
-    meta: [
-      {
-        title: loaderData
-          ? `${loaderData.title} · Draconic`
-          : "Draconic",
-      },
-    ],
-  }),
+  head: ({ loaderData }) =>
+    pageShareHead({
+      title: loaderData ? `${loaderData.title} · Draconic` : "Draconic",
+      path: loaderData ? `/${loaderData.slug}` : "/learn",
+      description: loaderData
+        ? pageDescriptionFromBody(loaderData.body)
+        : "",
+    }),
   component: LearnHubRoute,
 });
 
 /**
- * Learn hub in handbook chrome. Locks `public-site.ia:learn-walkable`
- * and `public-site.chrome:document-title`.
+ * Learn hub in handbook chrome. Locks `public-site.ia:learn-walkable`,
+ * `public-site.chrome:document-title`, and `public-site.chrome:meta-description`.
  *
  * Teaching copy stays in `website/learn.md`.
  */
