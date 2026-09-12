@@ -2,12 +2,12 @@
 id: "slice-865-github-above-fold"
 title: "GitHub above the nav fold"
 kind: slice
-status: active
+status: met
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T17:30:00Z"
+updated_at: "2026-09-12T17:32:00Z"
 ---
 
 # GitHub above the nav fold
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: GitHub is not ordered after the chapter lists in the sticky side nav
+- [x] O1: GitHub is not ordered after the chapter lists in the sticky side nav
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: 2026-09-12 `pnpm --dir website exec vitest run site-header-primary-nav` → Test Files  1 passed (1)
 
 ## Pool
 
