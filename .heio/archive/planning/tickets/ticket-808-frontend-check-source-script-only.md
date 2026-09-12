@@ -2,15 +2,14 @@
 id: "ticket-808-frontend-check-source-script-only"
 title: "Frontend check_source does not retry Module"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 sprint: "platform"
 created_at: "2026-09-11T21:44:22Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # Frontend check_source does not retry Module
 
 ## Signal

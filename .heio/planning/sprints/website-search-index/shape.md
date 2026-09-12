@@ -5,7 +5,7 @@ kind: sprint
 status: active
 tags: [website, public-site]
 created_at: "2026-09-12T17:20:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T20:55:00Z"
 ---
 
 # Public site search index
@@ -16,7 +16,7 @@ Location [[location-589-public-site]]. Body-term indexing for the in-site finder
 
 ## Slices in
 
-- [[slice-894-search-body-terms]]: visitors find Learn and Reference pages by teaching-body terms, not only title or heading. blocked_by: none
+- none. [[slice-894-search-body-terms]] is met in archive. Open follow-up [[ticket-902-stale-vault-search-misses]] stays open until freeze.
 
 ## Slices out
 
@@ -29,4 +29,4 @@ Location [[location-589-public-site]]. Body-term indexing for the in-site finder
 
 ## Drain
 
-`/afk-task` from [[task-895-search-body-terms]] (`status: ready`, `mode: afk`, empty `blocked_by`). Public site is `website/` TanStack Start, not `ui-components-web`.
+None until freeze. [[task-895-search-body-terms]] is archived. Public site is `website/` TanStack Start, not `ui-components-web`.

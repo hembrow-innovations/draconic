@@ -2,15 +2,14 @@
 id: "ticket-850-duplicate-nav-labels"
 title: "Learn and Reference share host I/O and packages labels"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
-tags: [website, public-site]
+tags: [ website, public-site ]
 blocked_by: []
 sprint: "website-chrome-polish"
 created_at: "2026-09-12T05:58:32Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # Learn and Reference share host I/O and packages labels
 
 ## Signal

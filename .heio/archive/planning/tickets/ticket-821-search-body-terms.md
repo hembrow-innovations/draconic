@@ -2,15 +2,14 @@
 id: "ticket-821-search-body-terms"
 title: "In-site search misses body terms visitors type"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
-tags: [website, public-site]
+tags: [ website, public-site ]
 blocked_by: []
 sprint: "website-search-index"
 created_at: "2026-09-12T10:45:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # In-site search misses body terms visitors type
 
 ## Signal

@@ -2,15 +2,14 @@
 id: "ticket-856-empty-404"
 title: "Unknown URLs show a generic empty Not Found"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
-tags: [website, public-site]
+tags: [ website, public-site ]
 blocked_by: []
 sprint: "website-chrome-polish"
 created_at: "2026-09-12T06:56:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # Unknown URLs show a generic empty Not Found
 
 ## Signal

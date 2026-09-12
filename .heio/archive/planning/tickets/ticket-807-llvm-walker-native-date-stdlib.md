@@ -2,15 +2,14 @@
 id: "ticket-807-llvm-walker-native-date-stdlib"
 title: "LLVM walker drops native Date and stdlib programs"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
 tags: []
 blocked_by: []
 sprint: "platform"
 created_at: "2026-09-11T21:44:22Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # LLVM walker drops native Date and stdlib programs
 
 ## Signal

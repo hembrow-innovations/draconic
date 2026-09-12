@@ -5,7 +5,7 @@ kind: sprint
 status: "active"
 tags: []
 created_at: "2026-09-08T18:55:55Z"
-  updated_at: "2026-09-11T08:11:06Z"
+updated_at: "2026-09-11T08:11:06Z"
 ---
 
 # opt-in CLI timings

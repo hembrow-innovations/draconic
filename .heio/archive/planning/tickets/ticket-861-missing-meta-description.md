@@ -2,15 +2,14 @@
 id: "ticket-861-missing-meta-description"
 title: "Pages have no meta description"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
-tags: [website, public-site]
+tags: [ website, public-site ]
 blocked_by: []
 sprint: "website-chrome-polish"
 created_at: "2026-09-12T06:56:00Z"
-updated_at: "2026-09-12T17:20:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # Pages have no meta description
 
 ## Signal

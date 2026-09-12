@@ -5,7 +5,7 @@ kind: "sprint"
 status: "active"
 tags: []
 created_at: "2026-09-02T12:00:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T20:55:00Z"
 ---
 
 # platform
@@ -16,11 +16,7 @@ Location: remaining platform-capability and leftover conformance after the langu
 
 ## Slices in
 
-- [[slice-811-llvm-walk-file-budget]]
-- [[slice-813-host-name-catalog]]
-- [[slice-815-llvm-walker-native-date-stdlib]]
-- [[slice-817-frontend-check-source-script]]
-- Remainder tickets [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked. Met slices live in archive.
+- none. Remainder tickets [[ticket-202-e17-02-non-strict-legacy]] and [[ticket-203-e18-44-untracked-ecma-262-remainder-beyond]] stay parked. Met slices live in archive.
 
 ## Slices out
 

@@ -2,15 +2,14 @@
 id: "ticket-809-llvm-walk-over-file-budget"
 title: "LLVM walk.rs is over the 1000-line target"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: observation
 tags: []
 blocked_by: []
 sprint: "platform"
 created_at: "2026-09-11T21:47:50Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T10:55:00Z"
 ---
-
 # LLVM walk.rs is over the 1000-line target
 
 ## Signal

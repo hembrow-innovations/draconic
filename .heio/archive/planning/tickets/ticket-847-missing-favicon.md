@@ -2,15 +2,14 @@
 id: "ticket-847-missing-favicon"
 title: "Public site favicon 404s"
 kind: ticket
-status: promoted
+status: closed
 ticket_type: bug
-tags: [website, public-site]
+tags: [ website, public-site ]
 blocked_by: []
 sprint: "website-chrome-polish"
 created_at: "2026-09-12T05:58:32Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T10:54:25Z"
 ---
-
 # Public site favicon 404s
 
 ## Signal
