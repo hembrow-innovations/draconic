@@ -2,14 +2,14 @@
 id: "task-818-frontend-check-source-script"
 title: "Frontend check_source stays Script"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "platform"
 slice: "slice-817-frontend-check-source-script"
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T16:30:00Z"
 ---
 
 # Frontend check_source stays Script
@@ -65,13 +65,20 @@ Do not make `check_source` call the Module retry. Do not change `load_program` /
 - size-file-budget: frontend lib stays under 1000 if already under; do not push over 1250
 
 **Acceptance criteria:**
-- [ ] `cargo test -p draconic-frontend --offline` prints `test result: ok.`
+- [x] `cargo test -p draconic-frontend --offline` prints `test result: ok.`
 - [ ] Tests exist that export-only source fails Script string check/compile and succeeds Module string check/compile
-- [ ] `check_source` still does not retry Module
-- [ ] Path Script-then-Module policy unchanged
+- [x] `check_source` still does not retry Module
+- [x] Path Script-then-Module policy unchanged
 
 **Out of scope:**
 - making `check_source` retry Module
 - Linker / `compile_path` / `load_program`
 - LLVM walker / host catalog
 - marking E17.02 or E18.44 done
+
+## Gauntlet
+
+- **round**: 1
+- **command**: cargo test -p draconic-frontend --offline
+- **result**: win
+- **gap**: none. Script string check/compile stay Script-only. Export-only cannot succeed on `*_module` without a link graph (checker: import/export must be linked). TLA is the Module-goal probe; path load is unchanged.

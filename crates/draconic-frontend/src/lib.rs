@@ -18,7 +18,8 @@ pub use draconic_ir::Module;
 /// Compile `source` as a Script (no filesystem link graph).
 ///
 /// Suitable for Embed and single-buffer inputs. Relative imports are not resolved.
-/// Top-level `await` is rejected (Script goal).
+/// Top-level `await` is rejected (Script goal). Does not retry Module; use
+/// [`compile_source_module`] for a Module-goal buffer.
 pub fn compile_source(source: &str) -> Result<Module, Diagnostic> {
     let checked = check_source(source)?;
     Ok(lower(&checked))
@@ -26,7 +27,8 @@ pub fn compile_source(source: &str) -> Result<Module, Diagnostic> {
 
 /// Compile `source` under the Module goal (E19.28): top-level `await` allowed.
 ///
-/// Relative static imports are not resolved; use [`compile_path`] for a link graph.
+/// Relative static imports are not resolved; import/export still needs
+/// [`compile_path`] for a link graph.
 pub fn compile_source_module(source: &str) -> Result<Module, Diagnostic> {
     let checked = check_source_module(source)?;
     Ok(lower(&checked))
@@ -71,12 +73,18 @@ pub fn parse_source(source: &str) -> Result<Program, Diagnostic> {
 }
 
 /// Parse + check `source` as a Script without lowering.
+///
+/// Does not retry Module after a Script parse or check failure. [`parse_source`]
+/// retries Module for fmt and dump tools; Module string check is
+/// [`check_source_module`].
 pub fn check_source(source: &str) -> Result<CheckedProgram, Diagnostic> {
     let program = parse(source)?;
     check(program)
 }
 
 /// Parse + check `source` as a Module without lowering (E19.28).
+///
+/// Top-level `await` is allowed. Import/export still needs [`check_path`].
 pub fn check_source_module(source: &str) -> Result<CheckedProgram, Diagnostic> {
     let program = parse_module(source)?;
     check_module(program)
@@ -156,6 +164,56 @@ mod tests {
     fn compile_source_script() {
         let module = compile_source("let x = 1;").expect("compile");
         assert!(!module.body.is_empty() || !module.locals.is_empty());
+    }
+
+    #[test]
+    fn check_source_script() {
+        check_source("let x = 1;").expect("script check");
+    }
+
+    #[test]
+    fn check_source_and_compile_source_reject_export() {
+        let export = "export let x = 1;";
+        let check_err = check_source(export).expect_err("script check rejects export");
+        assert!(
+            !check_err.message.is_empty(),
+            "script check must diagnostic, got empty message"
+        );
+        let compile_err = compile_source(export).expect_err("script compile rejects export");
+        assert!(
+            !compile_err.message.is_empty(),
+            "script compile must diagnostic, got empty message"
+        );
+    }
+
+    #[test]
+    fn check_source_does_not_retry_module_on_top_level_await() {
+        let tla = "let x = await 1;";
+        let err = check_source(tla).expect_err("script check does not retry Module");
+        assert!(
+            !err.message.is_empty(),
+            "script check must diagnostic, got empty message"
+        );
+        check_source_module(tla).expect("module check accepts TLA");
+        compile_source_module(tla).expect("module compile accepts TLA");
+    }
+
+    #[test]
+    fn check_source_module_does_not_link_export() {
+        let err = check_source_module("export let x = 1;")
+            .expect_err("module string check has no link graph");
+        assert!(
+            err.message.contains("import/export must be linked"),
+            "got {}",
+            err.message
+        );
+        let compile_err = compile_source_module("export let x = 1;")
+            .expect_err("module string compile has no link graph");
+        assert!(
+            compile_err.message.contains("import/export must be linked"),
+            "got {}",
+            compile_err.message
+        );
     }
 
     #[test]
