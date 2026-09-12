@@ -56,7 +56,7 @@ const learnChapters = [
   {
     slug: "packages",
     title: "packages",
-    status: "not-yet",
+    status: "shipped",
     copy: "Packages are git-backed.",
   },
 ] as const;
@@ -282,6 +282,33 @@ test("learn pages", () => {
   expect(hostIo).toContain('<a href="/cli">CLI</a>');
   expect(hostIo).toContain("<pre>");
   expect(hostIo).toContain("<code>");
+
+  const packagesPage = loadMarkdownPage("packages");
+  const packagesHtml = renderMarkdown(packagesPage.body);
+  expect(packagesPage.body).toContain("```drac");
+  expect(packagesPage.body).toContain("export function greet");
+  expect(packagesPage.body).toContain('from "github.com/org/pkg"');
+  expect(packagesPage.body).toContain("It builds today");
+  expect(packagesPage.body).toContain("draconic check index.drac");
+  expect(packagesPage.body).toContain("draconic get github.com/org/pkg@1.0.0");
+  expect(packagesPage.body).toContain("draconic mod tidy");
+  expect(packagesPage.body).toContain("--url");
+  expect(packagesPage.body).toContain("## Package root");
+  expect(packagesPage.body).toContain("## get");
+  expect(packagesPage.body).toContain("## mod tidy");
+  expect(packagesPage.body.match(/```drac/g)?.length).toBe(1);
+  expect(packagesHtml).toContain("greet");
+  expect(packagesHtml).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/pkg-lib">pkg-lib</a>',
+  );
+  expect(packagesHtml).toContain(
+    '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/pkg-consumer">pkg-consumer</a>',
+  );
+  expect(packagesHtml).toContain('<a href="/modules">modules</a>');
+  expect(packagesHtml).toContain('<a href="/reference-packages">packages</a>');
+  expect(packagesHtml).toContain('<a href="/cli">CLI</a>');
+  expect(packagesHtml).toContain("<pre>");
+  expect(packagesHtml).toContain("<code>");
 
   const extra = ["tutorial", "getting-started", "beginner", "vault"];
   for (const slug of extra) {

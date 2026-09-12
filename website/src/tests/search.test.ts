@@ -166,6 +166,25 @@ test("search", () => {
     "Reference · packages",
   );
 
+  const packageRoot = querySearchIndex(index, "Package root").find(
+    (hit) => hit.href === "/packages",
+  );
+  expect(packageRoot?.headings).toContain("Package root");
+  expect(packageRoot?.headings).toContain("get");
+  expect(packageRoot?.headings).toContain("mod tidy");
+  expect(searchHitHref(packageRoot!, "Package root")).toBe(
+    "/packages#package-root",
+  );
+  expect(searchHitLabel(packageRoot!, "Package root")).toBe(
+    "Learn · packages · Package root",
+  );
+  expect(searchHitHref(packageRoot!, "get")).toBe("/packages#get");
+  expect(searchHitLabel(packageRoot!, "get")).toBe("Learn · packages · get");
+  expect(searchHitHref(packageRoot!, "mod tidy")).toBe("/packages#mod-tidy");
+  expect(searchHitLabel(packageRoot!, "mod tidy")).toBe(
+    "Learn · packages · mod tidy",
+  );
+
   const cliRun = querySearchIndex(index, "run").find(
     (hit) => hit.href === "/cli",
   );
