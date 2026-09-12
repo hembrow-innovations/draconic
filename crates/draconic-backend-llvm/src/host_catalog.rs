@@ -90,6 +90,32 @@ mod tests {
     }
 
     #[test]
+    fn walker_host_dispatch_has_no_name_list_cascade() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut hits = Vec::new();
+        collect_rs(&root, &mut hits);
+        let needle = concat!("host_has", "(&[");
+        let leftover: Vec<String> = hits
+            .into_iter()
+            .filter_map(|p| {
+                let text = std::fs::read_to_string(&p).ok()?;
+                if text.contains(needle) {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| n.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "host_has name-list cascade still present: {}",
+            leftover.join(",")
+        );
+    }
+
+    #[test]
     fn leftover_walk_host_fingerprint_adapters_are_gone() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut hits = Vec::new();

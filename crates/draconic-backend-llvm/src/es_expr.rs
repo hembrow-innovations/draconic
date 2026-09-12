@@ -41,6 +41,8 @@ use classify::*;
 mod emit;
 mod emit_number;
 mod emit_values;
+mod es_kind;
+mod host_dispatch;
 mod walk;
 
 /// True when this module is a supported ES expression / control-flow subset

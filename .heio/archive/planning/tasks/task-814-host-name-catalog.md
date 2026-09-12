@@ -2,14 +2,14 @@
 id: "task-814-host-name-catalog"
 title: "LLVM walker host names from catalog"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: ["task-812-llvm-walk-file-budget"]
 sprint: "platform"
 slice: "slice-813-host-name-catalog"
 tags: []
 created_at: "2026-09-12T00:15:00Z"
-updated_at: "2026-09-12T00:15:00Z"
+updated_at: "2026-09-12T19:10:00Z"
 ---
 
 # LLVM walker host names from catalog
@@ -61,12 +61,19 @@ Walker host dispatch uses catalog lookup (and existing `emit_host_*` modules). T
 - size-file-budget: no file over 1000
 
 **Acceptance criteria:**
-- [ ] Slice O1 prints `catalog-route`
-- [ ] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
-- [ ] `cargo test -p draconic-check --offline catalog_sync` prints `test result: ok.`
-- [ ] Existing native host fixtures stay green (slice O4)
-- [ ] No new host API
-- [ ] No new `walk_host_*` fingerprint adapter
+- [x] Slice O1 prints `catalog-route`
+- [x] `cargo test -p draconic-backend-llvm --offline` prints `test result: ok.`
+- [x] `cargo test -p draconic-check --offline catalog_sync` prints `test result: ok.`
+- [x] Existing native host fixtures stay green (slice O4)
+- [x] No new host API
+- [x] No new `walk_host_*` fingerprint adapter
+
+## Gauntlet
+
+- **round**: 1
+- **command**: O1 catalog-route scan; cargo test -p draconic-backend-llvm --offline; cargo test -p draconic-check --offline catalog_sync; host_fs/process/stdio/path/tcp conformance
+- **result**: win
+- **gap**: none. Dispatch uses catalog note prefixes via lookup_host_api. O1 catalog-route. O2 326 passed. O3 catalog_sync ok. O4 host fixtures ok.
 
 **Out of scope:**
 - native Date / flags / url / compression emit ([[ticket-807-llvm-walker-native-date-stdlib]])
