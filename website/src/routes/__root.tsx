@@ -33,6 +33,12 @@ export const Route = createRootRoute({
         title: "Draconic",
       },
     ],
+    links: [
+      {
+        rel: "icon",
+        href: "/favicon.ico",
+      },
+    ],
   }),
   component: RootComponent,
 });
@@ -40,7 +46,8 @@ export const Route = createRootRoute({
 /**
  * Skip link, sticky side nav, and main column on every route.
  *
- * Locks `public-site.chrome:odm-shell` and `public-site.chrome:primary-nav`.
+ * Locks `public-site.chrome:odm-shell`, `public-site.chrome:primary-nav`,
+ * and `public-site.chrome:favicon`.
  */
 function RootComponent() {
   const { searchIndex } = Route.useLoaderData();

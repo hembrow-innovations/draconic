@@ -164,7 +164,7 @@ test("learn pages", () => {
   expect(fromJsPage.body).toContain("unresolved");
   expect(fromJsPage.body).toContain("function greet(name: string): string");
   expect(fromJsPage.body).toContain("draconic check greet.drac");
-  expect(fromJsPage.body.match(/```drac/g)?.length).toBe(2);
+  expect(fromJsPage.body.match(/```drac/g)?.length).toBe(3);
   expect(fromJs).toContain("greet");
   expect(fromJs).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/fizzbuzz">FizzBuzz</a>',
@@ -172,6 +172,15 @@ test("learn pages", () => {
   expect(fromJsPage.body).toContain("## Todo");
   expect(fromJsPage.body).toContain("`document`");
   expect(fromJsPage.body).toContain("`localStorage`");
+  expect(fromJsPage.body).toContain("globalThis.document");
+  expect(fromJsPage.body).toContain("globalThis.localStorage");
+  expect(fromJsPage.body).toContain(
+    "draconic build --target js todo.drac -o todo.js",
+  );
+  expect(fromJsPage.body).toContain('<script src="todo.js"></script>');
+  expect(fromJsPage.body).toContain("stdoutWrite");
+  expect(fromJsPage.body).toContain("tcpListen");
+  expect(fromJsPage.body).toContain("Node has no DOM");
   expect(fromJs).toContain(
     '<a href="https://github.com/hembrow-innovations/draconic/tree/main/examples/todo">Todo</a>',
   );

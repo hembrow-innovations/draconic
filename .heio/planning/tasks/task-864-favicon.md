@@ -2,7 +2,7 @@
 id: "task-864-favicon"
 title: "Serve a public site favicon"
 kind: task
-status: ready
+status: completed
 mode: afk
 blocked_by: []
 sprint: "website-chrome-polish"
@@ -10,7 +10,7 @@ slice: "slice-863-favicon"
 area: public-site
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T07:23:40Z"
 ---
 
 # Serve a public site favicon
@@ -67,10 +67,14 @@ The origin serves a favicon. The tab shows a site icon. `/favicon.ico` (or an eq
 - Existing site chrome; no new marketing bar
 
 **Acceptance criteria:**
-- [ ] Contract lists `public-site.chrome:favicon` with a test pointer
-- [ ] Tests fail if the app does not serve or link a favicon
-- [ ] Named vitest file passes and typecheck exits 0
-- [ ] Promise ids listed above still hold (or were deliberately edited)
+- [x] Contract lists `public-site.chrome:favicon` with a test pointer
+- [x] Tests fail if the app does not serve or link a favicon
+- [x] Named vitest file passes and typecheck exits 0
+- [x] Promise ids listed above still hold (or were deliberately edited)
+
+## Gauntlet
+
+- **Round 1**: `pnpm --dir website exec vitest run site-header-primary-nav` — win. Test Files 1 passed. `pnpm --dir website exec tsc --noEmit` exits 0.
 
 **Out of scope:**
 - Per-page document titles ([[task-872-per-page-titles]]); Learn/Reference copy; playground; vault-as-site

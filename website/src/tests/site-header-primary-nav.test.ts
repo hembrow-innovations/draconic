@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 const srcDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const websiteDir = join(srcDir, "..");
 const headerDir = join(srcDir, "components", "SiteHeader");
 const githubUrl = "https://github.com/hembrow-innovations/draconic";
 
@@ -49,6 +50,13 @@ test("site header primary nav", () => {
   expect(header).toContain("public-site.chrome:odm-shell");
   expect(header).toContain("public-site.chrome:current-page");
   expect(header).toContain("public-site.search:titles-headings");
+
+  expect(root).toContain("public-site.chrome:favicon");
+  expect(root).toMatch(/rel:\s*["']icon["']/);
+  expect(root).toMatch(/href:\s*["']\/favicon\.ico["']/);
+  const favicon = readFileSync(join(websiteDir, "public", "favicon.ico"));
+  expect(favicon.subarray(0, 4)).toEqual(Buffer.from([0, 0, 1, 0]));
+  expect(favicon.byteLength).toBeGreaterThan(16);
 
   expect(root).toContain("SiteHeader");
   expect(root).toMatch(/<SiteHeader\s*\/>/);

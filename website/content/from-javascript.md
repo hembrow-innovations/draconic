@@ -51,7 +51,32 @@ A longer portable Program with `for`, `if`, and the same host console lives in t
 
 ## Todo
 
-The same `globalThis` bind works in a browser. Copy [Todo](https://github.com/hembrow-innovations/draconic/tree/main/examples/todo) when you want `document` and `localStorage`, not only Node-shaped `draconic run`.
+`draconic run` executes the emitted JavaScript with Node. That is not the browser path.
+
+`draconic build --target js` writes a JavaScript file you load from HTML. Save this as `todo.drac`. It builds today:
+
+```drac
+let doc = globalThis.document;
+let storage = globalThis.localStorage;
+let app = doc.getElementById("app");
+storage.setItem("draconic-todo", "[]");
+```
+
+A free `document` or `localStorage` is unresolved. Bind them from `globalThis`, the same way this landing binds `console`.
+
+Emit the file, then load it with a script tag. Do not `draconic run` this Program: Node has no DOM.
+
+```
+draconic build --target js todo.drac -o todo.js
+```
+
+```
+<script src="todo.js"></script>
+```
+
+Host I/O names such as `stdoutWrite` and `tcpListen` are the machine path, not the DOM path.
+
+Copy [Todo](https://github.com/hembrow-innovations/draconic/tree/main/examples/todo) for a longer Program: `document`, `localStorage`, and a native static host.
 
 Native types such as `i32` and `i64` are the extra, not a typed-JS-only story. You do not need them on this landing. A Program that stays in JavaScript values is a portable program: both backends can accept it with equivalent observable behavior after documented polyfills.
 

@@ -45,6 +45,8 @@ A promise with a `test:` pointer is locked. One without is asserted. Purpose: [[
 - `public-site.chrome:odm-shell`: Every page, including home, uses skip-to-content plus a sticky side nav plus a main column.
   test: website/src/tests/site-footer-and-skip-link.test.ts
   test: website/src/tests/site-header-primary-nav.test.ts
+- `public-site.chrome:favicon`: The origin serves a favicon so the browser tab shows a site icon and `/favicon.ico` is not a 404.
+  test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:primary-nav`: Every page's side nav has wordmark plus Learn, Reference, and GitHub.
   test: website/src/tests/site-header-primary-nav.test.ts
 - `public-site.chrome:current-page`: The side-nav item for the open page is visually distinct from sibling links using an existing semantic token, and still uses aria-current="page".

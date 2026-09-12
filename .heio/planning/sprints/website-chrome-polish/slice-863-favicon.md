@@ -2,12 +2,12 @@
 id: "slice-863-favicon"
 title: "Public site favicon"
 kind: slice
-status: frozen
+status: active
 sprint: "website-chrome-polish"
 blocked_by: []
 tags: [website, public-site]
 created_at: "2026-09-12T07:05:00Z"
-updated_at: "2026-09-12T07:05:00Z"
+updated_at: "2026-09-12T18:00:00Z"
 ---
 
 # Public site favicon
@@ -32,10 +32,10 @@ None.
 
 ## Oracle checklist
 
-- [ ] O1: primary-nav chrome locks a served favicon
+- [x] O1: primary-nav chrome locks a served favicon
   CHECK: pnpm --dir website exec vitest run site-header-primary-nav
   EXPECT: Test Files  1 passed
-  EVIDENCE: pending
+  EVIDENCE: 2026-09-12 `pnpm --dir website exec vitest run site-header-primary-nav` → Test Files  1 passed (1); `pnpm --dir website exec tsc --noEmit` exits 0
 
 ## Pool
 
