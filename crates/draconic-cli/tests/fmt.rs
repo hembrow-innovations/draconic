@@ -1,6 +1,7 @@
 //! ROADMAP U05: `draconic fmt` — idempotent format; optional `--check`.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,6 +39,26 @@ fn run(cmd: &mut Command) -> (i32, String, String) {
         .stderr(Stdio::piped())
         .output()
         .expect("spawn draconic");
+    let code = output.status.code().unwrap_or(1);
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    (code, stdout, stderr)
+}
+
+fn run_with_stdin(cmd: &mut Command, stdin: &str) -> (i32, String, String) {
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn draconic");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(stdin.as_bytes())
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait draconic");
     let code = output.status.code().unwrap_or(1);
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -128,6 +149,15 @@ fn fmt_check_ok_when_already_formatted() {
     let (code, _, stderr) = run(draconic().arg("fmt").arg("--check").arg(&src));
     assert_eq!(code, 0, "already formatted; stderr={stderr}");
     assert_eq!(fs::read_to_string(&src).unwrap(), formatted);
+}
+
+#[test]
+fn fmt_stdin_writes_formatted_source_to_stdout() {
+    let (code, stdout, stderr) =
+        run_with_stdin(draconic().arg("fmt").arg("--stdin"), "let   x=1+2;\n");
+    assert_eq!(code, 0, "stderr={stderr}");
+    assert_eq!(stdout, "let x = 1 + 2;\n");
+    assert!(!stderr.to_lowercase().contains("usage"), "stderr={stderr}");
 }
 
 #[test]

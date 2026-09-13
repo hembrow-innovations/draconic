@@ -194,7 +194,7 @@ Usage:
   draconic parse <file>                          Parse a Program and print the AST dump
   draconic extract <file>                        Print v1 JSON extract for one Program
   draconic check [--watch] <file>                Typecheck + bind a Program (no emit)
-  draconic fmt [--check] <file>                  Format a Program in-place (or check only)
+  draconic fmt [--check] (<file> | --stdin)      Format a Program in-place, or stdin to stdout
   draconic doc [--format md|html] [-o <out>] <file>
                                                  Extract /** doc comments */ to markdown or HTML
   draconic build --target js|native [--watch] [--library] [--strip] [--lto] [--link <lib.a>] <file> [-o <out>]
