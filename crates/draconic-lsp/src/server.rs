@@ -57,6 +57,7 @@ impl Session {
             "textDocument/didOpen" => self.did_open(&msg["params"]),
             "textDocument/didChange" => self.did_change(&msg["params"]),
             "textDocument/hover" => vec![rpc_result(id, self.hover(&msg["params"]))],
+            "textDocument/definition" => vec![rpc_result(id, self.definition(&msg["params"]))],
             other => {
                 if id.is_some() {
                     vec![rpc_error(id, -32601, &format!("Method not found: {other}"))]
@@ -121,6 +122,28 @@ impl Session {
             None => Value::Null,
         }
     }
+
+    fn definition(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let Some(analysis) = self.docs.get(uri) else {
+            return Value::Null;
+        };
+        let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+        let character = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+        let offset =
+            analysis.location_to_offset(line.saturating_add(1), character.saturating_add(1));
+        match analysis.goto_definition(offset) {
+            Some(def) => {
+                let start = analysis.offset_to_location(def.span.start.0);
+                let end = analysis.offset_to_location(def.span.end.0);
+                json!({
+                    "uri": uri,
+                    "range": lsp_range(start.line, start.column, end.line, end.column)
+                })
+            }
+            None => Value::Null,
+        }
+    }
 }
 
 fn initialize_result() -> Value {
@@ -128,7 +151,8 @@ fn initialize_result() -> Value {
         "capabilities": {
             "positionEncoding": "utf-8",
             "textDocumentSync": { "openClose": true, "change": 1 },
-            "hoverProvider": true
+            "hoverProvider": true,
+            "definitionProvider": true
         },
         "serverInfo": { "name": "draconic" }
     })
@@ -271,6 +295,18 @@ mod tests {
         })
     }
 
+    fn definition_req(id: i64, uri: &str, line: u32, character: u32) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "textDocument/definition",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }
+        })
+    }
+
     fn response<'a>(msgs: &'a [Value], id: i64) -> &'a Value {
         msgs.iter()
             .find(|m| m["id"] == id)
@@ -323,6 +359,59 @@ mod tests {
         ]);
         let hover = &response(&msgs, 3)["result"];
         assert_eq!(hover["contents"]["value"].as_str(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn lsp_stdio_definition_from_use_to_decl() {
+        let src = "let answer = 1;\nlet z = answer;";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let use_off = {
+            let first = src.find("answer").expect("decl");
+            src[first + 1..]
+                .find("answer")
+                .map(|rel| (first + 1 + rel) as u32)
+                .expect("use")
+        };
+        let loc = analysis.offset_to_location(use_off);
+        let def = analysis.goto_definition(use_off).expect("goto");
+        let start = analysis.offset_to_location(def.span.start.0);
+        let end = analysis.offset_to_location(def.span.end.0);
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            definition_req(3, "file:///t.drac", loc.line - 1, loc.column - 1),
+            shutdown(2),
+            exit(),
+        ]);
+        let result = &response(&msgs, 3)["result"];
+        assert_eq!(result["uri"].as_str(), Some("file:///t.drac"));
+        assert_eq!(
+            result["range"],
+            lsp_range(start.line, start.column, end.line, end.column)
+        );
+    }
+
+    #[test]
+    fn lsp_stdio_definition_none_when_check_failed() {
+        let src = "let x: number = \"hello\";";
+        let analysis = Analysis::analyze(src);
+        assert!(analysis.has_errors());
+        let off = src.find('x').expect("x") as u32;
+        let loc = analysis.offset_to_location(off);
+        assert!(analysis.goto_definition(off).is_none());
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            definition_req(3, "file:///t.drac", loc.line - 1, loc.column - 1),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert_eq!(reply["result"], Value::Null);
     }
 
     #[test]
