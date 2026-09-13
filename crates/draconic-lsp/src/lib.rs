@@ -1,9 +1,13 @@
-//! LSP analysis library (ROADMAP U06).
+//! LSP analysis library (ROADMAP U06) and stdio language-server process.
 //!
 //! Provides a source-buffer analysis surface for editor features:
-//! diagnostics, hover types, and go-to-definition. This is intentionally
-//! not a full `tower-lsp` server — callers (CLI / editor hosts) can wire
-//! the JSON-RPC layer later.
+//! diagnostics, hover types, and go-to-definition. `serve` / `serve_stdio`
+//! wrap that analysis as JSON-RPC LSP. This is not a second Checker.
+
+mod rpc;
+mod server;
+
+pub use server::{serve, serve_stdio};
 
 use draconic_check::CheckedProgram;
 use draconic_diagnostics::{BytePos, Diagnostic, Location, SourceFile, Span};

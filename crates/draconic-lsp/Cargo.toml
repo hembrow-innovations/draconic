@@ -9,3 +9,4 @@ description = "LSP analysis surface: diagnostics, hover types, go-to-definition 
 draconic-diagnostics.workspace = true
 draconic-check.workspace = true
 draconic-frontend.workspace = true
+serde_json.workspace = true

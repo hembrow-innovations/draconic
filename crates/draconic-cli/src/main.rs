@@ -30,6 +30,7 @@ fn main() -> ExitCode {
         "test" => cmd::cmd_test::cmd_test(&args),
         "get" => cmd::cmd_get::cmd_get(&args),
         "mod" => cmd::cmd_mod::cmd_mod(&args),
+        "lsp" => cmd::cmd_lsp::cmd_lsp(&args),
         "bindgen" => cmd::cmd_bindgen::cmd_bindgen(&args),
         "help" | "-h" | "--help" => {
             print_usage();
@@ -209,6 +210,7 @@ Usage:
                                                   Write a first module manifest
   draconic mod tidy [--dir <path>] [--cache-dir <path>]
                                                    Align lock with manifest; fetch missing; prune unused
+  draconic lsp                                   Language server on stdio (diagnostics and hover)
   draconic bindgen <header> [-o <out>]           Write Draconic extern \"C\" decls from a C header
   draconic version | -V | --version              Print verbose version (commit, host, LLVM)
   draconic help                                  Show this help
