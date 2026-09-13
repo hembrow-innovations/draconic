@@ -1,7 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use draconic_diagnostics::Diagnostic;
 use draconic_frontend::check_path;
+use draconic_pkg::ensure_locked_for_entry;
 
 pub fn cmd_check(args: &[String]) -> ExitCode {
     let parsed = match parse_check_args(args) {
@@ -18,22 +20,34 @@ pub fn cmd_check(args: &[String]) -> ExitCode {
     }
 
     if parsed.watch {
-        return crate::watch::run_watch_loop(&parsed.input, || match check_path(&parsed.input) {
-            Ok(_) => {
-                crate::watch::touch_watch_marker();
-                Ok(())
+        return crate::watch::run_watch_loop(&parsed.input, || {
+            match check_program(&parsed.input) {
+                Ok(_) => {
+                    crate::watch::touch_watch_marker();
+                    Ok(())
+                }
+                Err(d) => Err(d.to_string()),
             }
-            Err(d) => Err(d.to_string()),
         });
     }
 
-    match check_path(&parsed.input) {
+    match check_program(&parsed.input) {
         Ok(_) => ExitCode::SUCCESS,
         Err(d) => {
             eprintln!("error: {d}");
             ExitCode::from(1)
         }
     }
+}
+
+fn check_program(input: &Path) -> Result<(), Diagnostic> {
+    if let Err(e) = ensure_locked_for_entry(input, false) {
+        return Err(Diagnostic::new(
+            e.to_string(),
+            draconic_diagnostics::Span::dummy(),
+        ));
+    }
+    check_path(input).map(|_| ())
 }
 
 #[derive(Debug)]
