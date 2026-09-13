@@ -9,7 +9,7 @@ use crate::content_hash_tree;
 use crate::get::{default_cache_root, LOCK_FILE, MANIFEST_FILE};
 use crate::lock::{parse_lock, write_lock, LockEntry, LockFile};
 use crate::resolve::{resolve_highest_matching_tag, version_satisfies_req, ResolveError};
-use crate::{parse_manifest, resolve_git_url, Manifest, ManifestError};
+use crate::{parse_manifest, Manifest, ManifestError};
 
 /// Summary of a successful tidy (K05.02).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +103,7 @@ pub fn mod_tidy(workspace: &Path, cache: &ModuleCache) -> Result<TidyResult, Tid
     let manifest = parse_manifest(&src)?;
 
     let old_lock = load_or_empty_lock(&lock_path)?;
-    let (new_lock, kept, fetched) = rebuild_lock(&manifest, &old_lock, cache)?;
+    let (new_lock, kept, fetched) = rebuild_lock(&manifest, &old_lock, cache, workspace)?;
 
     let mut pruned: Vec<String> = old_lock
         .packages
@@ -145,13 +145,20 @@ fn rebuild_lock(
     manifest: &Manifest,
     old_lock: &LockFile,
     cache: &ModuleCache,
+    workspace: &Path,
 ) -> Result<(LockFile, Vec<String>, Vec<String>), TidyError> {
     let mut packages = std::collections::BTreeMap::new();
     let mut kept = Vec::new();
     let mut fetched = Vec::new();
 
     for (path, req) in &manifest.dependencies {
-        let git_url = resolve_git_url(manifest, path);
+        let git_url =
+            crate::replace::resolve_clone_url(manifest, path, workspace).map_err(|e| {
+                TidyError::Cache {
+                    path: path.clone(),
+                    message: e.to_string(),
+                }
+            })?;
 
         if let Some(entry) = old_lock.packages.get(path) {
             if entry.git_url == git_url
@@ -538,9 +545,15 @@ mod tests {
         mod_tidy(&ws, &cache).expect("tidy");
         let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
         let e = lock.packages.get(path).expect("pin");
-        assert!(e.subdir.is_empty(), "local URL must not derive subdir: {e:?}");
+        assert!(
+            e.subdir.is_empty(),
+            "local URL must not derive subdir: {e:?}"
+        );
         let written = fs::read_to_string(ws.join(LOCK_FILE)).unwrap();
-        assert!(!written.contains("subdir ="), "empty subdir omitted:\n{written}");
+        assert!(
+            !written.contains("subdir ="),
+            "empty subdir omitted:\n{written}"
+        );
         let checkout = cache.entry_dir(path, &e.commit_oid).unwrap();
         assert!(checkout.join("lib.drac").is_file());
         let _ = fs::remove_dir_all(&root);

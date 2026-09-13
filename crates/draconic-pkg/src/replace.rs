@@ -5,11 +5,25 @@
 //! identity; lock pins record the replacement, never the silent original.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::fmt;
+use std::path::{Component, Path, PathBuf};
 
 use toml::Value as TomlValue;
 
-use crate::{default_git_url, validate_git_url, validate_module_path, ManifestError};
+use crate::{default_git_url, validate_git_url, validate_module_path, Manifest, ManifestError};
+
+/// Error turning a `[replace]` source into a clone URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CloneUrlError {
+    pub url: String,
+    pub reason: &'static str,
+}
+
+impl fmt::Display for CloneUrlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "invalid clone URL `{}`: {}", self.url, self.reason)
+    }
+}
 
 /// Known keys inside a `[replace]` inline table.
 const KNOWN_REPLACE_KEYS: &[&str] = &["git", "module", "path"];
@@ -167,12 +181,76 @@ fn string_field(
     }
 }
 
+fn looks_like_relative_local_path(s: &str) -> bool {
+    s == "." || s == ".." || s.starts_with("./") || s.starts_with("../")
+}
+
 fn looks_like_local_path(s: &str) -> bool {
-    s == "."
-        || s == ".."
-        || s.starts_with("./")
-        || s.starts_with("../")
-        || Path::new(s).is_absolute()
+    looks_like_relative_local_path(s) || Path::new(s).is_absolute()
+}
+
+/// Clone URL for `module_path`: `[replace]` then `[urls]` then default HTTPS.
+///
+/// Relative local replace paths join `workspace` (the directory that holds
+/// `draconic.toml`) and become an absolute path before clone validation.
+pub(crate) fn resolve_clone_url(
+    manifest: &Manifest,
+    module_path: &str,
+    workspace: &Path,
+) -> Result<String, CloneUrlError> {
+    let url = crate::resolve_git_url(manifest, module_path);
+    join_relative_clone_url(&url, workspace)
+}
+
+pub(crate) fn join_relative_clone_url(
+    url: &str,
+    workspace: &Path,
+) -> Result<String, CloneUrlError> {
+    if !looks_like_relative_local_path(url) {
+        return Ok(url.to_string());
+    }
+    let joined = workspace.join(url);
+    let abs = make_absolute(&joined).map_err(|reason| CloneUrlError {
+        url: url.to_string(),
+        reason,
+    })?;
+    let Some(s) = abs.to_str() else {
+        return Err(CloneUrlError {
+            url: url.to_string(),
+            reason: "path is not valid UTF-8",
+        });
+    };
+    if !Path::new(s).is_absolute() {
+        return Err(CloneUrlError {
+            url: url.to_string(),
+            reason: "relative replace path must resolve to an absolute local path",
+        });
+    }
+    Ok(s.to_string())
+}
+
+fn make_absolute(path: &Path) -> Result<PathBuf, &'static str> {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        let cwd = std::env::current_dir().map_err(|_| "could not read current directory")?;
+        cwd.join(path)
+    };
+    Ok(normalize_dots(&abs))
+}
+
+fn normalize_dots(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn validate_local_replace_path(path: &str) -> Result<(), &'static str> {
@@ -243,7 +321,7 @@ mod tests {
         ManifestError, ModuleCache,
     };
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::process::Command;
 
     fn parse_ok(src: &str) -> Manifest {
@@ -411,6 +489,44 @@ module = "github.com/acme/app"
             }
             other => panic!("expected Path replace, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn replace_relative_workspace_joins_to_absolute() {
+        let ws = Path::new("/tmp/consumer/app");
+        assert_eq!(
+            join_relative_clone_url("../vendor/lib", ws).unwrap(),
+            "/tmp/consumer/vendor/lib"
+        );
+        assert_eq!(
+            join_relative_clone_url("./vendor/lib", ws).unwrap(),
+            "/tmp/consumer/app/vendor/lib"
+        );
+    }
+
+    #[test]
+    fn replace_relative_leaves_absolute_file_https_ssh() {
+        let ws = Path::new("/tmp/app");
+        assert_eq!(
+            join_relative_clone_url("https://github.com/org/lib.git", ws).unwrap(),
+            "https://github.com/org/lib.git"
+        );
+        assert_eq!(
+            join_relative_clone_url("git@github.com:org/lib.git", ws).unwrap(),
+            "git@github.com:org/lib.git"
+        );
+        assert_eq!(
+            join_relative_clone_url("ssh://git@github.com/org/lib.git", ws).unwrap(),
+            "ssh://git@github.com/org/lib.git"
+        );
+        assert_eq!(
+            join_relative_clone_url("file:///tmp/lib", ws).unwrap(),
+            "file:///tmp/lib"
+        );
+        assert_eq!(
+            join_relative_clone_url("/tmp/local-lib", ws).unwrap(),
+            "/tmp/local-lib"
+        );
     }
 
     #[test]

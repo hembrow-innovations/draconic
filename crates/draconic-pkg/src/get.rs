@@ -9,8 +9,8 @@ use crate::content_hash_tree;
 use crate::lock::{parse_lock, write_lock, LockEntry, LockFile};
 use crate::resolve::{resolve_highest_matching_tag, ResolveError};
 use crate::{
-    parse_manifest, resolve_git_url, sanitize_stored_git_url, validate_git_url,
-    validate_module_path, validate_version_req, write_manifest, GitAuth, ManifestError,
+    parse_manifest, sanitize_stored_git_url, validate_git_url, validate_module_path,
+    validate_version_req, write_manifest, GitAuth, ManifestError,
 };
 
 /// Default relative cache dir under the workspace when no override is given.
@@ -259,9 +259,16 @@ pub fn get_package_with_auth(
         .insert(module_path.to_string(), version_req.to_string());
 
     // Clone may use userinfo in the override; stored urls/lock never persist secrets (K11.01).
-    let clone_url = git_url_override
-        .map(str::to_string)
-        .unwrap_or_else(|| resolve_git_url(&manifest, module_path));
+    let clone_url =
+        match git_url_override {
+            Some(url) => url.to_string(),
+            None => crate::replace::resolve_clone_url(&manifest, module_path, workspace).map_err(
+                |e| GetError::InvalidUrl {
+                    url: e.url,
+                    reason: e.reason,
+                },
+            )?,
+        };
     if let Some(url) = git_url_override {
         manifest
             .urls
@@ -744,7 +751,10 @@ mod tests {
         );
         let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
         let e = lock.packages.get(path).expect("pin");
-        assert!(e.subdir.is_empty(), "local URL must not derive subdir: {e:?}");
+        assert!(
+            e.subdir.is_empty(),
+            "local URL must not derive subdir: {e:?}"
+        );
         let written = fs::read_to_string(ws.join(LOCK_FILE)).unwrap();
         assert!(
             !written.contains("subdir ="),
