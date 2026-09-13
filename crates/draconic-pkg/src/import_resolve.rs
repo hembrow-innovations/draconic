@@ -86,7 +86,7 @@ impl fmt::Display for ImportResolveError {
             ImportResolveError::NotInLock { spec } => {
                 write!(
                     f,
-                    "import resolve: `{spec}` does not match any package in draconic.lock"
+                    "import resolve: `{spec}` does not match any package in draconic.lock; nested git deps are not auto-locked; declare them on the consumer"
                 )
             }
             ImportResolveError::NotInCache {
@@ -606,6 +606,23 @@ mod tests {
             matches!(err, ImportResolveError::NotInCache { .. }),
             "{err}"
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nested_dep_not_in_lock() {
+        let root = temp_root("nested-miss");
+        let cache = ModuleCache::new(root.join("cache"));
+        let lock = lock_with("github.com/org/lib", OID, HASH_PLACEHOLDER);
+        assert!(!lock.packages.contains_key("github.com/transitive/only"));
+
+        let err = resolve_module_import("github.com/transitive/only", &lock, &cache).unwrap_err();
+        assert!(matches!(err, ImportResolveError::NotInLock { .. }), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("github.com/transitive/only"), "{msg}");
+        assert!(msg.contains("nested git deps are not auto-locked"), "{msg}");
+        assert!(msg.contains("declare them on the consumer"), "{msg}");
 
         let _ = fs::remove_dir_all(&root);
     }
