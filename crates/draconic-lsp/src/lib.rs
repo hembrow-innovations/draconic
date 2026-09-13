@@ -1,7 +1,7 @@
 //! LSP analysis library (ROADMAP U06) and stdio language-server process.
 //!
 //! Provides a source-buffer analysis surface for editor features:
-//! diagnostics, hover types, go-to-definition, local completions, references, and rename.
+//! diagnostics, hover types, go-to-definition, local completions, references, rename, and symbols.
 //! `serve` / `serve_stdio` wrap that analysis as JSON-RPC LSP. This is not a
 //! second Checker.
 
@@ -69,6 +69,13 @@ pub struct Reference {
 pub struct TextEdit {
     pub span: Span,
     pub new_text: String,
+}
+
+/// One declaration in the current Program.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub span: Span,
 }
 
 /// Analysis snapshot for one source buffer.
@@ -198,6 +205,23 @@ impl Analysis {
                 })
                 .collect(),
         )
+    }
+
+    /// Declarations in this Program. Empty when check failed.
+    pub fn symbols(&self) -> Vec<SymbolInfo> {
+        let Some(checked) = self.checked.as_ref() else {
+            return Vec::new();
+        };
+        checked
+            .bound
+            .symbols()
+            .iter()
+            .filter(|s| !s.span.is_dummy())
+            .map(|s| SymbolInfo {
+                name: s.name.clone(),
+                span: s.span,
+            })
+            .collect()
     }
 
     /// Local symbol names in this Program. Empty when check failed.
@@ -513,5 +537,26 @@ mod tests {
         let a = analyze("let x: number = \"hello\";");
         assert!(a.has_errors());
         assert!(a.rename(0, "y").is_none());
+    }
+
+    fn symbol_names(a: &Analysis) -> Vec<String> {
+        a.symbols().into_iter().map(|s| s.name).collect()
+    }
+
+    #[test]
+    fn symbols_include_function_or_class_names() {
+        let src = "function add(a, b) { return a + b; }\nclass Box {}";
+        let a = analyze(src);
+        assert!(!a.has_errors(), "diags: {:?}", a.diagnostics());
+        let names = symbol_names(&a);
+        assert!(names.contains(&"add".to_string()), "{names:?}");
+        assert!(names.contains(&"Box".to_string()), "{names:?}");
+    }
+
+    #[test]
+    fn symbols_empty_when_check_failed() {
+        let a = analyze("let x: number = \"hello\";");
+        assert!(a.has_errors());
+        assert!(a.symbols().is_empty());
     }
 }

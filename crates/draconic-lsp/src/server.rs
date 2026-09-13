@@ -61,6 +61,10 @@ impl Session {
             "textDocument/completion" => vec![rpc_result(id, self.completion(&msg["params"]))],
             "textDocument/references" => vec![rpc_result(id, self.references(&msg["params"]))],
             "textDocument/rename" => vec![rpc_result(id, self.rename(&msg["params"]))],
+            "textDocument/documentSymbol" => {
+                vec![rpc_result(id, self.document_symbol(&msg["params"]))]
+            }
+            "workspace/symbol" => vec![rpc_result(id, self.workspace_symbol(&msg["params"]))],
             other => {
                 if id.is_some() {
                     vec![rpc_error(id, -32601, &format!("Method not found: {other}"))]
@@ -217,6 +221,43 @@ impl Session {
             None => Value::Null,
         }
     }
+
+    fn document_symbol(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let Some(analysis) = self.docs.get(uri) else {
+            return json!([]);
+        };
+        json!(symbol_information(uri, analysis, ""))
+    }
+
+    fn workspace_symbol(&self, params: &Value) -> Value {
+        let query = params["query"].as_str().unwrap_or("");
+        let mut items = Vec::new();
+        for (uri, analysis) in &self.docs {
+            items.extend(symbol_information(uri, analysis, query));
+        }
+        json!(items)
+    }
+}
+
+fn symbol_information(uri: &str, analysis: &Analysis, query: &str) -> Vec<Value> {
+    analysis
+        .symbols()
+        .into_iter()
+        .filter(|s| query.is_empty() || s.name.contains(query))
+        .map(|s| {
+            let start = analysis.offset_to_location(s.span.start.0);
+            let end = analysis.offset_to_location(s.span.end.0);
+            json!({
+                "name": s.name,
+                "kind": 13,
+                "location": {
+                    "uri": uri,
+                    "range": lsp_range(start.line, start.column, end.line, end.column)
+                }
+            })
+        })
+        .collect()
 }
 
 fn initialize_result() -> Value {
@@ -228,7 +269,9 @@ fn initialize_result() -> Value {
             "definitionProvider": true,
             "completionProvider": {},
             "referencesProvider": true,
-            "renameProvider": true
+            "renameProvider": true,
+            "documentSymbolProvider": true,
+            "workspaceSymbolProvider": true
         },
         "serverInfo": { "name": "draconic" }
     })
@@ -419,6 +462,34 @@ mod tests {
                 "newName": new_name
             }
         })
+    }
+
+    fn document_symbol_req(id: i64, uri: &str) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "textDocument/documentSymbol",
+            "params": { "textDocument": { "uri": uri } }
+        })
+    }
+
+    fn workspace_symbol_req(id: i64, query: &str) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "workspace/symbol",
+            "params": { "query": query }
+        })
+    }
+
+    fn symbol_names(result: &Value) -> Vec<String> {
+        match result.as_array() {
+            Some(items) => items
+                .iter()
+                .filter_map(|item| item["name"].as_str().map(str::to_string))
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     fn completion_labels(result: &Value) -> Vec<String> {
@@ -640,6 +711,73 @@ mod tests {
         let reply = response(&msgs, 3);
         assert!(reply.get("error").is_none(), "{reply:?}");
         assert_eq!(reply["result"]["changes"]["file:///t.drac"], json!(expected));
+    }
+
+    #[test]
+    fn lsp_stdio_document_symbol_returns_analysis_names() {
+        let src = "function add(a, b) { return a + b; }\nclass Box {}";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let mut expected: Vec<String> = analysis.symbols().into_iter().map(|s| s.name).collect();
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            document_symbol_req(3, "file:///t.drac"),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        let mut names = symbol_names(&reply["result"]);
+        names.sort();
+        expected.sort();
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn lsp_stdio_workspace_symbol_returns_analysis_names() {
+        let src = "function add(a, b) { return a + b; }\nclass Box {}";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let mut expected: Vec<String> = analysis.symbols().into_iter().map(|s| s.name).collect();
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            workspace_symbol_req(3, ""),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        let mut names = symbol_names(&reply["result"]);
+        names.sort();
+        expected.sort();
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn lsp_stdio_symbols_empty_when_check_failed() {
+        let src = "let x: number = \"hello\";";
+        let analysis = Analysis::analyze(src);
+        assert!(analysis.has_errors());
+        assert!(analysis.symbols().is_empty());
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            document_symbol_req(3, "file:///t.drac"),
+            workspace_symbol_req(4, ""),
+            shutdown(2),
+            exit(),
+        ]);
+        let doc = response(&msgs, 3);
+        let ws = response(&msgs, 4);
+        assert!(doc.get("error").is_none(), "{doc:?}");
+        assert!(ws.get("error").is_none(), "{ws:?}");
+        assert!(symbol_names(&doc["result"]).is_empty());
+        assert!(symbol_names(&ws["result"]).is_empty());
     }
 
     #[test]
