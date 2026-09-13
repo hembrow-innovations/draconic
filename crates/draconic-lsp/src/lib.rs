@@ -1,7 +1,7 @@
 //! LSP analysis library (ROADMAP U06) and stdio language-server process.
 //!
 //! Provides a source-buffer analysis surface for editor features:
-//! diagnostics, hover types, go-to-definition, local completions, and references.
+//! diagnostics, hover types, go-to-definition, local completions, references, and rename.
 //! `serve` / `serve_stdio` wrap that analysis as JSON-RPC LSP. This is not a
 //! second Checker.
 
@@ -62,6 +62,13 @@ pub struct Completion {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reference {
     pub span: Span,
+}
+
+/// One text replacement produced by rename.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextEdit {
+    pub span: Span,
+    pub new_text: String,
 }
 
 /// Analysis snapshot for one source buffer.
@@ -173,6 +180,24 @@ impl Analysis {
         spans.sort_by_key(|s| (s.start.0, s.end.0));
         spans.dedup();
         Some(spans.into_iter().map(|span| Reference { span }).collect())
+    }
+
+    /// Text edits that replace the declaration and uses at UTF-8 byte `offset`.
+    ///
+    /// None when check failed or the offset is not a renameable name.
+    pub fn rename(&self, offset: u32, new_name: &str) -> Option<Vec<TextEdit>> {
+        let refs = self.references(offset)?;
+        if refs.is_empty() {
+            return None;
+        }
+        Some(
+            refs.into_iter()
+                .map(|r| TextEdit {
+                    span: r.span,
+                    new_text: new_name.to_string(),
+                })
+                .collect(),
+        )
     }
 
     /// Local symbol names in this Program. Empty when check failed.
@@ -448,5 +473,45 @@ mod tests {
         let a = analyze("let x: number = \"hello\";");
         assert!(a.has_errors());
         assert!(a.references(0).is_none());
+    }
+
+    #[test]
+    fn rename_local_updates_decl_and_uses() {
+        let src = "let answer = 1;\nlet z = answer;";
+        let a = analyze(src);
+        assert!(!a.has_errors(), "diags: {:?}", a.diagnostics());
+        let decl_off = offset_of(src, "answer");
+        let use_off = offset_of_nth(src, "answer", 1);
+        let decl_span = Span::new(decl_off, decl_off + "answer".len() as u32);
+        let use_span = Span::new(use_off, use_off + "answer".len() as u32);
+        let edits = a.rename(use_off, "result").expect("rename from use");
+        assert!(
+            edits.iter().any(|e| e.span == decl_span && e.new_text == "result"),
+            "{edits:?}"
+        );
+        assert!(
+            edits.iter().any(|e| e.span == use_span && e.new_text == "result"),
+            "{edits:?}"
+        );
+        let from_decl = a.rename(decl_off, "result").expect("rename from decl");
+        assert!(
+            from_decl
+                .iter()
+                .any(|e| e.span == decl_span && e.new_text == "result"),
+            "{from_decl:?}"
+        );
+        assert!(
+            from_decl
+                .iter()
+                .any(|e| e.span == use_span && e.new_text == "result"),
+            "{from_decl:?}"
+        );
+    }
+
+    #[test]
+    fn rename_none_when_check_failed() {
+        let a = analyze("let x: number = \"hello\";");
+        assert!(a.has_errors());
+        assert!(a.rename(0, "y").is_none());
     }
 }

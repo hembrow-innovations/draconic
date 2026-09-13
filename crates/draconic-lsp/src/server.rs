@@ -60,6 +60,7 @@ impl Session {
             "textDocument/definition" => vec![rpc_result(id, self.definition(&msg["params"]))],
             "textDocument/completion" => vec![rpc_result(id, self.completion(&msg["params"]))],
             "textDocument/references" => vec![rpc_result(id, self.references(&msg["params"]))],
+            "textDocument/rename" => vec![rpc_result(id, self.rename(&msg["params"]))],
             other => {
                 if id.is_some() {
                     vec![rpc_error(id, -32601, &format!("Method not found: {other}"))]
@@ -187,6 +188,35 @@ impl Session {
             None => Value::Null,
         }
     }
+
+    fn rename(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let Some(analysis) = self.docs.get(uri) else {
+            return Value::Null;
+        };
+        let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+        let character = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+        let new_name = params["newName"].as_str().unwrap_or("");
+        let offset =
+            analysis.location_to_offset(line.saturating_add(1), character.saturating_add(1));
+        match analysis.rename(offset, new_name) {
+            Some(edits) => {
+                let text_edits: Vec<Value> = edits
+                    .into_iter()
+                    .map(|e| {
+                        let start = analysis.offset_to_location(e.span.start.0);
+                        let end = analysis.offset_to_location(e.span.end.0);
+                        json!({
+                            "range": lsp_range(start.line, start.column, end.line, end.column),
+                            "newText": e.new_text
+                        })
+                    })
+                    .collect();
+                json!({ "changes": { uri: text_edits } })
+            }
+            None => Value::Null,
+        }
+    }
 }
 
 fn initialize_result() -> Value {
@@ -197,7 +227,8 @@ fn initialize_result() -> Value {
             "hoverProvider": true,
             "definitionProvider": true,
             "completionProvider": {},
-            "referencesProvider": true
+            "referencesProvider": true,
+            "renameProvider": true
         },
         "serverInfo": { "name": "draconic" }
     })
@@ -373,6 +404,19 @@ mod tests {
                 "textDocument": { "uri": uri },
                 "position": { "line": line, "character": character },
                 "context": { "includeDeclaration": true }
+            }
+        })
+    }
+
+    fn rename_req(id: i64, uri: &str, line: u32, character: u32, new_name: &str) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "textDocument/rename",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "newName": new_name
             }
         })
     }
@@ -557,6 +601,66 @@ mod tests {
         let reply = response(&msgs, 3);
         assert!(reply.get("error").is_none(), "{reply:?}");
         assert_eq!(reply["result"], json!(expected));
+    }
+
+    #[test]
+    fn lsp_stdio_rename_returns_analysis_edits() {
+        let src = "let answer = 1;\nlet z = answer;";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let use_off = {
+            let first = src.find("answer").expect("decl");
+            src[first + 1..]
+                .find("answer")
+                .map(|rel| (first + 1 + rel) as u32)
+                .expect("use")
+        };
+        let loc = analysis.offset_to_location(use_off);
+        let expected: Vec<Value> = analysis
+            .rename(use_off, "result")
+            .expect("rename")
+            .into_iter()
+            .map(|e| {
+                let start = analysis.offset_to_location(e.span.start.0);
+                let end = analysis.offset_to_location(e.span.end.0);
+                json!({
+                    "range": lsp_range(start.line, start.column, end.line, end.column),
+                    "newText": e.new_text
+                })
+            })
+            .collect();
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            rename_req(3, "file:///t.drac", loc.line - 1, loc.column - 1, "result"),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert_eq!(reply["result"]["changes"]["file:///t.drac"], json!(expected));
+    }
+
+    #[test]
+    fn lsp_stdio_rename_none_when_check_failed() {
+        let src = "let x: number = \"hello\";";
+        let analysis = Analysis::analyze(src);
+        assert!(analysis.has_errors());
+        let off = src.find('x').expect("x") as u32;
+        let loc = analysis.offset_to_location(off);
+        assert!(analysis.rename(off, "y").is_none());
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            rename_req(3, "file:///t.drac", loc.line - 1, loc.column - 1, "y"),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert_eq!(reply["result"], Value::Null);
     }
 
     #[test]
