@@ -58,6 +58,7 @@ impl Session {
             "textDocument/didChange" => self.did_change(&msg["params"]),
             "textDocument/hover" => vec![rpc_result(id, self.hover(&msg["params"]))],
             "textDocument/definition" => vec![rpc_result(id, self.definition(&msg["params"]))],
+            "textDocument/completion" => vec![rpc_result(id, self.completion(&msg["params"]))],
             other => {
                 if id.is_some() {
                     vec![rpc_error(id, -32601, &format!("Method not found: {other}"))]
@@ -144,6 +145,19 @@ impl Session {
             None => Value::Null,
         }
     }
+
+    fn completion(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let Some(analysis) = self.docs.get(uri) else {
+            return json!({ "isIncomplete": false, "items": [] });
+        };
+        let items: Vec<Value> = analysis
+            .completions()
+            .into_iter()
+            .map(|c| json!({ "label": c.name }))
+            .collect();
+        json!({ "isIncomplete": false, "items": items })
+    }
 }
 
 fn initialize_result() -> Value {
@@ -152,7 +166,8 @@ fn initialize_result() -> Value {
             "positionEncoding": "utf-8",
             "textDocumentSync": { "openClose": true, "change": 1 },
             "hoverProvider": true,
-            "definitionProvider": true
+            "definitionProvider": true,
+            "completionProvider": {}
         },
         "serverInfo": { "name": "draconic" }
     })
@@ -307,6 +322,31 @@ mod tests {
         })
     }
 
+    fn completion_req(id: i64, uri: &str, line: u32, character: u32) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "textDocument/completion",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }
+        })
+    }
+
+    fn completion_labels(result: &Value) -> Vec<String> {
+        let items = result
+            .as_array()
+            .or_else(|| result.get("items").and_then(Value::as_array));
+        match items {
+            Some(items) => items
+                .iter()
+                .filter_map(|item| item["label"].as_str().map(str::to_string))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
     fn response<'a>(msgs: &'a [Value], id: i64) -> &'a Value {
         msgs.iter()
             .find(|m| m["id"] == id)
@@ -412,6 +452,48 @@ mod tests {
         let reply = response(&msgs, 3);
         assert!(reply.get("error").is_none(), "{reply:?}");
         assert_eq!(reply["result"], Value::Null);
+    }
+
+    #[test]
+    fn lsp_stdio_completion_returns_analysis_names() {
+        let src = "let count = 1;\nfunction add(a, b) { return a + b; }";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let mut expected: Vec<String> =
+            analysis.completions().into_iter().map(|c| c.name).collect();
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            completion_req(3, "file:///t.drac", 1, 0),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        let mut labels = completion_labels(&reply["result"]);
+        labels.sort();
+        expected.sort();
+        assert_eq!(labels, expected);
+    }
+
+    #[test]
+    fn lsp_stdio_completion_none_when_check_failed() {
+        let src = "let x: number = \"hello\";";
+        let analysis = Analysis::analyze(src);
+        assert!(analysis.has_errors());
+        assert!(analysis.completions().is_empty());
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            completion_req(3, "file:///t.drac", 0, 4),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert!(completion_labels(&reply["result"]).is_empty());
     }
 
     #[test]

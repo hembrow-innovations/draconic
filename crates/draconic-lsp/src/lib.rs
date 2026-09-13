@@ -1,13 +1,16 @@
 //! LSP analysis library (ROADMAP U06) and stdio language-server process.
 //!
 //! Provides a source-buffer analysis surface for editor features:
-//! diagnostics, hover types, and go-to-definition. `serve` / `serve_stdio`
-//! wrap that analysis as JSON-RPC LSP. This is not a second Checker.
+//! diagnostics, hover types, go-to-definition, and local completions.
+//! `serve` / `serve_stdio` wrap that analysis as JSON-RPC LSP. This is not a
+//! second Checker.
 
 mod rpc;
 mod server;
 
 pub use server::{serve, serve_stdio};
+
+use std::collections::HashSet;
 
 use draconic_check::CheckedProgram;
 use draconic_diagnostics::{BytePos, Diagnostic, Location, SourceFile, Span};
@@ -47,6 +50,12 @@ pub struct Hover {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Definition {
     pub span: Span,
+}
+
+/// One local symbol name offered as a completion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Completion {
+    pub name: String,
 }
 
 /// Analysis snapshot for one source buffer.
@@ -135,6 +144,26 @@ impl Analysis {
         }
 
         None
+    }
+
+    /// Local symbol names in this Program. Empty when check failed.
+    pub fn completions(&self) -> Vec<Completion> {
+        let Some(checked) = self.checked.as_ref() else {
+            return Vec::new();
+        };
+        let mut names = Vec::new();
+        let mut seen = HashSet::new();
+        for sym in checked.bound.symbols() {
+            if sym.span.is_dummy() {
+                continue;
+            }
+            if seen.insert(sym.name.clone()) {
+                names.push(Completion {
+                    name: sym.name.clone(),
+                });
+            }
+        }
+        names
     }
 
     /// Map UTF-8 byte offset → 1-based line/column.
@@ -336,5 +365,27 @@ mod tests {
     fn location_to_offset_first_line() {
         assert_eq!(location_to_offset("hello", 1, 1), 0);
         assert_eq!(location_to_offset("hello", 1, 3), 2);
+    }
+
+    fn completion_names(a: &Analysis) -> Vec<String> {
+        a.completions().into_iter().map(|c| c.name).collect()
+    }
+
+    #[test]
+    fn complete_locals_includes_binding_and_function_names() {
+        let src = "let count = 1;\nfunction add(a, b) { return a + b; }";
+        let a = analyze(src);
+        assert!(!a.has_errors(), "diags: {:?}", a.diagnostics());
+        let names = completion_names(&a);
+        assert!(names.contains(&"count".to_string()), "{names:?}");
+        assert!(names.contains(&"add".to_string()), "{names:?}");
+        assert!(!names.contains(&"Math".to_string()), "builtins are not local: {names:?}");
+    }
+
+    #[test]
+    fn complete_locals_none_when_check_failed() {
+        let a = analyze("let x: number = \"hello\";");
+        assert!(a.has_errors());
+        assert!(a.completions().is_empty());
     }
 }
