@@ -20,6 +20,7 @@
 //! K05: CLI `draconic get` / `draconic mod tidy` — one get/tidy package surface.
 //! K05.01: `draconic get <module_path>@<ver>` — fetch, update manifest+lock+cache.
 //! K05.02: `draconic mod tidy` — lock matches manifest; fetch missing; prune unused.
+//! `draconic mod init <module_path>`: write a first module manifest; refuse overwrite.
 //! K06.01: resolve module-path imports (`github.com/org/pkg` + subpath) → cache file.
 //! K06.02: package boundary — reject path escape outside package checkout root.
 //! K06.03: coexist with E11 relative imports (see linker + `tests/packages`).
@@ -45,6 +46,7 @@ mod ensure;
 mod get;
 mod hash;
 mod import_resolve;
+mod init;
 mod later;
 mod lock;
 mod manifest;
@@ -83,6 +85,7 @@ pub use import_resolve::{
     match_locked_package, path_is_within_root, resolve_module_import, ImportResolveError,
     ResolvedImport,
 };
+pub use init::{mod_init, InitError, InitResult};
 pub use later::{LaterPackaging, LaterPackagingError};
 pub use lock::{parse_lock, write_lock, LockEntry, LockEntryError, LockFile, LockFileError};
 pub use manifest::{Manifest, ManifestError, ToolchainPin};

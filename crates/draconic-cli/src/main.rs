@@ -205,6 +205,8 @@ Usage:
   draconic test [--coverage] [--jobs <n>] <path> Run conformance fixtures (dir or .drac file)
   draconic get <module_path>@<ver> [--url <git-url>] [--dir <path>] [--cache-dir <path>]
                                                   Add/update a git package dep; fetch; write lock
+  draconic mod init <module_path> [--dir <path>]
+                                                  Write a first module manifest
   draconic mod tidy [--dir <path>] [--cache-dir <path>]
                                                    Align lock with manifest; fetch missing; prune unused
   draconic bindgen <header> [-o <out>]           Write Draconic extern \"C\" decls from a C header
