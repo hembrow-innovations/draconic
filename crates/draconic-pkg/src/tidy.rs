@@ -469,4 +469,80 @@ mod tests {
         assert!(matches!(err, TidyError::MissingManifest { .. }), "{err:?}");
         let _ = fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn k11_02_tidy_uses_replace_git_not_urls() {
+        let root = temp_dir("k11-02-replace-git");
+        let (original, oid_orig) = tagged_upstream(&root, "original", &["v1.2.3"]);
+        let (fork, oid_fork) = tagged_upstream(&root, "fork", &["v1.2.3"]);
+        assert_ne!(oid_orig, oid_fork);
+        let ws = root.join("app");
+        fs::create_dir_all(&ws).unwrap();
+        let path = "github.com/org/lib";
+        fs::write(
+            ws.join(MANIFEST_FILE),
+            format!(
+                r#"module = "github.com/acme/app"
+
+[dependencies]
+"{path}" = "1.2.3"
+
+[urls]
+"{path}" = "{original}"
+
+[replace]
+"{path}" = {{ git = "{fork}" }}
+"#,
+                original = original.display(),
+                fork = fork.display()
+            ),
+        )
+        .unwrap();
+        let cache = ModuleCache::new(root.join("cache"));
+        let r = mod_tidy(&ws, &cache).expect("tidy");
+        assert!(r.fetched.iter().any(|p| p == path), "{r:?}");
+        let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
+        let e = lock.packages.get(path).expect("pin");
+        assert_eq!(e.git_url, fork.to_str().unwrap());
+        assert_ne!(e.git_url, original.to_str().unwrap());
+        assert_eq!(e.commit_oid, oid_fork);
+        let checkout = cache.entry_dir(path, &oid_fork).unwrap();
+        let body = fs::read_to_string(checkout.join("lib.drac")).unwrap();
+        assert!(body.contains("fork"), "{body}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_03_tidy_local_url_does_not_derive_monorepo_subdir() {
+        let root = temp_dir("k11-03-local");
+        let (upstream, _oid) = tagged_upstream(&root, "up", &["v1.2.3"]);
+        let ws = root.join("app");
+        fs::create_dir_all(&ws).unwrap();
+        let path = "github.com/org/mono/pkg/foo";
+        fs::write(
+            ws.join(MANIFEST_FILE),
+            format!(
+                r#"module = "github.com/acme/app"
+
+[dependencies]
+"{path}" = "1.2.3"
+
+[urls]
+"{path}" = "{url}"
+"#,
+                url = upstream.display()
+            ),
+        )
+        .unwrap();
+        let cache = ModuleCache::new(root.join("cache"));
+        mod_tidy(&ws, &cache).expect("tidy");
+        let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
+        let e = lock.packages.get(path).expect("pin");
+        assert!(e.subdir.is_empty(), "local URL must not derive subdir: {e:?}");
+        let written = fs::read_to_string(ws.join(LOCK_FILE)).unwrap();
+        assert!(!written.contains("subdir ="), "empty subdir omitted:\n{written}");
+        let checkout = cache.entry_dir(path, &e.commit_oid).unwrap();
+        assert!(checkout.join("lib.drac").is_file());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

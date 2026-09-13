@@ -665,4 +665,110 @@ mod tests {
         );
         let _ = fs::remove_dir_all(&root);
     }
+
+    fn write_app_manifest(ws: &Path, body: &str) {
+        fs::create_dir_all(ws).unwrap();
+        fs::write(ws.join(MANIFEST_FILE), body).unwrap();
+    }
+
+    #[test]
+    fn k11_02_get_uses_replace_git_not_urls() {
+        let root = temp_dir("k11-02-replace-git");
+        let (original, oid_orig) = tagged_upstream(&root);
+        let fork = root.join("fork");
+        fs::create_dir_all(&fork).unwrap();
+        git_ok(&["init"], &fork);
+        git_ok(&["config", "user.email", "test@draconic.local"], &fork);
+        git_ok(&["config", "user.name", "Draconic Test"], &fork);
+        git_ok(&["checkout", "-B", "main"], &fork);
+        fs::write(fork.join("lib.drac"), "export let x = 99;\n").unwrap();
+        git_ok(&["add", "."], &fork);
+        git_ok(&["commit", "-m", "v1.2.3"], &fork);
+        git_ok(&["tag", "v1.2.3"], &fork);
+        let oid_fork = {
+            let out = Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .current_dir(&fork)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        assert_ne!(oid_orig, oid_fork);
+
+        let ws = root.join("app");
+        write_app_manifest(
+            &ws,
+            &format!(
+                r#"module = "github.com/acme/app"
+
+[dependencies]
+"github.com/org/lib" = "1.2.3"
+
+[urls]
+"github.com/org/lib" = "{original}"
+
+[replace]
+"github.com/org/lib" = {{ git = "{fork}" }}
+"#,
+                original = original.display(),
+                fork = fork.display()
+            ),
+        );
+        let cache = ModuleCache::new(root.join("cache"));
+        let result = get_package(&ws, "github.com/org/lib", "1.2.3", None, &cache).expect("get");
+        assert_eq!(result.commit_oid, oid_fork);
+        let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
+        let e = lock.packages.get("github.com/org/lib").expect("pin");
+        assert_eq!(e.git_url, fork.to_str().unwrap());
+        assert_ne!(e.git_url, original.to_str().unwrap());
+        assert_eq!(e.commit_oid, oid_fork);
+        let body = fs::read_to_string(result.checkout_dir.join("lib.drac")).unwrap();
+        assert_eq!(body, "export let x = 99;\n");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_03_get_local_url_does_not_derive_monorepo_subdir() {
+        let root = temp_dir("k11-03-local");
+        let (upstream, _oid) = tagged_upstream(&root);
+        let ws = root.join("app");
+        write_app_manifest(&ws, "module = \"github.com/acme/app\"\n");
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/mono/pkg/foo";
+        let result = get_package(&ws, path, "1.2.3", Some(upstream.to_str().unwrap()), &cache)
+            .expect("get local");
+        assert!(
+            result.checkout_dir.join("lib.drac").is_file(),
+            "repo-root checkout, not pkg/foo: {}",
+            result.checkout_dir.display()
+        );
+        let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
+        let e = lock.packages.get(path).expect("pin");
+        assert!(e.subdir.is_empty(), "local URL must not derive subdir: {e:?}");
+        let written = fs::read_to_string(ws.join(LOCK_FILE)).unwrap();
+        assert!(
+            !written.contains("subdir ="),
+            "empty subdir must be omitted:\n{written}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn k11_03_get_file_url_does_not_derive_monorepo_subdir() {
+        let root = temp_dir("k11-03-file");
+        let (upstream, _oid) = tagged_upstream(&root);
+        let ws = root.join("app");
+        write_app_manifest(&ws, "module = \"github.com/acme/app\"\n");
+        let cache = ModuleCache::new(root.join("cache"));
+        let path = "github.com/org/mono/pkg/foo";
+        let url = format!("file://{}", upstream.display());
+        let result = get_package(&ws, path, "1.2.3", Some(&url), &cache).expect("get file url");
+        assert!(result.checkout_dir.join("lib.drac").is_file());
+        let lock = parse_lock(&fs::read_to_string(ws.join(LOCK_FILE)).unwrap()).unwrap();
+        assert!(
+            lock.packages[path].subdir.is_empty(),
+            "file:// URL must not derive subdir"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 }

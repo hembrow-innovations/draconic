@@ -334,6 +334,28 @@ module = "github.com/acme/app"
     }
 
     #[test]
+    fn k11_02_replace_module_wins_for_resolve_git_url() {
+        let m = parse_ok(
+            r#"
+module = "github.com/acme/app"
+
+[dependencies]
+"github.com/org/lib" = "1.0.0"
+
+[urls]
+"github.com/org/lib" = "https://git.example.com/org/lib.git"
+
+[replace]
+"github.com/org/lib" = { module = "github.com/fork/lib" }
+"#,
+        );
+        assert_eq!(
+            resolve_git_url(&m, "github.com/org/lib"),
+            "https://github.com/fork/lib.git"
+        );
+    }
+
+    #[test]
     fn replace_parse_string_git_url() {
         let m = parse_ok(
             r#"
