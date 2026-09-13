@@ -1,7 +1,7 @@
 //! LSP analysis library (ROADMAP U06) and stdio language-server process.
 //!
 //! Provides a source-buffer analysis surface for editor features:
-//! diagnostics, hover types, go-to-definition, and local completions.
+//! diagnostics, hover types, go-to-definition, local completions, and references.
 //! `serve` / `serve_stdio` wrap that analysis as JSON-RPC LSP. This is not a
 //! second Checker.
 
@@ -56,6 +56,12 @@ pub struct Definition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Completion {
     pub name: String,
+}
+
+/// One reference span: a declaration name or a use of that symbol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reference {
+    pub span: Span,
 }
 
 /// Analysis snapshot for one source buffer.
@@ -144,6 +150,29 @@ impl Analysis {
         }
 
         None
+    }
+
+    /// Declaration and uses of the identifier at UTF-8 byte `offset`.
+    ///
+    /// None when check failed or the offset is not an identifier.
+    pub fn references(&self, offset: u32) -> Option<Vec<Reference>> {
+        let checked = self.checked.as_ref()?;
+        let id = if let Some((_, id)) = checked.bound.use_at_offset(offset) {
+            id
+        } else if let Some(sym) = checked.bound.decl_at_offset(offset) {
+            sym.id
+        } else {
+            return None;
+        };
+        let mut spans = Vec::new();
+        let decl = checked.bound.symbol(id).span;
+        if !decl.is_dummy() {
+            spans.push(decl);
+        }
+        spans.extend(checked.bound.uses_of(id));
+        spans.sort_by_key(|s| (s.start.0, s.end.0));
+        spans.dedup();
+        Some(spans.into_iter().map(|span| Reference { span }).collect())
     }
 
     /// Local symbol names in this Program. Empty when check failed.
@@ -387,5 +416,37 @@ mod tests {
         let a = analyze("let x: number = \"hello\";");
         assert!(a.has_errors());
         assert!(a.completions().is_empty());
+    }
+
+    fn reference_spans(a: &Analysis, offset: u32) -> Vec<Span> {
+        a.references(offset)
+            .expect("references")
+            .into_iter()
+            .map(|r| r.span)
+            .collect()
+    }
+
+    #[test]
+    fn references_include_decl_and_use() {
+        let src = "let answer = 1;\nlet z = answer;";
+        let a = analyze(src);
+        assert!(!a.has_errors(), "diags: {:?}", a.diagnostics());
+        let decl_off = offset_of(src, "answer");
+        let use_off = offset_of_nth(src, "answer", 1);
+        let decl_span = Span::new(decl_off, decl_off + "answer".len() as u32);
+        let use_span = Span::new(use_off, use_off + "answer".len() as u32);
+        let from_use = reference_spans(&a, use_off);
+        assert!(from_use.contains(&decl_span), "{from_use:?}");
+        assert!(from_use.contains(&use_span), "{from_use:?}");
+        let from_decl = reference_spans(&a, decl_off);
+        assert!(from_decl.contains(&decl_span), "{from_decl:?}");
+        assert!(from_decl.contains(&use_span), "{from_decl:?}");
+    }
+
+    #[test]
+    fn references_none_when_check_failed() {
+        let a = analyze("let x: number = \"hello\";");
+        assert!(a.has_errors());
+        assert!(a.references(0).is_none());
     }
 }

@@ -59,6 +59,7 @@ impl Session {
             "textDocument/hover" => vec![rpc_result(id, self.hover(&msg["params"]))],
             "textDocument/definition" => vec![rpc_result(id, self.definition(&msg["params"]))],
             "textDocument/completion" => vec![rpc_result(id, self.completion(&msg["params"]))],
+            "textDocument/references" => vec![rpc_result(id, self.references(&msg["params"]))],
             other => {
                 if id.is_some() {
                     vec![rpc_error(id, -32601, &format!("Method not found: {other}"))]
@@ -158,6 +159,34 @@ impl Session {
             .collect();
         json!({ "isIncomplete": false, "items": items })
     }
+
+    fn references(&self, params: &Value) -> Value {
+        let uri = params["textDocument"]["uri"].as_str().unwrap_or("");
+        let Some(analysis) = self.docs.get(uri) else {
+            return Value::Null;
+        };
+        let line = params["position"]["line"].as_u64().unwrap_or(0) as u32;
+        let character = params["position"]["character"].as_u64().unwrap_or(0) as u32;
+        let offset =
+            analysis.location_to_offset(line.saturating_add(1), character.saturating_add(1));
+        match analysis.references(offset) {
+            Some(refs) => {
+                let locations: Vec<Value> = refs
+                    .into_iter()
+                    .map(|r| {
+                        let start = analysis.offset_to_location(r.span.start.0);
+                        let end = analysis.offset_to_location(r.span.end.0);
+                        json!({
+                            "uri": uri,
+                            "range": lsp_range(start.line, start.column, end.line, end.column)
+                        })
+                    })
+                    .collect();
+                json!(locations)
+            }
+            None => Value::Null,
+        }
+    }
 }
 
 fn initialize_result() -> Value {
@@ -167,7 +196,8 @@ fn initialize_result() -> Value {
             "textDocumentSync": { "openClose": true, "change": 1 },
             "hoverProvider": true,
             "definitionProvider": true,
-            "completionProvider": {}
+            "completionProvider": {},
+            "referencesProvider": true
         },
         "serverInfo": { "name": "draconic" }
     })
@@ -334,6 +364,19 @@ mod tests {
         })
     }
 
+    fn references_req(id: i64, uri: &str, line: u32, character: u32) -> Value {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "textDocument/references",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+                "context": { "includeDeclaration": true }
+            }
+        })
+    }
+
     fn completion_labels(result: &Value) -> Vec<String> {
         let items = result
             .as_array()
@@ -475,6 +518,66 @@ mod tests {
         labels.sort();
         expected.sort();
         assert_eq!(labels, expected);
+    }
+
+    #[test]
+    fn lsp_stdio_references_returns_analysis_spans() {
+        let src = "let answer = 1;\nlet z = answer;";
+        let analysis = Analysis::analyze(src);
+        assert!(!analysis.has_errors());
+        let use_off = {
+            let first = src.find("answer").expect("decl");
+            src[first + 1..]
+                .find("answer")
+                .map(|rel| (first + 1 + rel) as u32)
+                .expect("use")
+        };
+        let loc = analysis.offset_to_location(use_off);
+        let expected: Vec<Value> = analysis
+            .references(use_off)
+            .expect("refs")
+            .into_iter()
+            .map(|r| {
+                let start = analysis.offset_to_location(r.span.start.0);
+                let end = analysis.offset_to_location(r.span.end.0);
+                json!({
+                    "uri": "file:///t.drac",
+                    "range": lsp_range(start.line, start.column, end.line, end.column)
+                })
+            })
+            .collect();
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            references_req(3, "file:///t.drac", loc.line - 1, loc.column - 1),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert_eq!(reply["result"], json!(expected));
+    }
+
+    #[test]
+    fn lsp_stdio_references_none_when_check_failed() {
+        let src = "let x: number = \"hello\";";
+        let analysis = Analysis::analyze(src);
+        assert!(analysis.has_errors());
+        let off = src.find('x').expect("x") as u32;
+        let loc = analysis.offset_to_location(off);
+        assert!(analysis.references(off).is_none());
+        let msgs = drive(&[
+            initialize(1),
+            initialized(),
+            did_open("file:///t.drac", src),
+            references_req(3, "file:///t.drac", loc.line - 1, loc.column - 1),
+            shutdown(2),
+            exit(),
+        ]);
+        let reply = response(&msgs, 3);
+        assert!(reply.get("error").is_none(), "{reply:?}");
+        assert_eq!(reply["result"], Value::Null);
     }
 
     #[test]

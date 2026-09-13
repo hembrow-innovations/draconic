@@ -63,6 +63,15 @@ impl BoundProgram {
             .filter(|s| span_contains_offset(s.span, offset))
             .min_by_key(|s| s.span.len())
     }
+
+    /// Use-site identifier spans that resolve to `id`.
+    pub fn uses_of(&self, id: SymbolId) -> Vec<Span> {
+        self.resolutions
+            .iter()
+            .filter(|(_, resolved)| **resolved == id)
+            .map(|(span, _)| *span)
+            .collect()
+    }
 }
 
 fn span_contains_offset(span: Span, offset: u32) -> bool {
